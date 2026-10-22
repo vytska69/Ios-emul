@@ -109,9 +109,10 @@ public struct InfernoBackend: EmulatorBackend {
                      "boot-mode=\(ctx.bootMode.machineBootMode)"]
         if let ticket { props.append("ticket=\(ticket.path)") }
         if let seprom, let sepfw { props += ["sep-rom=\(seprom.path)", "sep-fw=\(sepfw.path)"] }
-        // Without iBoot nothing boots the simulated SEP's firmware, so a direct boot starts it
-        // with SEPOS already running (qemu/patches/inferno/0006).
-        if direct && seprom == nil { props.append("sep-preloaded=true") }
+        // The simulated SEP starts in its ROM's bootstrap state; with sepfw-loaded set in the
+        // DeviceTree (directDeviceTree) the kernel boots the firmware iBoot would have preloaded.
+        // (qemu/patches/inferno/0006 also offers sep-preloaded=true, starting SEPOS directly, but
+        // the kernel then panics with "SEP Boot Failure: unexpected status 1:2".)
 
         // With SEP emulated, one of the -smp CPUs becomes the SEP core.
         let cpus = min(ctx.cpuCount, machine.maxCPUs) + (seprom != nil ? 1 : 0)
@@ -162,8 +163,8 @@ public struct InfernoBackend: EmulatorBackend {
             .first { $0.name.hasPrefix("fstab-ephemeral-diag") }?
             .children.first { $0.properties["vol.fs_ephemeral"] != nil }
         let pruned = DeviceTree.serialize(tree) { node in
-            // iBoot records that it loaded the SEP firmware; seputil then skips loading it and
-            // talks to the running SEPOS (the simulated SEP starts that way, see sep-preloaded).
+            // iBoot records that it loaded the SEP firmware; the kernel then asks the SEP ROM to
+            // boot it, and seputil skips loading it again.
             if node.name == "sep", node.parent?.name == "arm-io" {
                 var props = node.properties
                 props["sepfw-loaded"] = Data([1, 0, 0, 0])
