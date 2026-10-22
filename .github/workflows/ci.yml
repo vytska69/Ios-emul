@@ -45,10 +45,10 @@ jobs:
           done
           # Preboot-role volumes are not mounted automatically; mount ours explicitly.
           pre=$(awk -F'\t' '$1 ~ /s[0-9]+ *$/ && $NF !~ /\// {print $1}' "$work/attach.txt" | tr -d ' ' | tail -1)
-          diskutil mount readOnly -mountPoint "$work/preboot" "$pre" || fsck=1
+          sudo mount_apfs -o rdonly "$pre" "$work/preboot" || fsck=1
           ls -laR "$work/preboot" | head -40
           [ -d "$work/preboot/$(printf '0%.0s' $(seq 96))/usr/standalone/firmware" ] || fsck=1
-          diskutil unmount "$pre" || true
+          sudo umount "$work/preboot" || true
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/attach.txt")" || true
           exit $fsck
 
