@@ -26,11 +26,30 @@ užregistravus ją `BackendRegistry`.
 ```
 Sources/IPSWKit/       IPSW analizė: ZIP64 skaitytuvas, BuildManifest/Restore.plist,
                        IMG4/IM4P (DER), LZFSE ir LZSS dekompresija, įrenginių/SoC bazė
-Sources/EmulatorKit/   Backend'ai, suderinamumo ataskaita, QEMU paleidimas, VNC klientas
+Sources/EmulatorKit/   Backend'ai, suderinamumo ataskaita, hardware padengimas, QEMU paleidimas, VNC
+Sources/ipsw-emu/      CLI: inspect / boot (naudoja boot testų CI)
+qemu/patches/          Patch'ai Inferno QEMU (iOS embedding: shared lib + libucontext)
 App/IOSEmul/           SwiftUI programa (biblioteka, IPSW informacija, VM ekranas)
-scripts/build-qemu-ios.sh  QEMU fork'ų kryžminis kompiliavimas iOS'ui kaip framework'ų
+scripts/build-qemu-ios.sh  Patch'into Inferno kryžminis kompiliavimas iOS'ui (per UTM dependency skriptą)
+scripts/dt-survey.py   DeviceTree hardware inventorius iš IPSW be viso failo parsisiuntimo
 project.yml            XcodeGen projekto aprašas
 ```
+
+## Be kompiuterio
+
+- **Įdiegimas:** GitHub Actions workflow `IPA` sukompiliuoja QEMU iOS'ui ir programą į `IOSEmul.ipa`
+  (artefaktas). Ją telefone įsidiegsi per TrollStore arba SideStore.
+- **iOS įdiegimas į VM:** numatytas režimas „Install directly“ IPSW root failų sistemą (APFS
+  atvaizdą) įrašo tiesiai į virtualų NVMe diską ir bootina be restore, todėl `idevicerestore` ir
+  kompiuterio nereikia. Restore per ramdisk lieka kaip alternatyva.
+
+## Matavimas: kiek toli bootina
+
+- `Boot test` workflow parsisiunčia tikrus IPSW, bootina juos per `ipsw-emu` ir suvestinėje parodo
+  toliausiai pasiektą etapą (XNU → IOKit → root → launchd → SpringBoard) ir panic'o eilutę.
+- `DeviceTree survey` workflow iš kiekvieno SoC naujausio IPSW per HTTP range nuskaito tik
+  DeviceTree ir išsaugo hardware inventorių `research/devicetrees/`. Pagal jį rašomos naujos mašinos.
+- `ipsw-emu inspect <ipsw>` parodo suderinamumą ir hardware padengimą lokaliai (macOS).
 
 ## Kompiliavimas
 
