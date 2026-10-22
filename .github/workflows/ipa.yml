@@ -111,8 +111,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git tag -f rolling "$GITHUB_SHA"
-          git push -f origin refs/tags/rolling
+          # The tag is created once through the releases API and then left alone: GITHUB_TOKEN may
+          # not push refs that touch .github/workflows, and the download URLs only need the name.
           if [ "${{ steps.core.outputs.included }}" = "true" ]; then
             core="Includes the QEMU emulator core."
           else
@@ -124,6 +124,6 @@ jobs:
           if gh release view rolling >/dev/null 2>&1; then
             gh release edit rolling --title "Rolling build" --notes "$notes" --prerelease
           else
-            gh release create rolling --title "Rolling build" --notes "$notes" --prerelease --verify-tag
+            gh release create rolling --target "$GITHUB_SHA" --title "Rolling build" --notes "$notes" --prerelease
           fi
           gh release upload rolling out/IOSEmul.ipa out/sidestore.json --clobber

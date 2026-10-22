@@ -45,7 +45,7 @@ index 2e55850..4714815 100644
      object_property_set_uint(OBJECT(s->nvme), "max_ioqpairs", 7, &error_fatal);
      object_property_set_uint(OBJECT(s->nvme), "mdts", 8, &error_fatal);
 diff --git a/hw/display/apple_displaypipe_v4.c b/hw/display/apple_displaypipe_v4.c
-index 8e77db8..469e7f9 100644
+index 8e77db8..1f292ad 100644
 --- a/hw/display/apple_displaypipe_v4.c
 +++ b/hw/display/apple_displaypipe_v4.c
 @@ -26,6 +26,7 @@
@@ -56,7 +56,19 @@ index 8e77db8..469e7f9 100644
  #include "qemu/log.h"
  #include "system/dma.h"
  #include "ui/console.h"
-@@ -712,6 +713,7 @@ typedef struct {
+@@ -36,10 +37,9 @@
+ #error "Pixman support is required"
+ #endif
+ 
++/* libpng is only needed for the optional boot splash; the iOS build has none. */
+ #ifdef CONFIG_PNG
+ #include <png.h>
+-#else
+-#error "PNG support is required"
+ #endif
+ 
+ #if 0
+@@ -712,6 +712,7 @@ typedef struct {
      pixman_image_t *disp_image;
  } ADPV4DrawBootSplashContext;
  
@@ -64,7 +76,7 @@ index 8e77db8..469e7f9 100644
  static void adp_v4_draw_boot_splash(void *opaque)
  {
      ADPV4DrawBootSplashContext *ctx = opaque;
-@@ -735,7 +737,11 @@ static void adp_v4_draw_boot_splash_timer(void *opaque)
+@@ -735,7 +736,11 @@ static void adp_v4_draw_boot_splash_timer(void *opaque)
      g_free(ctx);
  }
  
@@ -77,7 +89,7 @@ index 8e77db8..469e7f9 100644
  static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
  {
      char *path;
-@@ -750,16 +756,17 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
+@@ -750,16 +755,17 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
      uint32_t disp_height;
  
      path = get_relocated_path(CONFIG_QEMU_ICONDIR
@@ -100,7 +112,7 @@ index 8e77db8..469e7f9 100644
          return;
      }
      g_free(path);
-@@ -830,6 +837,11 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
+@@ -830,6 +836,11 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
      timer_mod(adp->boot_splash_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                                            (NANOSECONDS_PER_SECOND / 2));
  }
