@@ -1,5 +1,6 @@
 import XCTest
 import Compression
+import CryptoKit
 @testable import IPSWKit
 @testable import EmulatorKit
 
@@ -32,6 +33,17 @@ final class IPSWKitTests: XCTestCase {
         let out = tmp.appendingPathComponent("out/packed.txt")
         try zip.extract(zip.entry("dir/packed.txt")!, to: out)
         XCTAssertEqual(try Data(contentsOf: out), text)
+    }
+
+    /// Written by Python's zipfile (zlib), like real IPSWs; Apple's decoder once reported
+    /// OK instead of END on such a final chunk.
+    func testZlibDeflatedEntryFromAnotherEncoder() throws {
+        let url = Bundle.module.url(forResource: "zlib-deflate", withExtension: "zip", subdirectory: "Fixtures")!
+        let zip = try ZipArchive(url: url)
+        let data = try zip.data(for: "BuildManifest.plist")
+        XCTAssertEqual(data.count, 573_728)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "082c6f1ba69e6889a8d695ee6a91671c56c2b87122f84f91498d2f79438b4329")
     }
 
     func testRejectsNonZip() throws {

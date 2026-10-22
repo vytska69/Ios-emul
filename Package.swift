@@ -13,6 +13,6 @@ let package = Package(
         .target(name: "IPSWKit", resources: [.process("Resources")]),
         .target(name: "EmulatorKit", dependencies: ["IPSWKit"], resources: [.process("Resources")]),
         .executableTarget(name: "ipsw-emu", dependencies: ["IPSWKit", "EmulatorKit"]),
-        .testTarget(name: "IPSWKitTests", dependencies: ["IPSWKit", "EmulatorKit"]),
+        .testTarget(name: "IPSWKitTests", dependencies: ["IPSWKit", "EmulatorKit"], resources: [.copy("Fixtures")]),
     ]
 )
