@@ -82,7 +82,13 @@ for spec in "${FORKS[@]}"; do
   IFS='|' read -r name url branch target binary fwname <<<"$spec"
   [ -n "$ONLY" ] && [ "$ONLY" != "$name" ] && continue
   src="$WORK/qemu-$name"
-  [ -d "$src" ] || git clone --depth 1 --branch "$branch" --recurse-submodules "$url" "$src"
+  if [ ! -d "$src" ]; then
+    git clone --depth 1 --branch "$branch" "$url" "$src"
+    # Only header-only/source submodules are needed; the firmware ROM submodules are not.
+    if grep -q 'path = util/mlib' "$src/.gitmodules" 2>/dev/null; then
+      git -C "$src" submodule update --init --depth 1 util/mlib
+    fi
+  fi
 
   build="$src/build-ios"
   mkdir -p "$build"
