@@ -41,6 +41,8 @@ public enum BootMilestone: Int, CaseIterable, Comparable {
 
     /// The first kernel panic line, if the boot ended in one.
     public static func panic(in log: String) -> String? {
-        log.split(separator: "\n").first { $0.contains("panic(cpu") }.map(String.init)
+        // Serial output of several CPUs interleaves, so prefer the line that carries the message.
+        let lines = log.split(separator: "\n").filter { $0.contains("panic(cpu") }
+        return (lines.first { $0.contains("): \"") } ?? lines.first).map(String.init)
     }
 }

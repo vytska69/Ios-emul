@@ -8,7 +8,7 @@ import EmulatorKit
 //   ipsw-emu dt <file.ipsw> --path /filesystems/fstab
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
-//                 [--force-backend inferno-t8030]
+//                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
 //   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--dirs a/b,c]
 //
 // --force-backend runs a firmware on a machine its compatibility check rejects. That is how a new
@@ -119,8 +119,14 @@ case "boot":
         cpuCount: Int(options["cpus"] ?? "") ?? backend.defaultCPUCount)
     print("==> \(row.device.name) iOS \(ipsw.version) on \(backend.displayName) [\(row.compatibility.summary)]")
 
-    let config: MachineConfiguration
+    var config: MachineConfiguration
     do { config = try backend.prepare(ctx) } catch { fail("prepare: \(error)") }
+    // QEMU's own debug log, e.g. --qemu-debug guest_errors,unimp: the simulated SEP reports every
+    // message the guest sends it there, which is what SEP bring-up works from.
+    let debugLog = work.appendingPathComponent("qemu-debug.log")
+    if let flags = options["qemu-debug"], !flags.isEmpty {
+        config.arguments += ["-d", flags, "-D", debugLog.path]
+    }
     print("==> qemu \(config.arguments.joined(separator: " "))")
 
     let runner = QEMURunner(configuration: config)
@@ -158,6 +164,14 @@ case "boot":
        !qemuLog.isEmpty {
         print("==> qemu log tail:")
         qemuLog.split(separator: "\n", omittingEmptySubsequences: false).suffix(40).forEach { print($0) }
+    }
+
+    if let debug = try? String(contentsOf: debugLog, encoding: .utf8), !debug.isEmpty {
+        let sep = debug.split(separator: "\n").filter { line in
+            ["SEP", "EP_", "KeyStore", "XART", "sks", "Keystore"].contains { line.contains($0) }
+        }
+        print("==> SEP messages (\(sep.count)):")
+        sep.prefix(300).forEach { print("  | \($0)") }
     }
 
 case "dt":

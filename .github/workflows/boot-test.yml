@@ -18,6 +18,9 @@ on:
       force_backend:
         description: "Run on this backend even if unsupported (SoC bring-up), e.g. inferno-t8030"
         default: ""
+      qemu_debug:
+        description: "QEMU -d flags (guest_errors shows the simulated SEP's traffic)"
+        default: "guest_errors"
       seconds:
         description: "Time budget per boot"
         default: "900"
@@ -126,7 +129,8 @@ jobs:
           export PATH="$PWD/qemu-bin/bin:$PATH"
           .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
             --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 --mode "${{ matrix.mode }}" \
-            ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} | tee boot.txt || true
+            ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} \
+            ${{ inputs.qemu_debug && format('--qemu-debug {0}', inputs.qemu_debug) || '' }} | tee boot.txt || true
 
       - name: Summary
         if: always()
@@ -163,4 +167,5 @@ jobs:
             boot.txt
             vm/serial.log
             vm/qemu.log
+            vm/qemu-debug.log
           if-no-files-found: ignore
