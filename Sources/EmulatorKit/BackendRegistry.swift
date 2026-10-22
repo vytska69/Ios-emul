@@ -34,6 +34,12 @@ public final class BackendRegistry {
 
     public func backend(id: String) -> EmulatorBackend? { backends.first { $0.id == id } }
 
+    /// Best backend for a device and release, or nil if none can run it.
+    public func evaluate(device: DeviceInfo, version: String, build: String) -> (EmulatorBackend, Compatibility)? {
+        let results = backends.map { ($0, $0.compatibility(device: device, version: version, build: build)) }
+        return results.first(where: { $0.1 == .supported }) ?? results.first(where: { $0.1.isRunnable })
+    }
+
     public func report(for ipsw: IPSW) -> CompatibilityReport {
         var rows: [CompatibilityReport.Row] = []
         for device in ipsw.devices {

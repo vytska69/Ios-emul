@@ -37,11 +37,11 @@ public struct InfernoBackend: EmulatorBackend {
                       help: "The IPSW's sep-firmware.*.im4p is encrypted; supply a decrypted copy to enable SEP."),
     ]
 
-    public func compatibility(device: DeviceInfo, ipsw: IPSW) -> Compatibility {
+    public func compatibility(device: DeviceInfo, version: String, build: String) -> Compatibility {
         guard machine.productTypes.contains(device.productType) else {
             return .unsupported("\(displayName) only models \(machine.productTypes.sorted().joined(separator: ", "))")
         }
-        let major = ipsw.versionTriple.0
+        let major = IPSW.versionTriple(version).0
         guard machine.supportedMajors.contains(major) || machine.extraMajors.contains(major) else {
             return .unsupported("the \(machine.name) kernel loader does not handle iOS \(major)")
         }

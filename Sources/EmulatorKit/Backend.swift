@@ -2,7 +2,7 @@ import Foundation
 import IPSWKit
 
 /// How well a backend can run a given firmware.
-public enum Compatibility: Equatable {
+public enum Compatibility: Hashable {
     case supported
     case experimental(String)
     case unsupported(String)
@@ -104,11 +104,16 @@ public protocol EmulatorBackend {
     var defaultMemoryMB: Int { get }
     var defaultCPUCount: Int { get }
 
-    func compatibility(device: DeviceInfo, ipsw: IPSW) -> Compatibility
+    /// Judged from the release alone, so firmwares can be ranked before they are downloaded.
+    func compatibility(device: DeviceInfo, version: String, build: String) -> Compatibility
     func prepare(_ ctx: PrepareContext) throws -> MachineConfiguration
 }
 
 extension EmulatorBackend {
+    public func compatibility(device: DeviceInfo, ipsw: IPSW) -> Compatibility {
+        compatibility(device: device, version: ipsw.version, build: ipsw.build)
+    }
+
     func requireAsset(_ id: String, in ctx: PrepareContext) throws -> URL {
         guard let asset = externalAssets.first(where: { $0.id == id }) else {
             preconditionFailure("unknown asset \(id)")

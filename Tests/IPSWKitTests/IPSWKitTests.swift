@@ -132,6 +132,39 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertNil(BootMilestone.furthest(in: "nothing here"))
     }
 
+    // MARK: Firmware catalog
+
+    func testCatalogPrefersExactSupportedVersion() throws {
+        let json = """
+        {"firmwares":[
+         {"identifier":"iPhone12,1","version":"17.5","buildid":"21F79","url":"https://x/17.5.ipsw"},
+         {"identifier":"iPhone12,1","version":"17.4","buildid":"21E219","url":"https://x/17.4.ipsw"},
+         {"identifier":"iPhone12,1","version":"14.0","buildid":"18A373","url":"https://x/14.0.ipsw"},
+         {"identifier":"iPhone12,1","version":"12.4","buildid":"16G77","url":"https://x/12.4.ipsw"}]}
+        """
+        struct Device: Decodable { let firmwares: [FirmwareCatalog.Firmware] }
+        let list = try JSONDecoder().decode(Device.self, from: Data(json.utf8)).firmwares
+        let iphone11 = DeviceDatabase.shared.device("iPhone12,1")
+
+        let exact = FirmwareCatalog.best(FirmwareCatalog.rank(list, version: "17.4", device: iphone11,
+                                                              registry: .shared))
+        XCTAssertEqual(exact?.firmware.buildid, "21E219")
+        XCTAssertEqual(exact?.exactVersion, true)
+        XCTAssertEqual(exact?.backendID, "inferno-t8030")
+
+        // No 17.2 listed: newest build of the same major release.
+        let sameMajor = FirmwareCatalog.best(FirmwareCatalog.rank(list, version: "17.2", device: iphone11,
+                                                                  registry: .shared))
+        XCTAssertEqual(sameMajor?.firmware.version, "17.5")
+        XCTAssertEqual(sameMajor?.exactVersion, false)
+
+        // iOS 14 is the fully supported release, and iOS 12 is not runnable at all.
+        XCTAssertEqual(FirmwareCatalog.best(FirmwareCatalog.rank(list, version: "14.0", device: iphone11,
+                                                                 registry: .shared))?.compatibility, .supported)
+        XCTAssertNil(FirmwareCatalog.best(FirmwareCatalog.rank(list, version: "12.4", device: iphone11,
+                                                               registry: .shared)))
+    }
+
     // MARK: Manifest + compatibility
 
     func testManifestAndCompatibility() throws {

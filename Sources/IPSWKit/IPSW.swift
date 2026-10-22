@@ -11,7 +11,9 @@ public final class IPSW {
     public var build: String { manifest.buildVersion }
 
     /// Major/minor/patch parsed from `ProductVersion`, e.g. "14.0.1" → (14, 0, 1).
-    public var versionTriple: (Int, Int, Int) {
+    public var versionTriple: (Int, Int, Int) { IPSW.versionTriple(version) }
+
+    public static func versionTriple(_ version: String) -> (Int, Int, Int) {
         let parts = version.split(separator: ".").map { Int($0) ?? 0 }
         return (parts.first ?? 0, parts.count > 1 ? parts[1] : 0, parts.count > 2 ? parts[2] : 0)
     }

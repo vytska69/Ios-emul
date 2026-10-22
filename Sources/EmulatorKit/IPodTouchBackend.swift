@@ -34,11 +34,11 @@ public struct IPodTouchBackend: EmulatorBackend {
         "iPod2,1": Model(binary: "qemu-system-arm", firstGen: false),
     ]
 
-    public func compatibility(device: DeviceInfo, ipsw: IPSW) -> Compatibility {
+    public func compatibility(device: DeviceInfo, version: String, build: String) -> Compatibility {
         guard Self.models[device.productType] != nil else {
             return .unsupported("only iPod touch 1G/2G machines are modelled")
         }
-        let (major, minor, patch) = ipsw.versionTriple
+        let (major, minor, patch) = IPSW.versionTriple(version)
         if major > 2 { return .unsupported("iPhoneOS \(major) is not bootable on this machine yet") }
         if device.productType == "iPod2,1" && (major, minor, patch) != (2, 1, 1) {
             return .experimental("only iPhoneOS 2.1.1 is targeted by the 2G model")

@@ -12,6 +12,9 @@ final class FirmwareModel: ObservableObject {
     @Published var progress: (String, Double)?
     @Published var runner: QEMURunner?
     @Published var runError: String?
+    @Published var suggestion: FirmwareCatalog.Suggestion?
+    @Published var suggestionState: String?
+    @Published var downloadProgress: Double?
 
     private var scope: ScopedURL?
     /// Asset scopes stay open for the whole VM lifetime: QEMU opens the files lazily.
@@ -63,6 +66,32 @@ final class FirmwareModel: ObservableObject {
                 self.runError = "\(error)"
             }
         }
+    }
+
+    func findSuggestion(version: String) async {
+        suggestionState = "Searching firmware for iOS \(version)…"
+        do {
+            suggestion = try await FirmwareCatalog().suggestion(forVersion: version)
+            suggestionState = suggestion == nil ? "No emulated device has iOS \(version) or another \(version.prefix { $0 != "." }).x build." : nil
+        } catch {
+            suggestionState = "Firmware lookup failed: \(error.localizedDescription)"
+        }
+    }
+
+    func download(_ s: FirmwareCatalog.Suggestion, into library: Library) async {
+        let name = s.firmware.url.lastPathComponent
+        let dest = Library.documents.appendingPathComponent("Firmware", isDirectory: true).appendingPathComponent(name)
+        let download = FirmwareDownload(destination: dest)
+        download.onProgress = { p in Task { @MainActor in self.downloadProgress = p } }
+        downloadProgress = 0
+        do {
+            let file = try await download.start(s.firmware.url)
+            library.importIPSW(at: file)
+            suggestionState = "Downloaded and imported \(name)."
+        } catch {
+            suggestionState = "Download failed: \(error.localizedDescription)"
+        }
+        downloadProgress = nil
     }
 
     /// Board configs are listed per identity; pick the one whose device tree names this product's board.
@@ -118,6 +147,36 @@ struct FirmwareDetailView: View {
                 Section("Devices") {
                     ForEach(report.rows, id: \.device.productType) { row in
                         DeviceRow(row: row)
+                    }
+                }
+
+                if report.best == nil {
+                    Section {
+                        Text("None of these devices has a machine model yet. The same iOS release can still run on an emulated device.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        if let s = model.suggestion {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(s.device.name) — iOS \(s.firmware.version) (\(s.firmware.buildid))").bold()
+                                Text(s.compatibility.summary).font(.caption).foregroundStyle(.secondary)
+                                if let size = s.firmware.filesize {
+                                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption)
+                                }
+                            }
+                            if let p = model.downloadProgress {
+                                ProgressView("Downloading…", value: p)
+                            } else {
+                                Button("Download and import") { Task { await model.download(s, into: library) } }
+                            }
+                        } else {
+                            Button("Find bootable firmware for iOS \(item.version)") {
+                                Task { await model.findSuggestion(version: item.version) }
+                            }
+                        }
+                        if let state = model.suggestionState {
+                            Text(state).font(.caption).foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text("Run iOS \(item.version) anyway")
                     }
                 }
 
