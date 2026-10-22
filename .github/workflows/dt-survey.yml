@@ -1,0 +1,32 @@
+name: DeviceTree survey
+
+# Records a text hardware inventory (node paths, compatible strings, register sizes) from the newest
+# IPSW of one device per Apple SoC, using HTTP range reads so no IPSW is downloaded in full.
+# The inventories are what new machine models are written against.
+on:
+  workflow_dispatch:
+    inputs:
+      products:
+        description: "Space-separated product types"
+        default: >-
+          iPhone8,1 iPhone9,1 iPhone10,1 iPhone11,8 iPhone12,1 iPhone13,2 iPhone14,5 iPhone15,2
+          iPhone16,1 iPhone17,3 iPad13,4 iPad14,3 iPad16,3
+
+permissions:
+  contents: write
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install remotezip pyliblzfse
+      - run: python3 scripts/dt-survey.py ${{ inputs.products }} --out research/devicetrees
+      - name: Commit inventories
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add research/devicetrees
+          git diff --cached --quiet && { echo "no changes"; exit 0; }
+          git commit -m "Update DeviceTree hardware inventories"
+          git push
