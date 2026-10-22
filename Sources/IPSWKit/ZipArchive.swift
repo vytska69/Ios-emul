@@ -107,10 +107,6 @@ public final class ZipArchive {
     private func stream(_ entry: Entry, _ sink: (Data) throws -> Void) throws {
         let dataOffset = try localDataOffset(entry)
         var crc = CRC32()
-        let checked: (Data) throws -> Void = { chunk in
-            crc.update(chunk)
-            try sink(chunk)
-        }
         switch entry.method {
         case 0:
             var remaining = entry.compressedSize
@@ -120,7 +116,8 @@ public final class ZipArchive {
                 guard let chunk = try handle.read(upToCount: n), chunk.count == n else {
                     throw Error.truncated(entry.path)
                 }
-                try checked(chunk)
+                crc.update(chunk)
+                try sink(chunk)
                 remaining -= UInt64(n)
             }
         case 8:
@@ -133,7 +130,10 @@ public final class ZipArchive {
                     throw Error.truncated(entry.path)
                 }
                 remaining -= UInt64(n)
-                try inflater.process(chunk, final: remaining == 0, sink: checked)
+                try inflater.process(chunk, final: remaining == 0) { out in
+                    crc.update(out)
+                    try sink(out)
+                }
             }
         default:
             throw Error.unsupportedMethod(entry.method)
