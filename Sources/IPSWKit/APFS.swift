@@ -463,12 +463,14 @@ enum VariableNode {
         let valEnd = bs - FixedNode.infoSize
         var k = 0, v = 0
         var longestKey = 0, longestValue = 0
+        // Keys and values are 8-byte aligned unless the tree is BTREE_KV_NONALIGNED.
+        let aligned = info.flags & 0x40 == 0
         for (i, rec) in records.enumerated() {
             let toc = 56 + i * 8
             d.put16(UInt16(k), at: toc); d.put16(UInt16(rec.key.count), at: toc + 2)
             d.replaceSubrange((keyStart + k)..<(keyStart + k + rec.key.count), with: rec.key)
-            k += (rec.key.count + 7) & ~7
-            v += (rec.value.count + 7) & ~7
+            k += aligned ? (rec.key.count + 7) & ~7 : rec.key.count
+            v += aligned ? (rec.value.count + 7) & ~7 : rec.value.count
             d.put16(UInt16(v), at: toc + 4); d.put16(UInt16(rec.value.count), at: toc + 6)
             if !rec.value.isEmpty {
                 d.replaceSubrange((valEnd - v)..<(valEnd - v + rec.value.count), with: rec.value)
