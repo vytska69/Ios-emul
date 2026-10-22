@@ -46,9 +46,24 @@ jobs:
           path: App/Frameworks
           key: qemu-ios-${{ inputs.tci && 'tci' || 'jit' }}-${{ hashFiles('scripts/build-qemu-ios.sh', 'qemu/patches/**') }}-${{ steps.forks.outputs.key }}
 
+      # A failed QEMU build does not hold back the release: the app is still built and published,
+      # and the release notes say the emulator core is missing until the next green build.
       - name: Build QEMU for iOS
+        id: qemu
         if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
         run: scripts/build-qemu-ios.sh ${{ inputs.tci && '--tci' || '' }}
+
+      - name: Emulator core status
+        id: core
+        run: |
+          if ls App/Frameworks/*.framework >/dev/null 2>&1; then
+            echo "included=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -rf App/Frameworks App/QEMUData
+            echo "included=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::QEMU for iOS did not build; this IPA has no emulator core"
+          fi
 
       - name: Build app
         run: |
@@ -76,7 +91,8 @@ jobs:
         run: |
           python3 scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
             --version "0.1.${{ github.run_number }}" --repo "${{ github.repository }}" \
-            --tag rolling --commit "${{ github.sha }}" --out out/sidestore.json
+            --tag rolling --commit "${{ github.sha }}" --out out/sidestore.json \
+            ${{ steps.core.outputs.included != 'true' && '--no-core' || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -97,7 +113,12 @@ jobs:
         run: |
           git tag -f rolling "$GITHUB_SHA"
           git push -f origin refs/tags/rolling
-          notes="Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}.
+          if [ "${{ steps.core.outputs.included }}" = "true" ]; then
+            core="Includes the QEMU emulator core."
+          else
+            core="Note: this build has NO emulator core yet (QEMU for iOS failed to build in run ${{ github.run_id }}); the app opens and inspects IPSWs but cannot boot them. The next green build replaces it."
+          fi
+          notes="Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}. $core
 
           Install: add https://github.com/${{ github.repository }}/releases/download/rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
           if gh release view rolling >/dev/null 2>&1; then

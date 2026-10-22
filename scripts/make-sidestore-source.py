@@ -24,6 +24,7 @@ def main():
     ap.add_argument("--tag", default="rolling")
     ap.add_argument("--commit", default="")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--no-core", action="store_true", help="the IPA was built without QEMU")
     args = ap.parse_args()
 
     base = f"https://github.com/{args.repo}"
@@ -32,6 +33,8 @@ def main():
     size = os.path.getsize(args.ipa)
     date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     notes = f"Rolling build of {args.commit[:7]}." if args.commit else "Rolling build."
+    if args.no_core:
+        notes += " This build has no emulator core yet: IPSWs can be inspected but not booted."
     description = ("Boots iPhone, iPad and iPod touch IPSW firmware in an emulated Apple machine "
                    "(QEMU), entirely on the device.")
 
