@@ -1,0 +1,18 @@
+diff --git a/block/file-posix.c b/block/file-posix.c
+index 827ffa7..1d1efdd 100644
+--- a/block/file-posix.c
++++ b/block/file-posix.c
+@@ -45,10 +45,11 @@
+ 
+ #if defined(__APPLE__) && (__MACH__)
+ #include <sys/ioctl.h>
+-#if defined(HAVE_HOST_BLOCK_DEVICE)
+-#include <paths.h>
++/* fstatfs() is used on every Apple host, including iOS where there are no host block devices. */
+ #include <sys/param.h>
+ #include <sys/mount.h>
++#if defined(HAVE_HOST_BLOCK_DEVICE)
++#include <paths.h>
+ #include <IOKit/IOKitLib.h>
+ #include <IOKit/IOBSD.h>
+ #include <IOKit/storage/IOMediaBSDClient.h>
