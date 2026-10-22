@@ -32,14 +32,18 @@ jobs:
           .build/debug/ipsw-emu apfs-add-volume "$work/sys.cdr" --name Preboot \
             --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware"
           disk=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$work/sys.cdr" | awk 'NR==1{print $1}')
-          diskutil apfs list
-          fsck=0; fsck_apfs -n "$disk" || fsck=$?
-          diskutil apfs list | grep -B2 -A8 Preboot
-          diskutil list
-          for v in $(diskutil list | awk '/Preboot/{print $NF}'); do
-            diskutil mount readOnly "$v" && ls -laR "$(diskutil info "$v" | awk -F': *' '/Mount Point/{print $2}')"
-          done
+          diskutil apfs list "$disk" || diskutil apfs list
+          fsck=0; fsck_apfs -n "$disk" 2>&1 | tee "$work/fsck.txt" || true
+          grep -q "appears to be OK" "$work/fsck.txt" && ! grep -qi "corrupt\|invalid\|error" "$work/fsck.txt" || fsck=1
           hdiutil detach "$disk"
+          mkdir -p "$work/mnt"
+          # Mount every volume of this image only (never the runner's own Preboot) and list them.
+          hdiutil attach -imagekey diskimage-class=CRawDiskImage -readonly -nobrowse \
+            -mountrandom "$work/mnt" "$work/sys.cdr" | tee "$work/attach.txt" || fsck=1
+          awk -F'\t' 'NF>2 && $NF ~ /\// {print $NF}' "$work/attach.txt" | while read -r m; do
+            echo "== $m"; ls -laR "$m" | head -40
+          done
+          hdiutil detach "$(awk 'NR==1{print $1}' "$work/attach.txt")" || true
           exit $fsck
 
       - name: Install XcodeGen
