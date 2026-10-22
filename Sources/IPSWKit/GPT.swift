@@ -107,7 +107,7 @@ public enum GPT {
 }
 
 extension Data {
-    mutating func appendLE16(_ v: UInt16) { append(contentsOf: withUnsafeBytes(of: v.littleEndian, Array.init)) }
-    mutating func appendLE32(_ v: UInt32) { append(contentsOf: withUnsafeBytes(of: v.littleEndian, Array.init)) }
-    mutating func appendLE64(_ v: UInt64) { append(contentsOf: withUnsafeBytes(of: v.littleEndian, Array.init)) }
+    mutating func appendLE16(_ v: UInt16) { append(contentsOf: Swift.withUnsafeBytes(of: v.littleEndian, Array.init)) }
+    mutating func appendLE32(_ v: UInt32) { append(contentsOf: Swift.withUnsafeBytes(of: v.littleEndian, Array.init)) }
+    mutating func appendLE64(_ v: UInt64) { append(contentsOf: Swift.withUnsafeBytes(of: v.littleEndian, Array.init)) }
 }
