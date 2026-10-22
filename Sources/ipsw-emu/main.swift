@@ -9,6 +9,7 @@ import EmulatorKit
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030]
+//   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--dirs a/b,c]
 //
 // --force-backend runs a firmware on a machine its compatibility check rejects. That is how a new
 // SoC is brought up: boot it on the closest existing model and fix whatever it trips over first.
@@ -42,6 +43,22 @@ while !args.isEmpty {
     } else {
         options[String(key.dropFirst(2))] = value
     }
+}
+
+// Adds a Preboot volume to a raw APFS container, the step direct installs use instead of a
+// restore. CI runs it on a fresh macOS-made image and checks the result with fsck_apfs.
+if command == "apfs-add-volume" {
+    do {
+        let handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+        let container = try APFSContainer(handle: handle, offset: UInt64(options["offset"] ?? "0") ?? 0)
+        print("roles before: \(try container.roles().map { String(format: "0x%x", $0) })")
+        let dirs = (options["dirs"] ?? "usr/standalone/firmware").split(separator: ",").map(String.init)
+        try container.addVolume(name: options["name"] ?? "Preboot", role: .preboot,
+                                tree: APFSContainer.Tree(directories: dirs))
+        print("roles after: \(try container.roles().map { String(format: "0x%x", $0) })")
+    } catch { fail("\(error)") }
+    exit(0)
 }
 
 let ipsw: IPSW

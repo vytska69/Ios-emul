@@ -17,6 +17,30 @@ jobs:
       - name: Unit tests (IPSWKit / EmulatorKit)
         run: swift test
 
+      # Direct installs add a Preboot volume to the IPSW's APFS container themselves. Check the
+      # writer against Apple's own tools: a fresh container from hdiutil, then fsck_apfs and a mount.
+      - name: APFS volume writer
+        run: |
+          set -x
+          swift build --product ipsw-emu
+          work=$(mktemp -d)
+          hdiutil create -size 64m -layout NONE -fs APFS -volname System "$work/sys.dmg"
+          dev=$(hdiutil attach -nobrowse "$work/sys.dmg" | awk '/\/Volumes\//{print $NF; exit}')
+          mkdir -p "$dev/usr/bin" && echo hello > "$dev/usr/bin/hello"
+          hdiutil detach "$(hdiutil info | awk -v m="$dev" '$NF==m{print $1}')"
+          hdiutil convert "$work/sys.dmg" -format UDTO -o "$work/sys"
+          .build/debug/ipsw-emu apfs-add-volume "$work/sys.cdr" --name Preboot \
+            --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware"
+          disk=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$work/sys.cdr" | awk 'NR==1{print $1}')
+          diskutil apfs list
+          fsck_apfs -n "$disk"
+          diskutil apfs list | grep -B2 -A8 Preboot
+          diskutil list
+          for v in $(diskutil list | awk '/Preboot/{print $NF}'); do
+            diskutil mount readOnly "$v" && ls -laR "$(diskutil info "$v" | awk -F': *' '/Mount Point/{print $2}')"
+          done
+          hdiutil detach "$disk"
+
       - name: Install XcodeGen
         run: brew install xcodegen
 

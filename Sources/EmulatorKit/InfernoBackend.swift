@@ -138,10 +138,11 @@ public struct InfernoBackend: EmulatorBackend {
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
     }
 
-    /// Volumes a direct install provides. A restore also creates Preboot, xART, Hardware, Update,
-    /// Baseband and Data volumes; their fstab entries are dropped so launchd's mount phase does not
-    /// fail looking for them, except Data, which is swapped for an ephemeral one (below).
-    static let directInstallVolumes: Set<String> = ["system-vol", "data-vol"]
+    /// Volumes a direct install provides: the IPSW's System volume and the Preboot volume it adds
+    /// (`APFSContainer.addVolume`). A restore also creates xART, Hardware, Update, Baseband and Data
+    /// volumes; their fstab entries are dropped so launchd's mount phase does not fail looking for
+    /// them, except Data, which is swapped for an ephemeral one (below).
+    static let directInstallVolumes: Set<String> = ["system-vol", "preboot-vol", "data-vol"]
 
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
     ///
@@ -182,7 +183,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass)"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -216,12 +217,18 @@ public struct InfernoBackend: EmulatorBackend {
                 // Write a GPT for the real block size and put the APFS container behind it, as a
                 // restore would: disk0s1 is the container, disk0s1s1 its system volume.
                 FileManager.default.createFile(atPath: disk.path, contents: nil)
-                let handle = try FileHandle(forWritingTo: disk)
+                let handle = try FileHandle(forUpdating: disk)
                 defer { try? handle.close() }
                 try handle.truncate(atOffset: size)
                 let layout = GPT.layout(diskSize: size, blockSize: Self.nvmeBlockSize)
                 try GPT.write(to: handle, layout: layout)
                 try image.expand(apfs, into: handle, at: layout.partitionOffset) { ctx.progress("OS", $0) }
+                // launchd's first mount phase needs a Preboot volume holding the firmware folder
+                // for the boot manifest hash (all zeros on the emulated machine, which has no
+                // personalised manifest); a restore would have created it.
+                let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
+                try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
+                    directories: [String(repeating: "0", count: 96) + "/usr/standalone/firmware"]))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }
