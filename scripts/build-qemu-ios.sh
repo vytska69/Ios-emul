@@ -99,6 +99,9 @@ sub('--enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"
     '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools $HVF_FLAGS $TCI_BUILD_FLAGS"')
 # Extra libraries Inferno links against, built with the same toolchain before QEMU.
 resub(r'^build \$QEMU_DIR --cross-prefix="" \$QEMU_PLATFORM_BUILD_FLAGS.*$',
+    # libucontext the way UTM builds it (freestanding; Apple's assembler rejects the hosted
+    # variant). UTM only builds it after QEMU, for its SPICE client, so build it first here.
+    'meson_build $LIBUCONTEXT_REPO -Ddefault_library=static -Dfreestanding=true\n'
     # Not via UTM's build(): for a directory argument it forgets to shift, passing the path to configure.
     f'(cd "{extra}/nettle-3.10.1" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-documentation '
     f'--disable-assembler --enable-mini-gmp --disable-shared && make -j$NCPU && make install)\n'
