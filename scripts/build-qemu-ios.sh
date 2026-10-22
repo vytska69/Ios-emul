@@ -99,8 +99,11 @@ sub('--enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"
     '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools $HVF_FLAGS $TCI_BUILD_FLAGS"')
 # Extra libraries Inferno links against, built with the same toolchain before QEMU.
 resub(r'^build \$QEMU_DIR --cross-prefix="" \$QEMU_PLATFORM_BUILD_FLAGS.*$',
-    f'build "{extra}/nettle-3.10.1" --disable-documentation --disable-assembler --enable-mini-gmp --disable-shared\n'
-    f'build "{extra}/libtasn1-4.20.0" --disable-doc --disable-shared\n'
+    # Not via UTM's build(): for a directory argument it forgets to shift, passing the path to configure.
+    f'(cd "{extra}/nettle-3.10.1" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-documentation '
+    f'--disable-assembler --enable-mini-gmp --disable-shared && make -j$NCPU && make install)\n'
+    f'(cd "{extra}/libtasn1-4.20.0" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-doc '
+    f'--disable-shared && make -j$NCPU && make install)\n'
     f'(cd "{extra}/lzfse-lzfse-1.0" && make clean >/dev/null 2>&1 || true; '
     f'make CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" INSTALL_PREFIX="$PREFIX" install)\n'
     'build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS')

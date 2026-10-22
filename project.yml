@@ -15,10 +15,6 @@ targets:
       - path: App/Frameworks
         optional: true
         buildPhase: none
-      - path: App/QEMUData
-        optional: true
-        type: folder
-        buildPhase: resources
     dependencies:
       - package: IOSEmulCore
         product: IPSWKit
@@ -57,6 +53,10 @@ targets:
           [ -d "$SRC" ] || { echo "warning: App/Frameworks missing; run scripts/build-qemu-ios.sh to embed QEMU"; exit 0; }
           DST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
           mkdir -p "$DST"
+          # QEMU data files (keymaps, firmware) built alongside the frameworks.
+          if [ -d "${PROJECT_DIR}/App/QEMUData" ]; then
+            rsync -a --delete "${PROJECT_DIR}/App/QEMUData/" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/QEMUData/"
+          fi
           for fw in "$SRC"/*.framework; do
             [ -e "$fw" ] || continue
             rsync -a --delete "$fw" "$DST/"
