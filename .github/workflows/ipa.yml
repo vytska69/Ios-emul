@@ -12,6 +12,9 @@ on:
   push:
     branches: [claude/ipsw-emulator-app, main, master]
 
+permissions:
+  contents: write
+
 concurrency:
   group: ipa-${{ github.ref }}
   cancel-in-progress: false
@@ -52,6 +55,7 @@ jobs:
           xcodegen generate
           xcodebuild -project IOSEmul.xcodeproj -scheme IOSEmul -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            MARKETING_VERSION="0.1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tail -n 80
           exit ${PIPESTATUS[0]}
 
@@ -68,8 +72,37 @@ jobs:
           (cd out && zip -qry IOSEmul.ipa Payload)
           ls -lh out/IOSEmul.ipa
 
+      - name: SideStore source
+        run: |
+          python3 scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
+            --version "0.1.${{ github.run_number }}" --repo "${{ github.repository }}" \
+            --tag rolling --commit "${{ github.sha }}" --out out/sidestore.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: IOSEmul-ipa
-          path: out/IOSEmul.ipa
+          path: |
+            out/IOSEmul.ipa
+            out/sidestore.json
           if-no-files-found: error
+
+      # Rolling release: the "rolling" tag follows the default branch, and its release always holds
+      # the newest IPA and the SideStore source, so these URLs never change:
+      #   .../releases/download/rolling/IOSEmul.ipa
+      #   .../releases/download/rolling/sidestore.json   (add this to SideStore as a source)
+      - name: Publish rolling release
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f rolling "$GITHUB_SHA"
+          git push -f origin refs/tags/rolling
+          notes="Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}.
+
+          Install: add https://github.com/${{ github.repository }}/releases/download/rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
+          if gh release view rolling >/dev/null 2>&1; then
+            gh release edit rolling --title "Rolling build" --notes "$notes" --prerelease
+          else
+            gh release create rolling --title "Rolling build" --notes "$notes" --prerelease --verify-tag
+          fi
+          gh release upload rolling out/IOSEmul.ipa out/sidestore.json --clobber

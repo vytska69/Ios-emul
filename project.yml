@@ -12,6 +12,7 @@ targets:
     platform: iOS
     sources:
       - path: App/IOSEmul
+      - path: App/Assets.xcassets
       - path: App/Frameworks
         optional: true
         buildPhase: none
@@ -32,6 +33,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: iOS Emul
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
@@ -40,6 +43,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.iosemul.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic

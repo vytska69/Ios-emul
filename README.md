@@ -35,6 +35,16 @@ scripts/dt-survey.py   DeviceTree hardware inventorius iš IPSW be viso failo pa
 project.yml            XcodeGen projekto aprašas
 ```
 
+## Įdiegimas (rolling release)
+
+Kiekvienas sėkmingas build'as atnaujina [rolling release](https://github.com/vytska69/Ios-emul/releases/tag/rolling):
+
+- **SideStore / AltStore:** pridėk šaltinį
+  `https://github.com/vytska69/Ios-emul/releases/download/rolling/sidestore.json`
+  ir programa atsinaujins pati.
+- **TrollStore:** atsisiųsk ir atidaryk
+  `https://github.com/vytska69/Ios-emul/releases/download/rolling/IOSEmul.ipa`.
+
 ## Be kompiuterio
 
 - **Įdiegimas:** GitHub Actions workflow `IPA` sukompiliuoja QEMU iOS'ui ir programą į `IOSEmul.ipa`
