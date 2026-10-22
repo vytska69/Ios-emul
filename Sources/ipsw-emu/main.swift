@@ -5,6 +5,7 @@ import EmulatorKit
 // Command-line front end used by the CI boot-test harness (and handy on a Mac):
 //
 //   ipsw-emu inspect <file.ipsw>
+//   ipsw-emu dt <file.ipsw> --path /filesystems/fstab
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030]
@@ -133,6 +134,16 @@ case "boot":
         print("==> qemu log tail:")
         qemuLog.split(separator: "\n", omittingEmptySubsequences: false).suffix(40).forEach { print($0) }
     }
+
+case "dt":
+    guard let identity = ipsw.manifest.identity() else { fail("no build identity") }
+    let tree: DeviceTreeNode
+    do { tree = try ipsw.deviceTree(identity: identity) } catch { fail("\(error)") }
+    let path = options["path"] ?? "/"
+    guard let node = path == "/" ? tree : tree.node(at: String(path.drop { $0 == "/" })) else {
+        fail("no node \(path)")
+    }
+    DeviceTree.describe(node).forEach { print($0) }
 
 default:
     fail("unknown command \(command)")

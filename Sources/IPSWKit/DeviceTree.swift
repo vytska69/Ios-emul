@@ -113,6 +113,48 @@ public enum DeviceTree {
     }
 }
 
+extension DeviceTree {
+    /// Serialises a tree back to Apple's binary format, dropping every node for which `remove`
+    /// returns true (with its subtree). Property order is not significant to XNU or iBoot.
+    public static func serialize(_ node: DeviceTreeNode, removing remove: (DeviceTreeNode) -> Bool = { _ in false }) -> Data {
+        let children = node.children.filter { !remove($0) }
+        var out = Data()
+        out.append(contentsOf: le32(UInt32(node.properties.count)))
+        out.append(contentsOf: le32(UInt32(children.count)))
+        // "name" first, as iBoot emits it; the rest sorted for stable output.
+        let keys = node.properties.keys.sorted { a, b in a == "name" ? b != "name" : (b == "name" ? false : a < b) }
+        for key in keys {
+            let value = node.properties[key]!
+            var name = Data(key.utf8.prefix(31))
+            name.append(Data(count: 32 - name.count))
+            out.append(name)
+            let flag: UInt32 = node.placeholders.contains(key) ? 0x8000_0000 : 0
+            out.append(contentsOf: le32(UInt32(value.count) | flag))
+            out.append(value)
+            out.append(Data(count: (4 - value.count % 4) % 4))
+        }
+        for child in children { out.append(serialize(child, removing: remove)) }
+        return out
+    }
+
+    private static func le32(_ v: UInt32) -> [UInt8] { Swift.withUnsafeBytes(of: v.littleEndian, Array.init) }
+
+    /// Human-readable property dump: strings where the value is text, hex otherwise.
+    public static func describe(_ node: DeviceTreeNode, depth: Int = 0) -> [String] {
+        let pad = String(repeating: "  ", count: depth)
+        var lines = ["\(pad)\(node.name)/"]
+        for key in node.properties.keys.sorted() where key != "name" {
+            let v = node.properties[key]!
+            let printable = !v.isEmpty && v.allSatisfy { $0 == 0 || (0x20...0x7E).contains($0) } && v.first != 0
+            let shown = printable ? node.strings(key).joined(separator: " | ")
+                                  : v.prefix(32).map { String(format: "%02x", $0) }.joined() + (v.count > 32 ? "…" : "")
+            lines.append("\(pad)  \(key) = \(shown)")
+        }
+        for child in node.children { lines += describe(child, depth: depth + 1) }
+        return lines
+    }
+}
+
 extension IPSW {
     /// The DeviceTree for a build identity (the one the device boots, not the restore one).
     public func deviceTree(identity: BuildManifest.Identity) throws -> DeviceTreeNode {

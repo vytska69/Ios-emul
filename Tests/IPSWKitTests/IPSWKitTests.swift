@@ -177,6 +177,19 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(try DeviceTree.parse(wrapped).children.count, 2)
     }
 
+    func testDeviceTreeRoundTripsAndRemovesNodes() throws {
+        let tree = try DeviceTree.parse(Self.sampleTree())
+        let same = try DeviceTree.parse(DeviceTree.serialize(tree))
+        XCTAssertEqual(same.node(at: "arm-io/uart0")?.compatible, ["uart-1,samsung"])
+        XCTAssertTrue(same.node(at: "arm-io")!.placeholders.contains("ranges"))
+        XCTAssertEqual(same.node(at: "arm-io/aic")?.u32("#main-cpus"), 6)
+
+        let pruned = try DeviceTree.parse(DeviceTree.serialize(tree) { $0.name == "pmgr" })
+        XCTAssertNil(pruned.node(at: "arm-io/pmgr"))
+        XCTAssertNotNil(pruned.node(at: "arm-io/aic"))
+        XCTAssertTrue(DeviceTree.describe(pruned).contains { $0.contains("compatible = uart-1,samsung") })
+    }
+
     func testDeviceTreeRejectsGarbage() {
         XCTAssertThrowsError(try DeviceTree.parse(Data([0xFF, 0xFF, 0xFF, 0xFF, 1, 0, 0, 0])))
     }
