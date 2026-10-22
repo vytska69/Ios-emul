@@ -1,140 +1,120 @@
 #!/usr/bin/env bash
-# Cross-compiles the QEMU forks used by EmulatorKit's backends for iOS (arm64) and packages each
-# qemu-system-* binary as a framework in App/Frameworks, the layout QEMURunner dlopen()s on iOS.
+# Builds the Inferno QEMU fork for iOS (arm64) as qemu-aarch64-softmmu.framework plus its
+# dependency frameworks, into App/Frameworks — the layout QEMURunner dlopen()s on iOS.
 #
-#   scripts/build-qemu-ios.sh [--tci] [--only inferno|ipod2g|ipod1g]
+#   scripts/build-qemu-ios.sh [--tci]
 #
-# Requirements: macOS with Xcode, Homebrew (meson ninja pkg-config glib gettext).
+# Requirements: macOS with Xcode and Homebrew
+#   brew install meson ninja pkg-config glib gettext libgpg-error bison python-setuptools
+#   pip3 install six pyparsing
 #
-# Stages:
-#   1. Dependencies (glib, pixman, libffi, gettext, …) for iOS are built with UTM's battle-tested
-#      build_dependencies.sh, which already solves the iOS cross-compilation quirks.
-#   2. Each QEMU fork is configured against that sysroot and built.
-#   3. The qemu-system-* link step is replayed with -dynamiclib so qemu_init / qemu_main_loop /
-#      qemu_cleanup are callable in-process (iOS apps cannot spawn processes).
+# How it works:
+#   1. Inferno is cloned at a pinned revision and qemu/patches/inferno/*.patch are applied. They add
+#      what iOS needs: a shared-library build exporting qemu_init/qemu_main_loop/qemu_cleanup
+#      (iOS apps cannot spawn processes) and the libucontext coroutine backend.
+#   2. UTM's build_dependencies.sh cross-compiles glib, pixman, … and then QEMU itself (-q). A copy
+#      of it is adjusted to drop UTM-only configure flags, build only the targets we use, and also
+#      build the libraries Inferno needs beyond UTM's set (nettle ≥ 3.10, libtasn1, lzfse).
+#   3. UTM's fixup step turns every dylib into a framework; they are copied to App/Frameworks.
 #
-# --tci builds the TCG interpreter instead of the JIT: roughly 5-10x slower, but works without
-# a JIT entitlement or debugger attached (same trade-off as UTM SE).
+# --tci builds the TCG interpreter instead of the JIT: much slower, but runs without a JIT
+# entitlement or debugger attached (the same trade-off as UTM SE).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/build-qemu"
 OUT="$ROOT/App/Frameworks"
 UTM_TAG="v4.6.4"
-TCI=0
-ONLY=""
+INFERNO_URL="https://github.com/ChefKissInc/QEMUAppleSilicon.git"
+INFERNO_REV="${INFERNO_REV:-cc4302a99167abec69b714cfd00c38caece7e7de}"
+NETTLE_SRC="https://ftp.gnu.org/gnu/nettle/nettle-3.10.1.tar.gz"
+TASN1_SRC="https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz"
+LZFSE_SRC="https://github.com/lzfse/lzfse/archive/refs/tags/lzfse-1.0.tar.gz"
+PLATFORM="ios"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --tci) TCI=1 ;;
-    --only) ONLY="$2"; shift ;;
+    --tci) PLATFORM="ios-tci" ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 
-# name | git url | branch | target | binary | framework (must match QEMURunner's naming)
-FORKS=(
-  "inferno|https://github.com/ChefKissInc/QEMUAppleSilicon.git|master|aarch64-softmmu|qemu-system-aarch64|qemu-aarch64-softmmu"
-  "ipod2g|https://github.com/devos50/qemu-ios.git|ipod_touch_2g|arm-softmmu|qemu-system-arm|qemu-arm-softmmu"
-  "ipod1g|https://github.com/devos50/qemu-ios.git|ipod_touch_1g|arm-softmmu|qemu-system-arm|qemu-arm-1g-softmmu"
-)
-
 mkdir -p "$WORK" "$OUT"
 
-# --- 1. dependencies -------------------------------------------------------------------------
+# --- 1. patched Inferno ----------------------------------------------------------------------
+SRC="$WORK/inferno"
+if [ ! -d "$SRC" ]; then
+  git init -q "$SRC"
+  git -C "$SRC" fetch -q --depth 1 "$INFERNO_URL" "$INFERNO_REV"
+  git -C "$SRC" checkout -q FETCH_HEAD
+  git -C "$SRC" submodule update --init --depth 1 util/mlib
+  for p in "$ROOT"/qemu/patches/inferno/*.patch; do
+    echo "==> applying $(basename "$p")"
+    git -C "$SRC" apply --whitespace=nowarn "$p"
+  done
+fi
+
+# --- 2. UTM dependency build, adjusted ---------------------------------------------------------
 if [ ! -d "$WORK/UTM" ]; then
-  git clone --depth 1 --branch "$UTM_TAG" https://github.com/utmapp/UTM.git "$WORK/UTM"
-fi
-SYSROOT="$WORK/UTM/sysroot-ios-arm64"
-if [ ! -f "$SYSROOT/lib/libglib-2.0.dylib" ] && [ ! -f "$SYSROOT/lib/libglib-2.0.a" ]; then
-  echo "==> Building iOS dependencies with UTM (this takes a while)"
-  (cd "$WORK/UTM" && ./scripts/build_dependencies.sh -p ios -a arm64)
+  git clone -q --depth 1 --branch "$UTM_TAG" https://github.com/utmapp/UTM.git "$WORK/UTM"
 fi
 
-SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-CC="$(xcrun --sdk iphoneos -f clang)"
-CFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=16.0 -I$SYSROOT/include"
-LDFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=16.0 -L$SYSROOT/lib"
-export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
-export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+EXTRA="$WORK/extra-src"
+mkdir -p "$EXTRA"
+fetch() {
+  local url="$1" dir="$EXTRA/$2"
+  [ -d "$dir" ] || curl -fsSL --retry 3 "$url" | tar -xz -C "$EXTRA"
+  [ -d "$dir" ] || { echo "error: $url did not unpack to $dir" >&2; exit 1; }
+}
+fetch "$NETTLE_SRC" nettle-3.10.1
+fetch "$TASN1_SRC" libtasn1-4.20.0
+fetch "$LZFSE_SRC" lzfse-lzfse-1.0
 
-# Meson cross file so QEMU's configure treats this as an iOS/darwin host.
-CROSS="$WORK/ios-arm64.meson"
-cat > "$CROSS" <<EOF
-[binaries]
-c = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK']
-objc = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK']
-ar = '$(xcrun --sdk iphoneos -f ar)'
-strip = '$(xcrun --sdk iphoneos -f strip)'
-pkg-config = 'pkg-config'
+SCRIPT="$WORK/UTM/scripts/build_dependencies_inferno.sh"
+python3 - "$WORK/UTM/scripts/build_dependencies.sh" "$SCRIPT" "$EXTRA" <<'EOF'
+import sys
+src, dst, extra = sys.argv[1:]
+s = open(src).read()
 
-[host_machine]
-system = 'darwin'
-subsystem = 'ios'
-cpu_family = 'aarch64'
-cpu = 'arm64'
-endian = 'little'
+def sub(old, new):
+    global s
+    if old not in s:
+        sys.exit(f"UTM script changed; cannot find: {old!r}")
+    s = s.replace(old, new)
+
+# UTM-only configure flags that Inferno does not have.
+sub('HVF_FLAGS="--enable-hvf-private"', 'HVF_FLAGS="--disable-hvf"')
+sub('TCI_BUILD_FLAGS="--enable-tcg-threaded-interpreter --target-list=aarch64-softmmu,arm-softmmu,i386-softmmu,ppc-softmmu,ppc64-softmmu,riscv32-softmmu,riscv64-softmmu,x86_64-softmmu',
+    'TCI_BUILD_FLAGS="--enable-tcg-interpreter')
+# Only the Apple machines' target, Inferno's crypto backend, no extras we never use.
+sub('--enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"',
+    '--enable-ucontext --with-coroutine=libucontext --target-list=aarch64-softmmu --disable-gcrypt --enable-nettle '
+    '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools $HVF_FLAGS $TCI_BUILD_FLAGS"')
+# Extra libraries Inferno links against, built with the same toolchain before QEMU.
+sub('build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS',
+    f'build "{extra}/nettle-3.10.1" --disable-documentation --disable-assembler --enable-mini-gmp --disable-shared\n'
+    f'build "{extra}/libtasn1-4.20.0" --disable-doc --disable-shared\n'
+    f'(cd "{extra}/lzfse-lzfse-1.0" && make clean >/dev/null 2>&1 || true; '
+    f'make CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" INSTALL_PREFIX="$PREFIX" install)\n'
+    'build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS')
+# The SPICE client is UTM's own UI stack; we display through VNC.
+sub('\nbuild_spice_client\n', '\n')
+open(dst, "w").write(s)
 EOF
+chmod +x "$SCRIPT"
 
-# --- 2./3. QEMU forks ------------------------------------------------------------------------
-for spec in "${FORKS[@]}"; do
-  IFS='|' read -r name url branch target binary fwname <<<"$spec"
-  [ -n "$ONLY" ] && [ "$ONLY" != "$name" ] && continue
-  src="$WORK/qemu-$name"
-  if [ ! -d "$src" ]; then
-    git clone --depth 1 --branch "$branch" "$url" "$src"
-    # Only header-only/source submodules are needed; the firmware ROM submodules are not.
-    if grep -q 'path = util/mlib' "$src/.gitmodules" 2>/dev/null; then
-      git -C "$src" submodule update --init --depth 1 util/mlib
-    fi
-  fi
+echo "==> Building dependencies and Inferno for $PLATFORM (this takes a while)"
+(cd "$WORK/UTM" && "$SCRIPT" -p "$PLATFORM" -a arm64 -q "$SRC")
 
-  build="$src/build-ios"
-  mkdir -p "$build"
-  echo "==> Configuring $name ($target)"
-  extra=()
-  [ "$TCI" = 1 ] && extra+=(--enable-tcg-interpreter)
-  (cd "$build" && ../configure \
-      --target-list="$target" \
-      --cross-prefix="" \
-      --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS" \
-      --cross-file="$CROSS" \
-      --disable-cocoa --disable-sdl --disable-gtk --disable-opengl --disable-hvf \
-      --disable-tools --disable-docs --disable-guest-agent --disable-slirp-smbd \
-      --enable-vnc --disable-vnc-sasl --disable-vnc-jpeg \
-      --without-default-features --enable-pie \
-      "${extra[@]}")
-
-  echo "==> Building $name"
-  ninja -C "$build" "$binary"
-
-  # Replay the executable's link line as a dylib. ninja -t commands prints it verbatim.
-  link="$(ninja -C "$build" -t commands "$binary" | tail -n 1)"
-  fw="$OUT/$fwname.framework"
-  mkdir -p "$fw"
-  dylib_link="${link/ -o $binary / -o $fw/$fwname }"
-  dylib_link="$dylib_link -dynamiclib -install_name @rpath/$fwname.framework/$fwname"
-  (cd "$build" && eval "$dylib_link")
-
-  cat > "$fw/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>$fwname</string>
-  <key>CFBundleIdentifier</key><string>com.iosemul.$fwname</string>
-  <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
-  <key>MinimumOSVersion</key><string>16.0</string>
-</dict></plist>
-EOF
-  nm -gU "$fw/$fwname" | grep -q "_qemu_main_loop" || { echo "error: $fwname does not export qemu_main_loop" >&2; exit 1; }
-  echo "==> $fw"
-done
-
-# Dependency dylibs from the UTM sysroot must ship alongside QEMU.
-for lib in "$SYSROOT"/Frameworks/*.framework; do
-  [ -e "$lib" ] && rsync -a "$lib" "$OUT/"
-done
-echo "Done. Regenerate the project with 'xcodegen generate' and build in Xcode."
+# --- 3. frameworks -----------------------------------------------------------------------------
+case "$PLATFORM" in
+  ios) SYSROOT="$WORK/UTM/sysroot-iOS-arm64" ;;
+  ios-tci) SYSROOT="$WORK/UTM/sysroot-iOS-TCI-arm64" ;;
+esac
+[ -d "$SYSROOT/Frameworks/qemu-aarch64-softmmu.framework" ] || {
+  echo "error: qemu-aarch64-softmmu.framework was not produced" >&2; exit 1; }
+nm -gU "$SYSROOT/Frameworks/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu" | grep -q _qemu_main_loop || {
+  echo "error: QEMU framework does not export qemu_main_loop" >&2; exit 1; }
+rsync -a --delete "$SYSROOT/Frameworks/" "$OUT/"
+echo "Done: $(ls "$OUT" | wc -l | tr -d ' ') frameworks in App/Frameworks. Now run 'xcodegen generate'."
