@@ -7,5 +7,6 @@ DerivedData/
 App/Info.plist
 App/IOSEmul.entitlements
 App/Frameworks/
+App/QEMUData/
 build-qemu/
 *.ipsw

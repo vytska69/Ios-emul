@@ -110,7 +110,12 @@ public final class QEMURunner {
         let qemuCleanup = try sym("qemu_cleanup", CleanupFn.self)
         Self.used = true
 
-        let argv = [configuration.qemuBinary] + configuration.arguments
+        // QEMU's data files (VNC keymaps, firmware blobs) ship in the app as a QEMUData folder.
+        var dataArgs: [String] = []
+        if let data = Bundle.main.url(forResource: "QEMUData", withExtension: nil) {
+            dataArgs = ["-L", data.path]
+        }
+        let argv = [configuration.qemuBinary] + dataArgs + configuration.arguments
         let cwd = configuration.workingDirectory.path
         let thread = Thread { [weak self] in
             FileManager.default.changeCurrentDirectoryPath(cwd)

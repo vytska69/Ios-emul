@@ -134,4 +134,8 @@ esac
 nm -gU "$SYSROOT/Frameworks/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu" | grep -q _qemu_main_loop || {
   echo "error: QEMU framework does not export qemu_main_loop" >&2; exit 1; }
 rsync -a --delete "$SYSROOT/Frameworks/" "$OUT/"
+# Data files QEMU loads at runtime (VNC keymaps, firmware); QEMURunner passes them with -L.
+if [ -d "$SYSROOT/share/qemu" ]; then
+  rsync -a --delete "$SYSROOT/share/qemu/" "$ROOT/App/QEMUData/"
+fi
 echo "Done: $(ls "$OUT" | wc -l | tr -d ' ') frameworks in App/Frameworks. Now run 'xcodegen generate'."

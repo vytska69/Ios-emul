@@ -15,6 +15,10 @@ targets:
       - path: App/Frameworks
         optional: true
         buildPhase: none
+      - path: App/QEMUData
+        optional: true
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: IOSEmulCore
         product: IPSWKit
