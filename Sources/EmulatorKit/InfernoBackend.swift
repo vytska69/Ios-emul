@@ -142,7 +142,10 @@ public struct InfernoBackend: EmulatorBackend {
     /// (`APFSContainer.addVolume`). A restore also creates xART, Hardware, Update, Baseband and Data
     /// volumes; their fstab entries are dropped so launchd's mount phase does not fail looking for
     /// them, except Data, which is swapped for an ephemeral one (below).
-    static let directInstallVolumes: Set<String> = ["system-vol", "preboot-vol", "data-vol"]
+    static let directInstallVolumes: Set<String> = ["system-vol", "preboot-vol", "xart-vol", "data-vol"]
+
+    /// The gigalocker init_data_protection looks for on the emulated iPhone 11 (from its boot log).
+    static let gigalockerName = "81879F33-B0F2-573A-AE12-6B517C322E33.gl"
 
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
     ///
@@ -183,7 +186,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -229,6 +232,10 @@ public struct InfernoBackend: EmulatorBackend {
                 let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [String(repeating: "0", count: 96) + "/usr/standalone/firmware"]))
+                // data-protection then needs the xART volume with the device's gigalocker, which a
+                // restore asks the SEP to create. The simulated SEP owns its format; start it empty.
+                try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
+                    directories: [], files: [Self.gigalockerName: Data()]))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }

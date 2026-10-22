@@ -9,7 +9,7 @@ import EmulatorKit
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
-//   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--dirs a/b,c]
+//   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--dirs a/b,c] [--files a/f=text]
 //
 // --force-backend runs a firmware on a machine its compatibility check rejects. That is how a new
 // SoC is brought up: boot it on the closest existing model and fix whatever it trips over first.
@@ -62,8 +62,14 @@ if command == "apfs-add-volume" {
         let container = try APFSContainer(handle: handle, offset: UInt64(options["offset"] ?? "0") ?? 0)
         print("roles before: \(try container.roles().map { String(format: "0x%x", $0) })")
         let dirs = (options["dirs"] ?? "usr/standalone/firmware").split(separator: ",").map(String.init)
+        // --files "a/b.txt=hello,c.bin=" writes small text files.
+        var files: [String: Data] = [:]
+        for spec in (options["files"] ?? "").split(separator: ",") {
+            let parts = spec.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            files[String(parts[0])] = Data((parts.count > 1 ? String(parts[1]) : "").utf8)
+        }
         try container.addVolume(name: options["name"] ?? "Preboot", role: .preboot,
-                                tree: APFSContainer.Tree(directories: dirs))
+                                tree: APFSContainer.Tree(directories: dirs, files: files))
         print("roles after: \(try container.roles().map { String(format: "0x%x", $0) })")
     } catch { fail("\(error)") }
     exit(0)

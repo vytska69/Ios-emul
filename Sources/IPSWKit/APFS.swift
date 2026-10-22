@@ -37,7 +37,12 @@ public final class APFSContainer {
     /// A directory tree to create in the new volume, as paths relative to its root.
     public struct Tree {
         public var directories: [String]
-        public init(directories: [String]) { self.directories = directories }
+        /// Regular files by path; their parent directories are created as needed.
+        public var files: [String: Data]
+        public init(directories: [String], files: [String: Data] = [:]) {
+            self.directories = directories
+            self.files = files
+        }
     }
 
     let handle: FileHandle
@@ -309,10 +314,36 @@ public final class APFSContainer {
               let templateOID = volumeOIDs.first else { throw Error.unsupported("no free volume slot") }
         let template = try volumeSuperblock(templateOID)
 
-        // Blocks: volume superblock, volume omap, its tree, fs tree, extent-ref tree, snapshot tree.
-        let blocks = try allocate(6)
+        // Blocks: volume superblock, volume omap, its tree, fs tree, extent-ref tree, snapshot tree,
+        // then file data.
+        let bs = Int(blockSize)
+        let filePaths = tree.files.keys.sorted()
+        let dataBlocks = filePaths.reduce(0) { $0 + (tree.files[$1]!.count + bs - 1) / bs }
+        let blocks = try allocate(6 + dataBlocks)
         let (sbAddr, omapAddr, omapTreeAddr, fsTreeAddr, extentAddr, snapAddr) =
             (blocks[0], blocks[1], blocks[2], blocks[3], blocks[4], blocks[5])
+
+        // File contents, each as runs of consecutive blocks (the allocator may hand out gaps).
+        var nextData = 6
+        var files: [FSTree.File] = []
+        for path in filePaths {
+            let data = tree.files[path]!
+            let count = (data.count + bs - 1) / bs
+            let mine = Array(blocks[nextData..<(nextData + count)])
+            nextData += count
+            var runs: [(logical: UInt64, paddr: UInt64, blocks: UInt64)] = []
+            for (i, b) in mine.enumerated() {
+                if let last = runs.last, last.paddr + last.blocks == b {
+                    runs[runs.count - 1].blocks += 1
+                } else {
+                    runs.append((UInt64(i) * blockSize, b, 1))
+                }
+                var chunk = data.slice(i * bs, min(bs, data.count - i * bs))
+                chunk.append(Data(count: bs - chunk.count))
+                try write(chunk, block: b)
+            }
+            files.append(FSTree.File(path: path, size: UInt64(data.count), runs: runs))
+        }
         let volumeOID = r.u64(at: 88)                  // nx_next_oid
         let fsTreeOID: UInt64 = 1026
         let now = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
@@ -320,7 +351,7 @@ public final class APFSContainer {
         let templateFlags = ByteReader(template).u64(at: 56)
         let caseInsensitive = templateFlags & 0x1 != 0
         let hashedNames = caseInsensitive || templateFlags & 0x8 != 0
-        let fs = FSTree(directories: tree.directories, hashedNames: hashedNames,
+        let fs = FSTree(directories: tree.directories, files: files, blockSize: blockSize, hashedNames: hashedNames,
                         caseInsensitive: caseInsensitive, time: now)
 
         // Format details (B-tree flags, TOC sizes, object map flags) are copied from structures
@@ -340,12 +371,13 @@ public final class APFSContainer {
         Self.seal(&fsNode)
         try write(fsNode, block: fsTreeAddr)
 
-        for (addr, subtype, model) in [(extentAddr, UInt32(0x0F), tplExtentRef), (snapAddr, UInt32(0x10), tplSnapMeta)] {
-            var empty = VariableNode.build(records: [], blockSize: blockSize,
-                                           header: (oid: addr, xid: xid, type: 0x4000_0002, subtype: subtype),
-                                           info: (flags: ByteReader(model).u32(at: infoAt), keyCount: 0))
-            Self.seal(&empty)
-            try write(empty, block: addr)
+        for (addr, subtype, model, records) in [(extentAddr, UInt32(0x0F), tplExtentRef, fs.extentRefs),
+                                                (snapAddr, UInt32(0x10), tplSnapMeta, [])] {
+            var node = VariableNode.build(records: records, blockSize: blockSize,
+                                          header: (oid: addr, xid: xid, type: 0x4000_0002, subtype: subtype),
+                                          info: (flags: ByteReader(model).u32(at: infoAt), keyCount: UInt64(records.count)))
+            Self.seal(&node)
+            try write(node, block: addr)
         }
 
         // Volume object map: fs tree oid → its block, laid out like the container's object map
@@ -380,7 +412,7 @@ public final class APFSContainer {
         sb.put64(0, at: 48)
         sb.put64(templateFlags & 0x9, at: 56)                            // case/normalization only
         sb.put64(now, at: 64)
-        sb.put64(5, at: 88)                                              // fs_alloc_count (the superblock is not counted)
+        sb.put64(UInt64(5 + dataBlocks), at: 88)                         // fs_alloc_count (the superblock is not counted)
         sb.replaceSubrange(96..<116, with: template[template.startIndex + 96..<template.startIndex + 116])
         sb.put32(0x0000_0002, at: 116)                                   // root tree: virtual
         sb.put32(0x4000_0002, at: 120)
@@ -390,8 +422,9 @@ public final class APFSContainer {
         sb.put64(extentAddr, at: 144)
         sb.put64(snapAddr, at: 152)
         sb.put64(fs.nextObjectID, at: 176)
+        sb.put64(UInt64(files.count), at: 184)                           // num_files
         sb.put64(UInt64(fs.directoryCount), at: 192)
-        sb.put64(5, at: 224)                                             // total_blocks_alloced
+        sb.put64(UInt64(5 + dataBlocks), at: 224)                        // total_blocks_alloced
         var uuid = UUID().uuid
         Swift.withUnsafeBytes(of: &uuid) { sb.replaceSubrange(240..<256, with: $0) }
         sb.put64(now, at: 256)
@@ -527,17 +560,28 @@ enum VariableNode {
 
 /// Inode and directory records for a tree of empty directories.
 struct FSTree {
+    struct File {
+        let path: String
+        let size: UInt64
+        let runs: [(logical: UInt64, paddr: UInt64, blocks: UInt64)]
+    }
+
     private(set) var records: [(key: Data, value: Data)] = []
+    /// Physical extent records for the extent-reference tree, one per run of file data.
+    private(set) var extentRefs: [(key: Data, value: Data)] = []
     private(set) var nextObjectID: UInt64 = 16
     private(set) var directoryCount = 0
 
     static let rootID: UInt64 = 2, privateID: UInt64 = 3
-    static let typeInode: UInt64 = 3, typeDirRecord: UInt64 = 9
+    static let typeExtent: UInt64 = 2, typeInode: UInt64 = 3, typeDStreamID: UInt64 = 6
+    static let typeFileExtent: UInt64 = 8, typeDirRecord: UInt64 = 9
 
-    init(directories: [String], hashedNames: Bool, caseInsensitive: Bool, time: UInt64) {
+    init(directories: [String], files: [File] = [], blockSize: UInt64 = 4096,
+         hashedNames: Bool, caseInsensitive: Bool, time: UInt64) {
         // Every intermediate directory, parents before children.
         var all = Set<String>()
-        for path in directories {
+        let fileDirs = files.map { $0.path.split(separator: "/").dropLast().joined(separator: "/") }.filter { !$0.isEmpty }
+        for path in directories + fileDirs {
             var parts: [Substring] = []
             for part in path.split(separator: "/") {
                 parts.append(part)
@@ -558,11 +602,21 @@ struct FSTree {
             drecs.append((parent, String(path.split(separator: "/").last!), id))
         }
         directoryCount = paths.count
+        var fileIDs: [UInt64] = []
+        for file in files {
+            let parent = ids[file.path.split(separator: "/").dropLast().joined(separator: "/")]!
+            let id = nextObjectID; nextObjectID += 1
+            fileIDs.append(id)
+            children[parent, default: 0] += 1
+            drecs.append((parent, String(file.path.split(separator: "/").last!), id))
+        }
+        let fileByID = Dictionary(uniqueKeysWithValues: zip(fileIDs, files))
 
         var recs: [(sort: (UInt64, UInt64, UInt32, String), key: Data, value: Data)] = []
         func inode(_ id: UInt64, parent: UInt64, name: String, children: Int) {
             recs.append(((id, Self.typeInode, 0, ""), Data.le64(id | Self.typeInode << 60),
-                         Self.inodeValue(parent: parent, id: id, name: name, children: children, time: time)))
+                         Self.inodeValue(parent: parent, id: id, name: name, children: children, time: time,
+                                         file: fileByID[id], blockSize: blockSize)))
         }
         inode(Self.rootID, parent: 1, name: "root", children: children[Self.rootID] ?? 0)
         inode(Self.privateID, parent: 1, name: "private-dir", children: 0)
@@ -587,9 +641,24 @@ struct FSTree {
             key.append(nameBytes)
             var value = Data.le64(d.id)
             value.appendLE64(time)
-            value.appendLE16(4)                                      // DT_DIR
+            value.appendLE16(fileByID[d.id] == nil ? 4 : 8)          // DT_DIR / DT_REG
             recs.append(((d.parent, Self.typeDirRecord, hash, d.name), key, value))
         }
+        // Each file's data stream: its reference count and the extents that hold it.
+        for (id, file) in fileByID {
+            var refcnt = Data(); refcnt.appendLE32(1)
+            recs.append(((id, Self.typeDStreamID, 0, ""), Data.le64(id | Self.typeDStreamID << 60), refcnt))
+            for run in file.runs {
+                var key = Data.le64(id | Self.typeFileExtent << 60); key.appendLE64(run.logical)
+                var value = Data.le64(run.blocks * blockSize)        // length in bytes, no flags
+                value.appendLE64(run.paddr); value.appendLE64(0)     // physical block, crypto id
+                recs.append(((id, Self.typeFileExtent, UInt32(run.logical / blockSize), ""), key, value))
+                var refValue = Data.le64(run.blocks | 1 << 60)       // APFS_KIND_NEW
+                refValue.appendLE64(id); refValue.appendLE32(1)      // owner, refcount
+                extentRefs.append((Data.le64(run.paddr | Self.typeExtent << 60), refValue))
+            }
+        }
+        extentRefs.sort { ByteReader($0.key).u64(at: 0) & 0x0FFF_FFFF_FFFF_FFFF < ByteReader($1.key).u64(at: 0) & 0x0FFF_FFFF_FFFF_FFFF }
         recs.sort { a, b in
             if a.sort.0 != b.sort.0 { return a.sort.0 < b.sort.0 }
             if a.sort.1 != b.sort.1 { return a.sort.1 < b.sort.1 }
@@ -599,22 +668,32 @@ struct FSTree {
         records = recs.map { ($0.key, $0.value) }
     }
 
-    static func inodeValue(parent: UInt64, id: UInt64, name: String, children: Int, time: UInt64) -> Data {
+    static func inodeValue(parent: UInt64, id: UInt64, name: String, children: Int, time: UInt64,
+                           file: File? = nil, blockSize: UInt64 = 4096) -> Data {
         var v = Data()
-        v.appendLE64(parent); v.appendLE64(id)
+        v.appendLE64(parent); v.appendLE64(id)                       // parent, private id (= data stream id)
         for _ in 0..<4 { v.appendLE64(time) }                        // create/mod/change/access
         v.appendLE64(0x8000)                                         // internal_flags: INODE_NO_RSRC_FORK
-        v.appendLE32(UInt32(children))
+        v.appendLE32(file == nil ? UInt32(children) : 1)             // nchildren, or nlink for a file
         v.appendLE32(0); v.appendLE32(0); v.appendLE32(0)            // protection class, write gen, bsd flags
         v.appendLE32(0); v.appendLE32(0)                             // owner root, group wheel
-        v.appendLE16(0o040755); v.appendLE16(0)
+        v.appendLE16(file == nil ? 0o040755 : 0o100644); v.appendLE16(0)
         v.appendLE64(0)
-        // Extended fields: the inode's name (INO_EXT_TYPE_NAME, XF_DO_NOT_COPY).
+        // Extended fields: the inode's name (INO_EXT_TYPE_NAME, XF_DO_NOT_COPY) and, for a file,
+        // its data stream (INO_EXT_TYPE_DSTREAM, XF_SYSTEM_FIELD).
         let nameData = Data(name.utf8) + Data([0])
-        v.appendLE16(1); v.appendLE16(UInt16((nameData.count + 7) & ~7))
+        let namePadded = (nameData.count + 7) & ~7
+        v.appendLE16(file == nil ? 1 : 2)
+        v.appendLE16(UInt16(namePadded + (file == nil ? 0 : 40)))
         v.append(4); v.append(0x02); v.appendLE16(UInt16(nameData.count))
+        if file != nil { v.append(8); v.append(0x20); v.appendLE16(40) }
         v.append(nameData)
-        v.append(Data(count: (8 - nameData.count % 8) % 8))
+        v.append(Data(count: namePadded - nameData.count))
+        if let file {
+            let allocated = file.runs.reduce(0) { $0 + $1.blocks } * blockSize
+            v.appendLE64(file.size); v.appendLE64(allocated)         // size, alloced_size
+            v.appendLE64(0); v.appendLE64(file.size); v.appendLE64(0) // crypto id, bytes written, read
+        }
         return v
     }
 

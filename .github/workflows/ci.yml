@@ -36,7 +36,7 @@ jobs:
           diskutil apfs addVolume "$refc" APFS RefPreboot -role B -nomount || true
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/ref.txt")" || true
           .build/debug/ipsw-emu apfs-add-volume "$work/sys.cdr" --name Preboot \
-            --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware"
+            --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware" --files "notes/hello.txt=hello apfs"
           echo "== reference (diskutil)"; .build/debug/ipsw-emu apfs-dump "$work/ref.cdr" || true
           echo "== ours"; .build/debug/ipsw-emu apfs-dump "$work/sys.cdr" || true
           disk=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$work/sys.cdr" | awk 'NR==1{print $1}')
@@ -58,6 +58,12 @@ jobs:
             [ -d "$m/$fw" ] && found=1 && echo "firmware folder on $m"
           done
           [ "$found" = 1 ] || fsck=1
+          # And the file written into it must read back.
+          hello=0
+          for m in $(awk -F'\t' 'NF>2 && $NF ~ /\// {print $NF}' "$work/attach.txt"); do
+            [ "$(cat "$m/notes/hello.txt" 2>/dev/null)" = "hello apfs" ] && hello=1 && echo "file reads back on $m"
+          done
+          [ "$hello" = 1 ] || fsck=1
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/attach.txt")" || true
           exit $fsck
 
