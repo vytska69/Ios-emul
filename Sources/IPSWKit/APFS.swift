@@ -218,6 +218,30 @@ public final class APFSContainer {
         try write(node, block: treeAddr)
     }
 
+    /// Physical address of the newest mapping for `oid` in a physical object map B-tree.
+    func omapLookup(tree: UInt64, oid: UInt64) throws -> UInt64 {
+        var addr = tree
+        for _ in 0..<16 {
+            let node = try read(block: addr)
+            let n = ByteReader(node)
+            let leaf = n.u16(at: 32) & 0x2 != 0
+            let entries = try FixedNode.entries(node, blockSize: blockSize)
+            if leaf {
+                guard let hit = entries.filter({ ByteReader($0.key).u64(at: 0) == oid })
+                    .max(by: { ByteReader($0.key).u64(at: 8) < ByteReader($1.key).u64(at: 8) }) else {
+                    throw Error.unsupported("oid \(oid) not in object map")
+                }
+                return ByteReader(hit.value).u64(at: 8)
+            }
+            // Index node: descend into the last child whose first key is not past `oid`.
+            guard let child = entries.last(where: { ByteReader($0.key).u64(at: 0) <= oid }) else {
+                throw Error.unsupported("oid \(oid) not in object map")
+            }
+            addr = ByteReader(child.value).u64(at: 0)
+        }
+        throw Error.unsupported("object map deeper than 16 levels")
+    }
+
     // MARK: Volumes
 
     public var volumeOIDs: [UInt64] {
@@ -228,11 +252,7 @@ public final class APFSContainer {
     /// Reads the superblock of a volume through the container object map.
     func volumeSuperblock(_ oid: UInt64) throws -> Data {
         let omap = try read(block: ByteReader(superblock).u64(at: 160))
-        let node = try read(block: ByteReader(omap).u64(at: 48))
-        for e in try FixedNode.entries(node, blockSize: blockSize) where ByteReader(e.key).u64(at: 0) == oid {
-            return try read(block: ByteReader(e.value).u64(at: 8))
-        }
-        throw Error.unsupported("volume \(oid) not in object map")
+        return try read(block: omapLookup(tree: ByteReader(omap).u64(at: 48), oid: oid))
     }
 
     /// Roles of the volumes already in the container.
@@ -270,30 +290,39 @@ public final class APFSContainer {
         let fs = FSTree(directories: tree.directories, hashedNames: hashedNames,
                         caseInsensitive: caseInsensitive, time: now)
 
+        // Format details (B-tree flags, TOC sizes, object map flags) are copied from structures
+        // Apple's tools wrote: the template volume's trees and the container's object map tree.
+        let tpl = ByteReader(template)
+        let tplOmap = try read(block: tpl.u64(at: 128))
+        let tplFSRoot = try read(block: omapLookup(tree: ByteReader(tplOmap).u64(at: 48), oid: tpl.u64(at: 136)))
+        let tplExtentRef = try read(block: tpl.u64(at: 144))
+        let tplSnapMeta = try read(block: tpl.u64(at: 152))
+        let infoAt = Int(blockSize) - FixedNode.infoSize
+
         // File-system tree, a single root leaf of variable-size records.
         var fsNode = VariableNode.build(records: fs.records, blockSize: blockSize,
                                         header: (oid: fsTreeOID, xid: xid, type: 0x0000_0002, subtype: 0x0E),
-                                        info: (flags: 0, keyCount: UInt64(fs.records.count)))
+                                        info: (flags: ByteReader(tplFSRoot).u32(at: infoAt),
+                                               keyCount: UInt64(fs.records.count)))
         Self.seal(&fsNode)
         try write(fsNode, block: fsTreeAddr)
 
-        for (addr, subtype) in [(extentAddr, UInt32(0x0F)), (snapAddr, UInt32(0x10))] {
+        for (addr, subtype, model) in [(extentAddr, UInt32(0x0F), tplExtentRef), (snapAddr, UInt32(0x10), tplSnapMeta)] {
             var empty = VariableNode.build(records: [], blockSize: blockSize,
                                            header: (oid: addr, xid: xid, type: 0x4000_0002, subtype: subtype),
-                                           info: (flags: 0x10, keyCount: 0))       // BTREE_PHYSICAL
+                                           info: (flags: ByteReader(model).u32(at: infoAt), keyCount: 0))
             Self.seal(&empty)
             try write(empty, block: addr)
         }
 
-        // Volume object map: fs tree oid → its block. Its btree_info flags are taken from the
-        // container's own object map tree, which Apple's tools wrote.
+        // Volume object map: fs tree oid → its block, laid out like the container's object map
+        // tree (a fixed-size root leaf whose TOC newfs_apfs sizes for the whole node).
         let containerOmap = try read(block: r.u64(at: 160))
-        let containerTree = try read(block: ByteReader(containerOmap).u64(at: 48))
-        var emptyOmap = FixedNode.empty(blockSize: blockSize, oid: omapTreeAddr, xid: xid)
-        let info = Int(blockSize) - FixedNode.infoSize
-        emptyOmap.put32(ByteReader(containerTree).u32(at: info), at: info)
+        var omapModel = try read(block: ByteReader(containerOmap).u64(at: 48))
+        omapModel.putHeader(oid: omapTreeAddr, xid: xid, type: 0x4000_0002, subtype: 0x0B)
+        omapModel.put64(1, at: infoAt + 32)                                  // bt_node_count
         var omapNode = try FixedNode.build(
-            from: emptyOmap,
+            from: omapModel,
             entries: [(Data.le64(fsTreeOID) + Data.le64(xid),
                        Data.le32(0) + Data.le32(UInt32(blockSize)) + Data.le64(fsTreeAddr))],
             blockSize: blockSize)
@@ -302,9 +331,9 @@ public final class APFSContainer {
 
         var omap = Data(count: Int(blockSize))
         omap.putHeader(oid: omapAddr, xid: xid, type: 0x4000_000B, subtype: 0)
-        omap.put32(0x1, at: 32)                         // OMAP_MANUALLY_MANAGED
-        omap.put32(0x4000_0002, at: 40)                 // om_tree_type: physical B-tree
-        omap.put32(0x4000_0002, at: 44)
+        omap.put32(ByteReader(tplOmap).u32(at: 32), at: 32)                // om_flags
+        omap.put32(ByteReader(tplOmap).u32(at: 40), at: 40)                // om_tree_type
+        omap.put32(ByteReader(tplOmap).u32(at: 44), at: 44)                // om_snapshot_tree_type
         omap.put64(omapTreeAddr, at: 48)
         Self.seal(&omap)
         try write(omap, block: omapAddr)
@@ -383,7 +412,7 @@ enum FixedNode {
         return (0..<count).map { i in
             let k = keyStart + Int(n.u16(at: tocOff + i * 4))
             let v = valEnd - Int(n.u16(at: tocOff + i * 4 + 2))
-            return (node.slice(k, 16), node.slice(v, 16))
+            return (node.slice(k, 16), node.slice(v, min(16, valEnd - v)))   // index values are 8 bytes
         }
     }
 
