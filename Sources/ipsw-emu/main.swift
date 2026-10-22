@@ -118,6 +118,13 @@ case "boot":
     let milestone = BootMilestone.furthest(in: serial)
     print("==> milestone: \(milestone.map { "\($0.rawValue) — \($0.title)" } ?? "none")")
     if let panic = BootMilestone.panic(in: serial) { print("==> panic: \(panic)") }
+    // The lines that say why a boot stopped, wherever they are in a log that may span reboots.
+    let keyPatterns = ["panic(", "Still waiting for root device", "BSD root", "rooting", "apfs", "APFS",
+                       "mount", "Mount", "AppleNVMe", "disk0", "launchd", "SpringBoard", "backboardd",
+                       "restored_external", "CHECKPOINT", "Kernel version", "cannot find", "failed"]
+    let keyLines = serial.split(separator: "\n").filter { line in keyPatterns.contains { line.contains($0) } }
+    print("==> key serial lines (\(keyLines.count)):")
+    keyLines.prefix(120).forEach { print("  | \($0)") }
     print("==> serial tail:")
     serial.split(separator: "\n", omittingEmptySubsequences: false).suffix(60).forEach { print($0) }
     // QEMU's own errors (bad options, missing files, machine init failures) go to qemu.log.
