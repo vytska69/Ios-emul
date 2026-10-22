@@ -11,6 +11,18 @@ on:
         default: false
   push:
     branches: [claude/ipsw-emulator-app, main, master]
+    # Only changes that end up in the IPA; the QEMU build takes ~20 minutes and a newer push
+    # replaces a queued run, so test-only and documentation pushes must not restart it.
+    paths:
+      - "App/**"
+      - "Sources/IPSWKit/**"
+      - "Sources/EmulatorKit/**"
+      - "qemu/**"
+      - "scripts/build-qemu-ios.sh"
+      - "scripts/make-sidestore-source.py"
+      - "project.yml"
+      - "Package.swift"
+      - ".github/workflows/ipa.yml"
 
 permissions:
   contents: write
