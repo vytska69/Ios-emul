@@ -36,7 +36,8 @@ jobs:
           git clone --depth 1 https://github.com/ChefKissInc/QEMUAppleSilicon.git inferno
           git -C inferno submodule update --init --depth 1 util/mlib
           mkdir inferno/build && cd inferno/build
-          ../configure --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp
+          ../configure --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp \
+            --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib"
           ninja qemu-system-aarch64 qemu-img
           mkdir -p ../../qemu-bin && cp qemu-system-aarch64 qemu-img ../../qemu-bin/
 
