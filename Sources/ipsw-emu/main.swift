@@ -1,0 +1,110 @@
+import Foundation
+import IPSWKit
+import EmulatorKit
+
+// Command-line front end used by the CI boot-test harness (and handy on a Mac):
+//
+//   ipsw-emu inspect <file.ipsw>
+//   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
+//                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
+//
+// `boot` prepares the machine exactly like the app, runs QEMU for at most --seconds, then prints
+// the tail of the serial log and the furthest boot milestone reached.
+
+setvbuf(stdout, nil, _IOLBF, 0)
+
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+    exit(2)
+}
+
+var args = Array(CommandLine.arguments.dropFirst())
+guard let command = args.first else { fail("usage: ipsw-emu inspect|boot <file.ipsw> [options]") }
+args.removeFirst()
+guard let path = args.first else { fail("missing IPSW path") }
+args.removeFirst()
+
+var options: [String: String] = [:]
+var assets: [String: URL] = [:]
+while !args.isEmpty {
+    let key = args.removeFirst()
+    guard key.hasPrefix("--"), !args.isEmpty else { fail("bad option \(key)") }
+    let value = args.removeFirst()
+    if key == "--asset" {
+        let parts = value.split(separator: "=", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { fail("--asset expects id=path") }
+        assets[parts[0]] = URL(fileURLWithPath: parts[1])
+    } else {
+        options[String(key.dropFirst(2))] = value
+    }
+}
+
+let ipsw: IPSW
+do { ipsw = try IPSW(url: URL(fileURLWithPath: path)) } catch { fail("\(error)") }
+let report = BackendRegistry.shared.report(for: ipsw)
+
+switch command {
+case "inspect":
+    print("iOS \(ipsw.version) (\(ipsw.build)), image format \(ipsw.imageFormat)")
+    for row in report.rows {
+        print("  \(row.device.productType) \(row.device.name) [\(row.device.soc?.id ?? "?")]: "
+              + "\(row.backend?.id ?? "-") — \(row.compatibility.summary)")
+    }
+    if let identity = ipsw.manifest.identity(), let tree = try? ipsw.deviceTree(identity: identity) {
+        for c in HardwareCoverage.analyze(tree) {
+            print(String(format: "  coverage vs %@: %d/%d (%.0f%%), missing boot-critical: %@", c.machine,
+                         c.emulatedCount, c.peripherals.count, c.fraction * 100,
+                         c.missingBootCritical.map(\.name).joined(separator: ",")))
+        }
+    }
+
+case "boot":
+    let rows = report.rows.filter { options["product"] == nil || $0.device.productType == options["product"] }
+    guard let row = rows.first(where: { $0.compatibility.isRunnable }), let backend = row.backend else {
+        fail("no runnable backend: " + rows.map { "\($0.device.productType): \($0.compatibility.summary)" }
+            .joined(separator: "; "))
+    }
+    let classes = ipsw.manifest.deviceClasses
+    let index = ipsw.devices.firstIndex(of: row.device) ?? 0
+    let board = classes.count == ipsw.devices.count ? classes[index] : classes.first
+    guard let identity = ipsw.manifest.identity(for: board) else { fail("no build identity") }
+
+    let work = URL(fileURLWithPath: options["work"] ?? "vm")
+    let ctx = PrepareContext(
+        ipsw: ipsw, identity: identity, device: row.device, workDirectory: work, externalAssets: assets,
+        bootMode: BootMode(rawValue: options["mode"] ?? "auto") ?? .auto,
+        memoryMB: Int(options["memory"] ?? "") ?? backend.defaultMemoryMB,
+        cpuCount: Int(options["cpus"] ?? "") ?? backend.defaultCPUCount)
+    print("==> \(row.device.name) iOS \(ipsw.version) on \(backend.displayName) [\(row.compatibility.summary)]")
+
+    let config: MachineConfiguration
+    do { config = try backend.prepare(ctx) } catch { fail("prepare: \(error)") }
+    print("==> qemu \(config.arguments.joined(separator: " "))")
+
+    let runner = QEMURunner(configuration: config)
+    let done = DispatchSemaphore(value: 0)
+    runner.onStateChange = { state in
+        if case .running = state { return }
+        print("==> QEMU state: \(state)")
+        done.signal()
+    }
+    do { try runner.start() } catch { fail("start: \(error)") }
+
+    let seconds = Double(options["seconds"] ?? "") ?? 600
+    let deadline = Date().addingTimeInterval(seconds)
+    // The termination handler hops to the main queue, so keep the main run loop turning.
+    while Date() < deadline && done.wait(timeout: .now()) == .timedOut {
+        RunLoop.main.run(until: Date().addingTimeInterval(1))
+    }
+    if Date() >= deadline { print("==> time limit reached, stopping"); runner.stop() }
+
+    let serial = (try? String(contentsOf: work.appendingPathComponent("serial.log"), encoding: .utf8)) ?? ""
+    let milestone = BootMilestone.furthest(in: serial)
+    print("==> milestone: \(milestone.map { "\($0.rawValue) — \($0.title)" } ?? "none")")
+    if let panic = BootMilestone.panic(in: serial) { print("==> panic: \(panic)") }
+    print("==> serial tail:")
+    serial.split(separator: "\n", omittingEmptySubsequences: false).suffix(60).forEach { print($0) }
+
+default:
+    fail("unknown command \(command)")
+}

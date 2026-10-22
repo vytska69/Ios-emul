@@ -125,6 +125,13 @@ final class IPSWKitTests: XCTestCase {
         return node([prop("name", str("device-tree"))], [armIO, cpus])
     }
 
+    func testBootMilestones() {
+        let log = "iBoot\nDarwin Kernel Version 20.0.0\nBSD root: md0, major 2\npanic(cpu 0 caller 0x1): AIC\n"
+        XCTAssertEqual(BootMilestone.furthest(in: log), .rootMounted)
+        XCTAssertEqual(BootMilestone.panic(in: log), "panic(cpu 0 caller 0x1): AIC")
+        XCTAssertNil(BootMilestone.furthest(in: "nothing here"))
+    }
+
     // MARK: Manifest + compatibility
 
     func testManifestAndCompatibility() throws {
