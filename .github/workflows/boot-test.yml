@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: qemu-bin
-          key: inferno-macos-${{ steps.rev.outputs.key }}
+          key: inferno-macos-v2-${{ steps.rev.outputs.key }}
       - name: Build Inferno
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -50,10 +50,14 @@ jobs:
           git -C inferno submodule update --init --depth 1 util/mlib
           for p in qemu/patches/inferno/*.patch; do git -C inferno apply --whitespace=nowarn "$PWD/$p"; done
           mkdir inferno/build && cd inferno/build
-          ../configure --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp --disable-gcrypt --enable-nettle \
+          ../configure --prefix="$GITHUB_WORKSPACE/qemu-bin" \
+            --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp --disable-gcrypt --enable-nettle \
             --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib"
-          ninja qemu-system-aarch64 qemu-img
-          mkdir -p ../../qemu-bin && cp qemu-system-aarch64 qemu-img ../../qemu-bin/
+          ninja
+          # A full install puts QEMU's data files (VNC keymaps, firmware) in <prefix>/share/qemu,
+          # where the relocatable binary in <prefix>/bin looks for them.
+          meson install --quiet
+          ls "$GITHUB_WORKSPACE/qemu-bin/bin" "$GITHUB_WORKSPACE/qemu-bin/share/qemu" | head -20
 
   matrix:
     runs-on: ubuntu-latest
@@ -81,7 +85,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: qemu-bin
-          key: inferno-macos-${{ needs.qemu.outputs.key }}
+          key: inferno-macos-v2-${{ needs.qemu.outputs.key }}
           fail-on-cache-miss: true
       - name: Runtime libraries
         run: brew install glib pixman nettle libtasn1 lzfse gnutls libslirp
@@ -117,7 +121,7 @@ jobs:
 
       - name: Boot
         run: |
-          export PATH="$PWD/qemu-bin:$PATH"
+          export PATH="$PWD/qemu-bin/bin:$PATH"
           .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
             --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 --mode "${{ matrix.mode }}" \
             ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} | tee boot.txt || true
