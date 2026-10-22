@@ -1,0 +1,71 @@
+name: IPA
+
+# Builds the QEMU frameworks and an installable .ipa so the app can be put on a phone without a Mac:
+# install the artifact with TrollStore (entitlements are fake-signed in) or SideStore (re-signs it).
+on:
+  workflow_dispatch:
+    inputs:
+      tci:
+        description: "Build the TCG interpreter instead of the JIT (works without JIT, slower)"
+        type: boolean
+        default: false
+  push:
+    branches: [claude/ipsw-emulator-app, main, master]
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host tools
+        run: brew install meson ninja pkg-config glib gettext xcodegen ldid
+
+      - name: Resolve QEMU fork revisions
+        id: forks
+        run: |
+          rev() { git ls-remote "$1" "refs/heads/$2" | cut -c1-12; }
+          echo "key=$(rev https://github.com/ChefKissInc/QEMUAppleSilicon.git master)-$(rev https://github.com/devos50/qemu-ios.git ipod_touch_2g)-$(rev https://github.com/devos50/qemu-ios.git ipod_touch_1g)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache QEMU frameworks
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: App/Frameworks
+          key: qemu-ios-${{ inputs.tci && 'tci' || 'jit' }}-${{ hashFiles('scripts/build-qemu-ios.sh') }}-${{ steps.forks.outputs.key }}
+
+      - name: Build QEMU for iOS
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build-qemu-ios.sh ${{ inputs.tci && '--tci' || '' }}
+
+      - name: Build app
+        run: |
+          xcodegen generate
+          xcodebuild -project IOSEmul.xcodeproj -scheme IOSEmul -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tail -n 80
+          exit ${PIPESTATUS[0]}
+
+      - name: Package IPA
+        run: |
+          APP=build/Build/Products/Release-iphoneos/IOSEmul.app
+          # Frameworks first, then the app, so the outer signature covers the nested ones.
+          for fw in "$APP"/Frameworks/*.framework; do
+            [ -e "$fw" ] && ldid -S "$fw/$(basename "$fw" .framework)"
+          done
+          ldid -SApp/IOSEmul.entitlements "$APP/IOSEmul"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry IOSEmul.ipa Payload)
+          ls -lh out/IOSEmul.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IOSEmul-ipa
+          path: out/IOSEmul.ipa
+          if-no-files-found: error
