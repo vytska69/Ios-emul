@@ -27,8 +27,8 @@ OUT="$ROOT/App/Frameworks"
 UTM_TAG="v5.0.8"
 INFERNO_URL="https://github.com/ChefKissInc/QEMUAppleSilicon.git"
 INFERNO_REV="${INFERNO_REV:-cc4302a99167abec69b714cfd00c38caece7e7de}"
-NETTLE_SRC="https://ftp.gnu.org/gnu/nettle/nettle-3.10.1.tar.gz"
-TASN1_SRC="https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz"
+NETTLE_SRC="https://mirrors.kernel.org/gnu/nettle/nettle-3.10.1.tar.gz"
+TASN1_SRC="https://mirrors.kernel.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz"
 LZFSE_SRC="https://github.com/lzfse/lzfse/archive/refs/tags/lzfse-1.0.tar.gz"
 PLATFORM="ios"
 
@@ -90,6 +90,9 @@ def resub(pattern, new):
     if n == 0:
         sys.exit(f"UTM script changed; cannot find: {pattern!r}")
 
+# ftp.gnu.org is often unreachable from CI runners; use the kernel.org GNU mirror.
+s = s.replace("https://ftp.gnu.org/gnu/", "https://mirrors.kernel.org/gnu/")
+s = s.replace("http://ftp.gnu.org/gnu/", "https://mirrors.kernel.org/gnu/")
 # UTM-only configure flags that Inferno does not have.
 sub('HVF_FLAGS="--enable-hvf-private"', 'HVF_FLAGS="--disable-hvf"')
 resub(r'TCI_BUILD_FLAGS="--enable-tcg-threaded-interpreter[^"]*"', 'TCI_BUILD_FLAGS="--enable-tcg-interpreter"')
