@@ -51,9 +51,12 @@ final class RawInflater {
                     return
                 case COMPRESSION_STATUS_OK:
                     // Output buffer had room left and all input is consumed: wait for the next chunk.
+                    // On the final chunk the decoder can report OK rather than END once it has flushed
+                    // everything; a call that produces nothing more means it is done. The CRC check in
+                    // ZipArchive catches a genuinely truncated stream.
                     if stream.dst_size > 0 && stream.src_size == 0 {
-                        if final { throw DecompressionError.corrupt("deflate stream ended early") }
-                        return
+                        if !final { return }
+                        if produced == 0 { finished = true; return }
                     }
                 default:
                     throw DecompressionError.corrupt("deflate")
