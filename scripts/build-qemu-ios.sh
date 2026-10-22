@@ -104,8 +104,19 @@ resub(r'^build \$QEMU_DIR --cross-prefix="" \$QEMU_PLATFORM_BUILD_FLAGS.*$',
     f'(cd "{extra}/lzfse-lzfse-1.0" && make clean >/dev/null 2>&1 || true; '
     f'make CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" INSTALL_PREFIX="$PREFIX" install)\n'
     'build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS')
-# The SPICE client is UTM's own UI stack; we display through VNC.
+# UTM's own UI and GPU stacks (SPICE client, ANGLE, Mesa, Vulkan, virgl, D3D) and its iOS
+# hypervisor shim: we display through VNC and run TCG, so none of it is needed.
 sub('\nbuild_spice_client\n', '\n')
+sub('\nbuild_vulkan_drivers\n', '\n')
+sub('\nbuild_d3d_drivers\n', '\n')
+resub(r'^    # GPU support\n(?:.*\n)*?(?=    # Hypervisor for iOS)', '')
+resub(r'^    # Hypervisor for iOS\n    if .*\n        build_hypervisor\n    fi\n', '')
+for repo in ("WEBKIT", "EPOXY", "VULKAN_LOADER", "VIRGLRENDERER", "HYPERVISOR", "MESA", "MOLTENVK", "DXMT", "D3DMETAL"):
+    resub(rf'^    clone \${repo}_REPO .*\n', '')
+resub(r'^    clone_moltenvk_dependences .*\n', '')
+resub(r'^    download \$LLVM15_SRC\n', '')
+for formula in ("llvm", "spirv-llvm-translator", "libxcb", "libxrandr"):
+    resub(rf"^    brew --prefix {re.escape(formula)} .*\n", '')
 open(dst, "w").write(s)
 EOF
 chmod +x "$SCRIPT"

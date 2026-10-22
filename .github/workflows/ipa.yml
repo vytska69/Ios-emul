@@ -25,10 +25,10 @@ jobs:
 
       - name: Host tools
         run: |
-          brew install meson ninja pkg-config glib gettext libgpg-error bison xcodegen ldid
+          brew install meson ninja pkg-config glib gettext libgpg-error bison cmake xcodegen ldid
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
-          python3 -m pip install --break-system-packages six pyparsing setuptools
+          python3 -m pip install --break-system-packages six pyparsing setuptools pyyaml distlib mako
 
       - name: Resolve QEMU fork revisions
         id: forks
