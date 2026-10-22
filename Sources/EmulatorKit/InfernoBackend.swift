@@ -97,7 +97,10 @@ public struct InfernoBackend: EmulatorBackend {
             ("nvme.6", 6, 6, 4 << 10, "nvme-ns"),      // effaceable storage
             ("nvme.7", 7, 8, 1 << 20, "nvme-ns"),      // panic log
         ]
-        if direct { try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size) }
+        var rootDevice: String?
+        if direct {
+            rootDevice = try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
+        }
         for ns in namespaces { try ensureDisk(dir.appendingPathComponent(ns.file), sizeBytes: ns.size) }
 
         var props = ["\(machine.name)", "trustcache=\(files[trustcache]!.path)", "kaslr-off=true",
@@ -115,7 +118,7 @@ public struct InfernoBackend: EmulatorBackend {
             "-cpu", "max", "-smp", "\(cpus)", "-m", "\(ctx.memoryMB)M",
             "-kernel", kernel.path,
             "-dtb", files["DeviceTree"]!.path,
-            "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1",
+            "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1" + (rootDevice.map { " rd=\($0)" } ?? ""),
             "-serial", "file:\(dir.appendingPathComponent("serial.log").path)",
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
             "-vnc", "127.0.0.1:\(vncPort - 5900)",
@@ -133,24 +136,55 @@ public struct InfernoBackend: EmulatorBackend {
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
     }
 
-    /// The IPSW's `OS` image is a raw APFS container. Written to the start of namespace 1 it shows
-    /// up as disk0s1, which Inferno roots from when no `rd=` is given. A marker records which build
-    /// is installed so the multi-GiB copy happens once.
-    func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws {
-        let marker = disk.deletingLastPathComponent().appendingPathComponent("installed-build")
+    /// Puts the IPSW's root filesystem on NVMe namespace 1 and returns the BSD root device name.
+    ///
+    /// The `OS` component is a UDIF disk image (LZFSE-compressed chunks around an APFS container,
+    /// usually behind a GPT). Expanded onto the namespace, the container is disk0s1 and its system
+    /// volume disk0s1s1, the same names a restored iPhone uses. A plain APFS image is written as is.
+    /// A marker records which build is installed so the multi-GiB expansion happens once.
+    func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
+        let dir = disk.deletingLastPathComponent()
+        let marker = dir.appendingPathComponent("installed-build")
         let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass)"
-        if (try? String(contentsOf: marker, encoding: .utf8)) == build { return }
+        if let installed = try? String(contentsOf: marker, encoding: .utf8),
+           installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
+            return String(root)
+        }
         guard let path = ctx.identity.path("OS"), let entry = ctx.ipsw.archive.entry(path) else {
             throw IPSWError.missingComponent("OS")
         }
         guard !path.hasSuffix(".aea") else {
             throw BackendError.incompatible("the root filesystem is AEA-encrypted; direct install needs its key")
         }
-        try ctx.ipsw.archive.extract(entry, to: disk) { ctx.progress("OS", $0) }
+
+        // Read the DMG in place when the IPSW stores it uncompressed (the usual case); otherwise
+        // inflate it next to the disk first.
+        let source: RandomAccessSource
+        var temporary: URL?
+        if let range = try ctx.ipsw.archive.storedRange(of: entry) {
+            source = try FileSource(url: ctx.ipsw.url, offset: range.offset, size: range.size)
+        } else {
+            let tmp = dir.appendingPathComponent("rootfs.dmg")
+            try ctx.ipsw.archive.extract(entry, to: tmp) { ctx.progress("OS", $0 / 2) }
+            source = try FileSource(url: tmp)
+            temporary = tmp
+        }
+        defer { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
+
+        let root: String
+        if UDIFImage.isUDIF(source) {
+            let image = try UDIFImage(source: source)
+            try image.expand(to: disk) { ctx.progress("OS", $0) }
+            root = image.hasPartitionMap ? "disk0s1s1" : "disk0s1"
+        } else {
+            try ctx.ipsw.archive.extract(entry, to: disk) { ctx.progress("OS", $0) }
+            root = "disk0s1"
+        }
         let handle = try FileHandle(forWritingTo: disk)
         defer { try? handle.close() }
         if try handle.seekToEnd() < size { try handle.truncate(atOffset: size) }
-        try build.write(to: marker, atomically: true, encoding: .utf8)
+        try "\(build) \(root)".write(to: marker, atomically: true, encoding: .utf8)
+        return root
     }
 }
 

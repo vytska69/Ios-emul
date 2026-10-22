@@ -70,6 +70,12 @@ public final class ZipArchive {
         return out
     }
 
+    /// Byte range of a stored (uncompressed) member inside the archive file, for random access.
+    public func storedRange(of entry: Entry) throws -> (offset: UInt64, size: UInt64)? {
+        guard entry.method == 0 else { return nil }
+        return (try localDataOffset(entry), entry.uncompressedSize)
+    }
+
     /// Reads only the first `count` decompressed bytes (enough to sniff magic numbers).
     public func head(of entry: Entry, count: Int) throws -> Data {
         struct Enough: Swift.Error {}

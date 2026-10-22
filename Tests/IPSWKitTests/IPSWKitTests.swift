@@ -84,6 +84,45 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(Decompressor.lzss(src, expectedSize: 9), Data("abcabcabc".utf8))
     }
 
+    // MARK: UDIF
+
+    func testUDIFExpandsRawZeroAndLZFSEChunks() throws {
+        let sector = 512
+        let rawPart = Data(repeating: 0xAB, count: sector * 2)                       // sectors 0-1
+        let apfs = Data("NXSB".utf8) + Data((0..<(sector * 4 - 4)).map { UInt8($0 % 13) }) // sectors 3-6
+        let lz = try TestZip.lzfse(apfs)
+        let image = try TestUDIF.build(sectors: 8, partitions: [
+            ("GUID Partition Table : 1", [(1, 0, 2, rawPart)]),
+            ("Apple_APFS : 2", [(0, 2, 1, Data()), (0x8000_0007, 3, 4, lz), (0xFFFF_FFFF, 7, 0, Data())]),
+        ])
+        let url = tmp.appendingPathComponent("os.dmg")
+        try image.write(to: url)
+
+        let source = try FileSource(url: url)
+        XCTAssertTrue(UDIFImage.isUDIF(source))
+        let udif = try UDIFImage(source: source)
+        XCTAssertEqual(udif.size, 8 * 512)
+        XCTAssertTrue(udif.hasPartitionMap)
+        let out = tmp.appendingPathComponent("disk")
+        try udif.expand(to: out)
+        let disk = try Data(contentsOf: out)
+        XCTAssertEqual(disk.count, 8 * 512)
+        XCTAssertEqual(disk.prefix(sector * 2), rawPart)
+        XCTAssertEqual(disk.subdata(in: (sector * 2)..<(sector * 3)), Data(count: sector))
+        XCTAssertEqual(disk.subdata(in: (sector * 3)..<(sector * 7)), apfs)
+    }
+
+    func testStoredZipMemberIsReadInPlace() throws {
+        let payload = Data((0..<10_000).map { UInt8($0 % 251) })
+        let url = tmp.appendingPathComponent("s.zip")
+        try TestZip.write(to: url, entries: [("a.bin", payload, false), ("b.bin", payload, true)])
+        let zip = try ZipArchive(url: url)
+        let range = try XCTUnwrap(try zip.storedRange(of: zip.entry("a.bin")!))
+        XCTAssertEqual(try FileSource(url: url, offset: range.offset, size: range.size).read(at: 100, count: 10),
+                       payload.subdata(in: 100..<110))
+        XCTAssertNil(try zip.storedRange(of: zip.entry("b.bin")!), "deflated members need inflating first")
+    }
+
     // MARK: DeviceTree + coverage
 
     func testDeviceTreeParsing() throws {
@@ -400,7 +439,44 @@ enum TestZip {
     }
 }
 
+/// Builds a minimal UDIF image: data fork, XML plist with one "blkx" table per partition, koly trailer.
+enum TestUDIF {
+    /// Chunks are (type, first sector, sector count, stored bytes).
+    static func build(sectors: UInt64, partitions: [(String, [(UInt32, UInt64, UInt64, Data)])]) throws -> Data {
+        var fork = Data()
+        var blkx: [[String: Any]] = []
+        for (name, chunks) in partitions {
+            var mish = Data()
+            mish.be32(0x6D69_7368); mish.be32(1)
+            mish.be64(0); mish.be64(sectors); mish.be64(0)       // first sector 0, count, data offset 0
+            mish.be32(0); mish.be32(0)
+            mish.append(Data(count: 24 + 136))                    // reserved + checksum
+            mish.be32(UInt32(chunks.count))
+            for (type, sector, count, bytes) in chunks {
+                mish.be32(type); mish.be32(0)
+                mish.be64(sector); mish.be64(count)
+                mish.be64(UInt64(fork.count)); mish.be64(UInt64(bytes.count))
+                fork.append(bytes)
+            }
+            blkx.append(["Name": name, "Data": mish])
+        }
+        let xml = try PropertyListSerialization.data(fromPropertyList: ["resource-fork": ["blkx": blkx]],
+                                                     format: .xml, options: 0)
+        var koly = Data()
+        koly.be32(0x6B6F_6C79); koly.be32(4); koly.be32(512); koly.be32(1)
+        koly.be64(0); koly.be64(0); koly.be64(UInt64(fork.count))    // running fork, data fork offset, length
+        koly.append(Data(count: 216 - koly.count))
+        koly.be64(UInt64(fork.count)); koly.be64(UInt64(xml.count))   // XML offset, length
+        koly.append(Data(count: 492 - koly.count))
+        koly.be64(sectors)
+        koly.append(Data(count: 512 - koly.count))
+        return fork + xml + koly
+    }
+}
+
 private extension Data {
+    mutating func be32(_ v: UInt32) { append(contentsOf: [UInt8(v >> 24), UInt8((v >> 16) & 0xFF), UInt8((v >> 8) & 0xFF), UInt8(v & 0xFF)]) }
+    mutating func be64(_ v: UInt64) { be32(UInt32(v >> 32)); be32(UInt32(v & 0xFFFF_FFFF)) }
     mutating func le16(_ v: UInt16) { append(contentsOf: [UInt8(v & 0xFF), UInt8(v >> 8)]) }
     mutating func le32(_ v: UInt32) { le16(UInt16(v & 0xFFFF)); le16(UInt16(v >> 16)) }
 }
