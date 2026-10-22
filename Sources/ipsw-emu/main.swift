@@ -172,7 +172,14 @@ case "boot":
         qemuLog.split(separator: "\n", omittingEmptySubsequences: false).suffix(40).forEach { print($0) }
     }
 
-    if let debug = try? String(contentsOf: debugLog, encoding: .utf8), !debug.isEmpty {
+    if options["qemu-debug"] != nil {
+        let size = (try? FileManager.default.attributesOfItem(atPath: debugLog.path)[.size] as? Int) ?? -1
+        print("==> qemu debug log: \(size) bytes")
+    }
+    if let data = try? Data(contentsOf: debugLog), !data.isEmpty {
+        let debug = String(decoding: data, as: UTF8.self)
+        print("==> qemu debug log head:")
+        debug.split(separator: "\n").prefix(20).forEach { print("  | \($0)") }
         let sep = debug.split(separator: "\n").filter { line in
             ["SEP", "EP_", "KeyStore", "XART", "sks", "Keystore"].contains { line.contains($0) }
         }
