@@ -14,7 +14,7 @@ on:
 
 concurrency:
   group: ipa-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ipa:
@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: App/Frameworks
-          key: qemu-ios-${{ inputs.tci && 'tci' || 'jit' }}-${{ hashFiles('scripts/build-qemu-ios.sh') }}-${{ steps.forks.outputs.key }}
+          key: qemu-ios-${{ inputs.tci && 'tci' || 'jit' }}-${{ hashFiles('scripts/build-qemu-ios.sh', 'qemu/patches/**') }}-${{ steps.forks.outputs.key }}
 
       - name: Build QEMU for iOS
         if: steps.cache.outputs.cache-hit != 'true'
