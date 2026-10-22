@@ -205,6 +205,27 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertFalse(HardwareCoverage.knownNodes["t8030"]?.isEmpty ?? true, "bundled Inferno node list loads")
     }
 
+    /// device-tree { filesystems { fstab { system-vol, data-vol, preboot-vol, xart-vol } } }
+    static func fstabTree() -> Data {
+        func prop(_ name: String, _ value: Data) -> Data {
+            var out = Data(name.utf8) + Data(count: 32 - name.utf8.count)
+            out.append(contentsOf: withUnsafeBytes(of: UInt32(value.count).littleEndian, Array.init))
+            return out + value + Data(count: (4 - value.count % 4) % 4)
+        }
+        func node(_ name: String, _ children: [Data]) -> Data {
+            var out = Data(withUnsafeBytes(of: UInt32(1).littleEndian, Array.init))
+            out.append(contentsOf: withUnsafeBytes(of: UInt32(children.count).littleEndian, Array.init))
+            return out + prop("name", Data(name.utf8) + Data([0])) + children.reduce(Data(), +)
+        }
+        let fstab = node("fstab", ["system-vol", "data-vol", "preboot-vol", "xart-vol"].map { node($0, []) })
+        // An ephemeral variant: node with name + vol.fs_ephemeral.
+        var eph = Data(withUnsafeBytes(of: UInt32(2).littleEndian, Array.init))
+        eph.append(contentsOf: withUnsafeBytes(of: UInt32(0).littleEndian, Array.init))
+        eph += prop("name", Data("ephemeral-diag-data-vol".utf8) + Data([0])) + prop("vol.fs_ephemeral", Data())
+        let diag = node("fstab-ephemeral-diag-data", [eph])
+        return node("device-tree", [node("filesystems", [fstab, diag])])
+    }
+
     /// device-tree { arm-io { aic, uart0, pmgr }, cpus } in Apple's binary format.
     static func sampleTree() -> Data {
         func prop(_ name: String, _ value: Data, placeholder: Bool = false) -> Data {
@@ -358,6 +379,11 @@ final class IPSWKitTests: XCTestCase {
         let machine = args[args.firstIndex(of: "-M")! + 1]
         XCTAssertTrue(machine.contains("boot-mode=exit_recovery"), machine)
         XCTAssertTrue(machine.contains("038-44087-125.dmg.trustcache"), "OS trust cache, not the restore one")
+        let dtb = try DeviceTree.parse(Data(contentsOf: URL(fileURLWithPath: args[args.firstIndex(of: "-dtb")! + 1])))
+        XCTAssertEqual(dtb.node(at: "filesystems/fstab")?.children.map(\.name), ["system-vol", "data-vol"],
+                       "volumes a direct install lacks are dropped from the fstab")
+        XCTAssertNotNil(dtb.node(at: "filesystems/fstab/data-vol")?.properties["vol.fs_ephemeral"],
+                        "Data becomes the ephemeral volume from the diagnostics fstab")
 
         let disk = vm.appendingPathComponent("nvme.1")
         let head = try FileHandle(forReadingFrom: disk).read(upToCount: 4)
@@ -378,7 +404,8 @@ final class IPSWKitTests: XCTestCase {
                                                       board: "n104ap"), false),
             ("kernelcache.release.iphone12b", Self.im4p("krnl"), false),
             ("kernelcache.research.iphone12b", Self.im4p("krnl"), false),
-            ("Firmware/all_flash/DeviceTree.n104ap.im4p", Self.im4p("dtre"), false),
+            ("Firmware/all_flash/DeviceTree.n104ap.im4p",
+             DER.seq([DER.ia5("IM4P"), DER.ia5("dtre"), DER.ia5(""), DER.octets(Self.fstabTree())]), false),
             ("Firmware/038-44135-124.dmg.trustcache", Data([1]), false),
             ("038-44135-124.dmg", Data([2]), true),
             ("Firmware/038-44087-125.dmg.trustcache", Data([3]), false),

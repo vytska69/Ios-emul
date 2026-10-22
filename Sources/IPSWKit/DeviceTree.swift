@@ -24,7 +24,7 @@ public final class DeviceTreeNode {
 
     public var deviceType: String? { string("device_type") }
 
-    init(properties: [String: Data], placeholders: Set<String>, children: [DeviceTreeNode]) {
+    public init(properties: [String: Data], placeholders: Set<String> = [], children: [DeviceTreeNode] = []) {
         self.properties = properties
         self.placeholders = placeholders
         self.children = children
@@ -117,7 +117,13 @@ extension DeviceTree {
     /// Serialises a tree back to Apple's binary format, dropping every node for which `remove`
     /// returns true (with its subtree). Property order is not significant to XNU or iBoot.
     public static func serialize(_ node: DeviceTreeNode, removing remove: (DeviceTreeNode) -> Bool = { _ in false }) -> Data {
-        let children = node.children.filter { !remove($0) }
+        serialize(node) { remove($0) ? nil : $0 }
+    }
+
+    /// Serialises a tree, passing every node below the root through `transform`, which returns
+    /// the node to emit in its place (itself, a replacement) or nil to drop it with its subtree.
+    public static func serialize(_ node: DeviceTreeNode, transform: (DeviceTreeNode) -> DeviceTreeNode?) -> Data {
+        let children = node.children.compactMap(transform)
         var out = Data()
         out.append(contentsOf: le32(UInt32(node.properties.count)))
         out.append(contentsOf: le32(UInt32(children.count)))
@@ -133,7 +139,7 @@ extension DeviceTree {
             out.append(value)
             out.append(Data(count: (4 - value.count % 4) % 4))
         }
-        for child in children { out.append(serialize(child, removing: remove)) }
+        for child in children { out.append(serialize(child, transform: transform)) }
         return out
     }
 

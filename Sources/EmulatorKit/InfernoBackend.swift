@@ -98,8 +98,10 @@ public struct InfernoBackend: EmulatorBackend {
             ("nvme.7", 7, 8, 1 << 20, "nvme-ns"),      // panic log
         ]
         var rootDevice: String?
+        var deviceTree = files["DeviceTree"]!
         if direct {
             rootDevice = try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
+            deviceTree = try directDeviceTree(from: deviceTree)
         }
         for ns in namespaces { try ensureDisk(dir.appendingPathComponent(ns.file), sizeBytes: ns.size) }
 
@@ -117,7 +119,7 @@ public struct InfernoBackend: EmulatorBackend {
             "-M", props.joined(separator: ","),
             "-cpu", "max", "-smp", "\(cpus)", "-m", "\(ctx.memoryMB)M",
             "-kernel", kernel.path,
-            "-dtb", files["DeviceTree"]!.path,
+            "-dtb", deviceTree.path,
             "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1" + (rootDevice.map { " rd=\($0)" } ?? ""),
             "-serial", "file:\(dir.appendingPathComponent("serial.log").path)",
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
@@ -134,6 +136,38 @@ public struct InfernoBackend: EmulatorBackend {
 
         return MachineConfiguration(backendID: id, qemuBinary: "qemu-system-aarch64", arguments: args,
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
+    }
+
+    /// Volumes a direct install provides. A restore also creates Preboot, xART, Hardware, Update,
+    /// Baseband and Data volumes; their fstab entries are dropped so launchd's mount phase does not
+    /// fail looking for them, except Data, which is swapped for an ephemeral one (below).
+    static let directInstallVolumes: Set<String> = ["system-vol", "data-vol"]
+
+    /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
+    ///
+    /// The tree already carries fstab variants for diagnostic/recovery environments in which
+    /// /private/var is an ephemeral volume created at boot from the system volume's template.
+    /// Using that definition for the normal environment gives the OS a writable /private/var
+    /// without a restore having created a Data volume.
+    func directDeviceTree(from file: URL) throws -> URL {
+        let tree = try DeviceTree.parse(Data(contentsOf: file))
+        let ephemeral = tree.child("filesystems")?.children
+            .first { $0.name.hasPrefix("fstab-ephemeral-diag") }?
+            .children.first { $0.properties["vol.fs_ephemeral"] != nil }
+        let pruned = DeviceTree.serialize(tree) { node in
+            guard node.parent?.name == "fstab", node.parent?.parent?.name == "filesystems" else { return node }
+            guard Self.directInstallVolumes.contains(node.name) else { return nil }
+            if node.name == "data-vol", let ephemeral {
+                var props = ephemeral.properties
+                props["name"] = Data("data-vol".utf8) + Data([0])
+                props["AAPL,phandle"] = node.properties["AAPL,phandle"]   // keep phandles unique
+                return DeviceTreeNode(properties: props, placeholders: ephemeral.placeholders)
+            }
+            return node
+        }
+        let out = file.deletingLastPathComponent().appendingPathComponent("DeviceTree.direct.raw")
+        try pruned.write(to: out)
+        return out
     }
 
     /// Logical block size of the emulated NVMe namespaces (`logical_block_size` below).
