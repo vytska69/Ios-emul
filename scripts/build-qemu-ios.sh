@@ -29,6 +29,7 @@ INFERNO_URL="https://github.com/ChefKissInc/QEMUAppleSilicon.git"
 INFERNO_REV="${INFERNO_REV:-cc4302a99167abec69b714cfd00c38caece7e7de}"
 NETTLE_SRC="https://mirrors.kernel.org/gnu/nettle/nettle-3.10.1.tar.gz"
 TASN1_SRC="https://mirrors.kernel.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz"
+GMP_SRC="https://mirrors.kernel.org/gnu/gmp/gmp-6.3.0.tar.bz2"
 LZFSE_SRC="https://github.com/lzfse/lzfse/archive/refs/tags/lzfse-1.0.tar.gz"
 PLATFORM="ios"
 
@@ -64,9 +65,10 @@ EXTRA="$WORK/extra-src"
 mkdir -p "$EXTRA"
 fetch() {
   local url="$1" dir="$EXTRA/$2"
-  [ -d "$dir" ] || curl -fsSL --retry 3 "$url" | tar -xz -C "$EXTRA"
+  [ -d "$dir" ] || curl -fsSL --retry 3 "$url" | tar -x -C "$EXTRA"
   [ -d "$dir" ] || { echo "error: $url did not unpack to $dir" >&2; exit 1; }
 }
+fetch "$GMP_SRC" gmp-6.3.0
 fetch "$NETTLE_SRC" nettle-3.10.1
 fetch "$TASN1_SRC" libtasn1-4.20.0
 fetch "$LZFSE_SRC" lzfse-lzfse-1.0
@@ -99,15 +101,21 @@ resub(r'TCI_BUILD_FLAGS="--enable-tcg-threaded-interpreter[^"]*"', 'TCI_BUILD_FL
 # Only the Apple machines' target, Inferno's crypto backend, no extras we never use.
 sub('--enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"',
     '--enable-ucontext --with-coroutine=libucontext --target-list=aarch64-softmmu --disable-gcrypt --enable-nettle '
-    '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools $HVF_FLAGS $TCI_BUILD_FLAGS"')
+    '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools --extra-ldflags=-lgmp '
+    '$HVF_FLAGS $TCI_BUILD_FLAGS"')
 # Extra libraries Inferno links against, built with the same toolchain before QEMU.
 resub(r'^build \$QEMU_DIR --cross-prefix="" \$QEMU_PLATFORM_BUILD_FLAGS.*$',
     # libucontext the way UTM builds it (freestanding; Apple's assembler rejects the hosted
     # variant). UTM only builds it after QEMU, for its SPICE client, so build it first here.
     'meson_build $LIBUCONTEXT_REPO -Ddefault_library=static -Dfreestanding=true\n'
     # Not via UTM's build(): for a directory argument it forgets to shift, passing the path to configure.
-    f'(cd "{extra}/nettle-3.10.1" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-documentation '
-    f'--disable-assembler --enable-mini-gmp --disable-shared && make -j$NCPU && make install)\n'
+    # Full GMP rather than nettle's mini-gmp: Inferno's SEP model calls mpz_inits/mpz_clears,
+    # which mini-gmp does not provide.
+    f'(cd "{extra}/gmp-6.3.0" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-assembly '
+    f'--disable-shared --enable-static && make -j$NCPU && make install)\n'
+    f'(cd "{extra}/nettle-3.10.1" && CPPFLAGS="-I$PREFIX/include" LDFLAGS="$LDFLAGS -L$PREFIX/lib" '
+    f'./configure --prefix="$PREFIX" --host="$CHOST" --disable-documentation '
+    f'--disable-assembler --disable-shared && make -j$NCPU && make install)\n'
     f'(cd "{extra}/libtasn1-4.20.0" && ./configure --prefix="$PREFIX" --host="$CHOST" --disable-doc '
     f'--disable-shared && make -j$NCPU && make install)\n'
     f'(cd "{extra}/lzfse-lzfse-1.0" && make clean >/dev/null 2>&1 || true; '
