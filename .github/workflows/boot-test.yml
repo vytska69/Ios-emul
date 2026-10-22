@@ -1,0 +1,134 @@
+name: Boot test
+
+# Boots real IPSWs on the emulated machines and records how far each one gets.
+# This is the measuring stick for "make every iOS version boot": run it, read the summary table,
+# fix the machine model for whatever stops first, run it again.
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: "Product type to boot"
+        default: "iPhone12,1"
+      versions:
+        description: "Comma-separated iOS versions (newest build of each major/minor is used)"
+        default: "14.0,14.8,15.0,16.0,17.0,18.0"
+      seconds:
+        description: "Time budget per boot"
+        default: "900"
+
+jobs:
+  qemu:
+    runs-on: macos-15
+    outputs:
+      rev: ${{ steps.rev.outputs.rev }}
+    steps:
+      - id: rev
+        run: echo "rev=$(git ls-remote https://github.com/ChefKissInc/QEMUAppleSilicon.git refs/heads/master | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: qemu-bin
+          key: inferno-macos-${{ steps.rev.outputs.rev }}
+      - name: Build Inferno
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          brew install meson ninja pkg-config glib pixman nettle libtasn1 lzfse gnutls libslirp
+          git clone --depth 1 https://github.com/ChefKissInc/QEMUAppleSilicon.git inferno
+          git -C inferno submodule update --init --depth 1 util/mlib
+          mkdir inferno/build && cd inferno/build
+          ../configure --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp
+          ninja qemu-system-aarch64 qemu-img
+          mkdir -p ../../qemu-bin && cp qemu-system-aarch64 qemu-img ../../qemu-bin/
+
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.m.outputs.versions }}
+    steps:
+      - id: m
+        run: |
+          python3 -c "import json,sys; print('versions=' + json.dumps([v.strip() for v in sys.argv[1].split(',') if v.strip()]))" \
+            "${{ inputs.versions }}" >> "$GITHUB_OUTPUT"
+
+  boot:
+    needs: [qemu, matrix]
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.matrix.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: qemu-bin
+          key: inferno-macos-${{ needs.qemu.outputs.rev }}
+          fail-on-cache-miss: true
+      - name: Runtime libraries
+        run: brew install glib pixman nettle libtasn1 lzfse gnutls libslirp
+
+      - name: Download IPSW
+        id: ipsw
+        run: |
+          curl -fsSL "https://api.ipsw.me/v4/device/${{ inputs.product }}?type=ipsw" -o fw.json
+          python3 - "${{ matrix.version }}" <<'EOF' > pick.txt
+          import json, sys
+          want = sys.argv[1]
+          fws = json.load(open("fw.json"))["firmwares"]
+          # Exact version first, else the newest build in that major.minor line.
+          exact = [f for f in fws if f["version"] == want]
+          line = [f for f in fws if f["version"].startswith(want.rsplit(".", 1)[0] + ".")] if want.count(".") else []
+          pick = (exact or line or [f for f in fws if f["version"].split(".")[0] == want.split(".")[0]])
+          if not pick:
+              sys.exit(f"no IPSW for {want}")
+          f = pick[0]
+          print(f["url"]); print(f["version"]); print(f["buildid"])
+          EOF
+          echo "url=$(sed -n 1p pick.txt)" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -n 2p pick.txt)" >> "$GITHUB_OUTPUT"
+          echo "build=$(sed -n 3p pick.txt)" >> "$GITHUB_OUTPUT"
+          curl -fL --retry 3 -o firmware.ipsw "$(sed -n 1p pick.txt)"
+          ls -lh firmware.ipsw
+
+      - name: Build ipsw-emu
+        run: swift build -c release --product ipsw-emu
+
+      - name: Inspect
+        run: .build/release/ipsw-emu inspect firmware.ipsw | tee inspect.txt
+
+      - name: Boot
+        run: |
+          export PATH="$PWD/qemu-bin:$PATH"
+          .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
+            --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 | tee boot.txt || true
+
+      - name: Summary
+        if: always()
+        run: |
+          milestone=$(grep '^==> milestone:' boot.txt | sed 's/^==> milestone: //' || true)
+          panic=$(grep '^==> panic:' boot.txt | sed 's/^==> panic: //' || true)
+          {
+            echo "### ${{ inputs.product }} iOS ${{ steps.ipsw.outputs.version }} (${{ steps.ipsw.outputs.build }})"
+            echo
+            echo "- Furthest milestone: **${milestone:-none}**"
+            [ -n "$panic" ] && echo "- Panic: \`$panic\`"
+            echo
+            echo '<details><summary>Serial tail</summary>'
+            echo
+            echo '```'
+            tail -n 60 vm/serial.log 2>/dev/null || echo "(no serial log)"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boot-${{ inputs.product }}-${{ matrix.version }}
+          path: |
+            inspect.txt
+            boot.txt
+            vm/serial.log
+            vm/qemu.log
+          if-no-files-found: ignore
