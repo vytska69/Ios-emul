@@ -45,10 +45,18 @@ index 2e55850..4714815 100644
      object_property_set_uint(OBJECT(s->nvme), "max_ioqpairs", 7, &error_fatal);
      object_property_set_uint(OBJECT(s->nvme), "mdts", 8, &error_fatal);
 diff --git a/hw/display/apple_displaypipe_v4.c b/hw/display/apple_displaypipe_v4.c
-index 8e77db8..984fd89 100644
+index 8e77db8..af474ee 100644
 --- a/hw/display/apple_displaypipe_v4.c
 +++ b/hw/display/apple_displaypipe_v4.c
-@@ -735,7 +735,11 @@ static void adp_v4_draw_boot_splash_timer(void *opaque)
+@@ -26,6 +26,7 @@
+ #include "hw/registerfields.h"
+ #include "migration/vmstate.h"
+ #include "qemu/cutils.h"
++#include "qemu/error-report.h"
+ #include "qemu/log.h"
+ #include "system/dma.h"
+ #include "ui/console.h"
+@@ -735,7 +736,11 @@ static void adp_v4_draw_boot_splash_timer(void *opaque)
      g_free(ctx);
  }
  
@@ -61,7 +69,7 @@ index 8e77db8..984fd89 100644
  static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
  {
      char *path;
-@@ -750,16 +754,17 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
+@@ -750,16 +755,17 @@ static void adp_v4_read_and_draw_boot_splash(AppleDisplayPipeV4State *adp)
      uint32_t disp_height;
  
      path = get_relocated_path(CONFIG_QEMU_ICONDIR
