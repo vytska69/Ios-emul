@@ -1,0 +1,18 @@
+diff --git a/include/hw/arm/apple-silicon/boot.h b/include/hw/arm/apple-silicon/boot.h
+index e80c3d0..017c116 100644
+--- a/include/hw/arm/apple-silicon/boot.h
++++ b/include/hw/arm/apple-silicon/boot.h
+@@ -21,7 +21,12 @@
+ #define HW_ARM_APPLE_SILICON_BOOT_H
+ 
+ // #define ENABLE_BASEBAND
+-#define ENABLE_DATA_ENCRYPTION
++/*
++ * Data protection needs the real SEP (SEP ROM + decrypted SEP firmware), neither of which ships in
++ * an IPSW. Without it the guest boots with the simulated SEP and the DeviceTree's content-protect
++ * properties removed, so iOS uses an unencrypted data volume. Build with
++ * -DENABLE_DATA_ENCRYPTION to restore upstream's default.
++ */
+ 
+ #include "qemu/osdep.h"
+ #include "exec/hwaddr.h"

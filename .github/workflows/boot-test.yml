@@ -26,21 +26,29 @@ jobs:
   qemu:
     runs-on: macos-15
     outputs:
-      rev: ${{ steps.rev.outputs.rev }}
+      key: ${{ steps.rev.outputs.key }}
     steps:
+      - uses: actions/checkout@v4
+      # Same pinned revision and patches as the iOS build (scripts/build-qemu-ios.sh).
       - id: rev
-        run: echo "rev=$(git ls-remote https://github.com/ChefKissInc/QEMUAppleSilicon.git refs/heads/master | cut -c1-12)" >> "$GITHUB_OUTPUT"
+        run: |
+          rev=$(sed -n 's/^INFERNO_REV="${INFERNO_REV:-\([0-9a-f]*\)}"$/\1/p' scripts/build-qemu-ios.sh)
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "key=${rev:0:12}-${{ hashFiles('qemu/patches/**') }}" >> "$GITHUB_OUTPUT"
       - id: cache
         uses: actions/cache@v4
         with:
           path: qemu-bin
-          key: inferno-macos-${{ steps.rev.outputs.rev }}
+          key: inferno-macos-${{ steps.rev.outputs.key }}
       - name: Build Inferno
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           brew install meson ninja pkg-config glib pixman nettle libtasn1 lzfse gnutls libslirp
-          git clone --depth 1 https://github.com/ChefKissInc/QEMUAppleSilicon.git inferno
+          git init -q inferno
+          git -C inferno fetch -q --depth 1 https://github.com/ChefKissInc/QEMUAppleSilicon.git ${{ steps.rev.outputs.rev }}
+          git -C inferno checkout -q FETCH_HEAD
           git -C inferno submodule update --init --depth 1 util/mlib
+          for p in qemu/patches/inferno/*.patch; do git -C inferno apply --whitespace=nowarn "$PWD/$p"; done
           mkdir inferno/build && cd inferno/build
           ../configure --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp --disable-gcrypt --enable-nettle \
             --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib"
@@ -73,7 +81,7 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: qemu-bin
-          key: inferno-macos-${{ needs.qemu.outputs.rev }}
+          key: inferno-macos-${{ needs.qemu.outputs.key }}
           fail-on-cache-miss: true
       - name: Runtime libraries
         run: brew install glib pixman nettle libtasn1 lzfse gnutls libslirp
