@@ -1,0 +1,66 @@
+name: Root filesystem probe
+
+# Mounts an IPSW's root filesystem on a macOS runner and runs shell commands against it. Used to
+# find out what a boot stage needs (which binary a boot task runs, which files it expects) before
+# changing how direct installs lay out the disk.
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: "Product type"
+        default: "iPhone12,1"
+      version:
+        description: "iOS version"
+        default: "14.0"
+      commands:
+        description: "Shell commands run with $ROOT set to the mounted root filesystem"
+        default: ""
+
+jobs:
+  probe:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download IPSW
+        run: |
+          curl -fsSL "https://api.ipsw.me/v4/device/${{ inputs.product }}?type=ipsw" -o fw.json
+          url=$(python3 - "${{ inputs.version }}" <<'EOF'
+          import json, sys
+          want = sys.argv[1]
+          fws = json.load(open("fw.json"))["firmwares"]
+          pick = [f for f in fws if f["version"] == want] or [f for f in fws if f["version"].startswith(want)]
+          print(pick[0]["url"])
+          EOF
+          )
+          curl -fL --retry 3 -o firmware.ipsw "$url"
+
+      - name: Mount root filesystem
+        run: |
+          python3 - <<'EOF'
+          import shutil, zipfile
+          z = zipfile.ZipFile("firmware.ipsw")
+          os_dmg = max((i for i in z.infolist() if i.filename.endswith(".dmg")), key=lambda i: i.file_size)
+          print("root filesystem:", os_dmg.filename, os_dmg.file_size)
+          with z.open(os_dmg) as src, open("root.dmg", "wb") as dst:
+              shutil.copyfileobj(src, dst, 1 << 24)
+          EOF
+          rm firmware.ipsw
+          mkdir -p root
+          hdiutil attach -readonly -nobrowse -mountpoint "$PWD/root" root.dmg
+
+      - name: Probe
+        env:
+          ROOT: ${{ github.workspace }}/root
+        run: |
+          set +e
+          if [ -n "${{ inputs.commands }}" ]; then
+            eval "${{ inputs.commands }}"
+          else
+            ls -la "$ROOT/private" "$ROOT/private/xarts" "$ROOT/private/preboot" 2>&1
+            ls -la "$ROOT/System/Library/xpc" 2>&1
+            find "$ROOT/usr/libexec" "$ROOT/sbin" -maxdepth 1 -iname '*data_protection*' -o -maxdepth 1 -iname '*keybag*' 2>/dev/null
+            plutil -p "$ROOT/System/Library/xpc/launchd.plist" 2>/dev/null | grep -n -i -B3 -A12 'data-protection\|data_protection\|BootTask' | head -200
+            strings -a "$ROOT/sbin/launchd" | grep -n -i 'data-protection\|init_data_protection\|mount-phase\|boot task\|BootTask' | head -60
+            strings -a "$ROOT/usr/libexec/init_data_protection" 2>/dev/null | grep -i 'gigalocker\|xart\|usage\|-' | head -80
+          fi
