@@ -120,6 +120,12 @@ case "boot":
     if let panic = BootMilestone.panic(in: serial) { print("==> panic: \(panic)") }
     print("==> serial tail:")
     serial.split(separator: "\n", omittingEmptySubsequences: false).suffix(60).forEach { print($0) }
+    // QEMU's own errors (bad options, missing files, machine init failures) go to qemu.log.
+    if let qemuLog = try? String(contentsOf: work.appendingPathComponent("qemu.log"), encoding: .utf8),
+       !qemuLog.isEmpty {
+        print("==> qemu log tail:")
+        qemuLog.split(separator: "\n", omittingEmptySubsequences: false).suffix(40).forEach { print($0) }
+    }
 
 default:
     fail("unknown command \(command)")

@@ -131,6 +131,13 @@ jobs:
             tail -n 60 vm/serial.log 2>/dev/null || echo "(no serial log)"
             echo '```'
             echo '</details>'
+            echo
+            echo '<details><summary>QEMU log tail</summary>'
+            echo
+            echo '```'
+            tail -n 40 vm/qemu.log 2>/dev/null || echo "(no qemu log)"
+            echo '```'
+            echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
