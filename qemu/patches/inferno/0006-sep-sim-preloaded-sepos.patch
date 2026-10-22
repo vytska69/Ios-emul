@@ -1,0 +1,86 @@
+diff --git a/hw/arm/apple-silicon/sep-sim.c b/hw/arm/apple-silicon/sep-sim.c
+index 5b4b7d1..f714d58 100644
+--- a/hw/arm/apple-silicon/sep-sim.c
++++ b/hw/arm/apple-silicon/sep-sim.c
+@@ -1147,7 +1147,11 @@ static void apple_sep_sim_reset_hold(Object *obj, ResetType type)
+         }
+     }
+ 
+-    s->status = SEP_STATUS_BOOTSTRAP;
++    /*
++     * Without iBoot nothing loads the SEP firmware, so a direct boot starts with SEPOS already
++     * running: announce the active state, then what BOOT_IMG4 would have sent.
++     */
++    s->status = s->preloaded ? SEP_STATUS_ACTIVE : SEP_STATUS_BOOTSTRAP;
+ 
+     msg = g_new0(AppleA7IOPMessage, 1);
+     sep_msg = (SEPMessage *)msg->data;
+@@ -1155,6 +1159,12 @@ static void apple_sep_sim_reset_hold(Object *obj, ResetType type)
+     sep_msg->op = BOOTSTRAP_OP_ANNOUNCE_STATUS;
+     sep_msg->data = s->status;
+     apple_a7iop_send_ap(a7iop, msg);
++
++    if (s->preloaded) {
++        qemu_log_mask(LOG_GUEST_ERROR, "SEP-SIM: starting with SEPOS preloaded\n");
++        apple_sep_sim_send_message(s, EP_CONTROL, 0, CONTROL_OP_NOTIFY_ALIVE, 0, 0);
++        apple_sep_sim_advertise_eps(s);
++    }
+ }
+ 
+ static void apple_sep_sim_class_init(ObjectClass *klass, const void *data)
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index 565f02e..3ad7517 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -2314,6 +2314,7 @@ static void t8030_create_sep_sim(AppleT8030MachineState *t8030)
+ 
+     sep = apple_sep_sim_from_node(child, true);
+     assert_nonnull(sep);
++    sep->preloaded = t8030->sep_preloaded;
+ 
+     object_property_add_child(OBJECT(t8030), "sep-sim", OBJECT(sep));
+ 
+@@ -3058,6 +3059,7 @@ static char *t8030_get_boot_mode(Object *obj, Error **errp)
+ 
+ PROP_VISIT_GETTER_SETTER(uint64, ecid);
+ PROP_GETTER_SETTER(bool, kaslr_off);
++PROP_GETTER_SETTER(bool, sep_preloaded);
+ PROP_GETTER_SETTER(bool, force_dfu);
+ PROP_GETTER_SETTER(int, usb_conn_type);
+ PROP_STR_GETTER_SETTER(trustcache_filename);
+@@ -3123,6 +3125,10 @@ static void t8030_class_init(ObjectClass *klass, const void *data)
+     object_class_property_add_bool(klass, "kaslr-off", t8030_get_kaslr_off,
+                                    t8030_set_kaslr_off);
+     object_class_property_set_description(klass, "kaslr-off", "Disable KASLR");
++    object_class_property_add_bool(klass, "sep-preloaded", t8030_get_sep_preloaded,
++                                   t8030_set_sep_preloaded);
++    object_class_property_set_description(klass, "sep-preloaded",
++                                          "Simulated SEP starts with SEPOS running (no iBoot)");
+     object_class_property_add_bool(klass, "force-dfu", t8030_get_force_dfu,
+                                    t8030_set_force_dfu);
+     object_class_property_set_description(klass, "force-dfu", "Force DFU");
+diff --git a/include/hw/arm/apple-silicon/sep-sim.h b/include/hw/arm/apple-silicon/sep-sim.h
+index 2758060..c84b22f 100644
+--- a/include/hw/arm/apple-silicon/sep-sim.h
++++ b/include/hw/arm/apple-silicon/sep-sim.h
+@@ -61,6 +61,8 @@ struct AppleSEPSimState {
+     AddressSpace *dma_as;
+     QemuMutex lock;
+     bool rsep;
++    /* SEPOS already running at reset, as after iBoot loaded it (direct boots). */
++    bool preloaded;
+     uint32_t status;
+     AppleSEPSimOOLInfo ool_info[SEP_ENDPOINT_MAX];
+     AppleSEPSimOOLState ool_state[SEP_ENDPOINT_MAX];
+diff --git a/include/hw/arm/apple-silicon/t8030.h b/include/hw/arm/apple-silicon/t8030.h
+index 3e53c81..d45800a 100644
+--- a/include/hw/arm/apple-silicon/t8030.h
++++ b/include/hw/arm/apple-silicon/t8030.h
+@@ -70,6 +70,7 @@ typedef struct {
+     MemoryRegion amcc;
+     uint8_t amcc_reg[0x100000];
+     bool kaslr_off;
++    bool sep_preloaded;
+     bool force_dfu;
+     uint32_t board_id;
+     uint32_t chip_revision;

@@ -109,6 +109,9 @@ public struct InfernoBackend: EmulatorBackend {
                      "boot-mode=\(ctx.bootMode.machineBootMode)"]
         if let ticket { props.append("ticket=\(ticket.path)") }
         if let seprom, let sepfw { props += ["sep-rom=\(seprom.path)", "sep-fw=\(sepfw.path)"] }
+        // Without iBoot nothing boots the simulated SEP's firmware, so a direct boot starts it
+        // with SEPOS already running (qemu/patches/inferno/0006).
+        if direct && seprom == nil { props.append("sep-preloaded=true") }
 
         // With SEP emulated, one of the -smp CPUs becomes the SEP core.
         let cpus = min(ctx.cpuCount, machine.maxCPUs) + (seprom != nil ? 1 : 0)
