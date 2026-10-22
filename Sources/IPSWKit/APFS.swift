@@ -244,8 +244,14 @@ public final class APFSContainer {
     /// The new volume copies the format flags of the container's first volume.
     public func addVolume(name: String, role: Role, tree: Tree) throws {
         guard try !roles().contains(role.rawValue) else { return }
+        // newfs_apfs sizes nx_max_file_systems as one volume per 512 MiB, so small containers
+        // have no spare slot; the superblock has room for 100, and the limit is only advisory.
+        var maxVolumes = Int(ByteReader(superblock).u32(at: 180))
+        if !(0..<maxVolumes).contains(where: { ByteReader(superblock).u64(at: 184 + $0 * 8) == 0 }), maxVolumes < 100 {
+            maxVolumes += 1
+            superblock.put32(UInt32(maxVolumes), at: 180)
+        }
         let r = ByteReader(superblock)
-        let maxVolumes = Int(r.u32(at: 180))
         guard let slot = (0..<maxVolumes).first(where: { r.u64(at: 184 + $0 * 8) == 0 }),
               let templateOID = volumeOIDs.first else { throw Error.unsupported("no free volume slot") }
         let template = try volumeSuperblock(templateOID)
