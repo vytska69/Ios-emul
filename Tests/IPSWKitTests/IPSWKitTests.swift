@@ -112,6 +112,46 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(disk.subdata(in: (sector * 3)..<(sector * 7)), apfs)
     }
 
+    func testGPTFor4KBlocksAndAPFSPartitionPlacement() throws {
+        let size: UInt64 = 64 << 20
+        let url = tmp.appendingPathComponent("disk4k")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: size)
+        let layout = GPT.layout(diskSize: size, blockSize: 4096)
+        XCTAssertEqual(layout.firstUsable, 256, "1 MiB aligned on 4 KiB blocks")
+        try GPT.write(to: handle, layout: layout)
+
+        // Put the APFS chunk of a UDIF image behind the table.
+        let apfs = Data("NXSB".utf8) + Data(repeating: 7, count: 2044)
+        let dmg = try TestUDIF.build(sectors: 6, partitions: [
+            ("GUID Partition Table : 1", [(1, 0, 2, Data(repeating: 0xAB, count: 1024))]),
+            ("Apple_APFS : 2", [(1, 2, 4, apfs)]),
+        ])
+        let dmgURL = tmp.appendingPathComponent("p.dmg"); try dmg.write(to: dmgURL)
+        let image = try UDIFImage(source: try FileSource(url: dmgURL))
+        try image.expand(try XCTUnwrap(image.apfsPartition), into: handle, at: layout.partitionOffset)
+        try handle.close()
+
+        let disk = try FileHandle(forReadingFrom: url)
+        func block(_ lba: UInt64, _ n: Int = 4096) throws -> Data { try disk.seek(toOffset: lba * 4096); return disk.readData(ofLength: n) }
+        let mbr = try block(0)
+        XCTAssertEqual(mbr[450], 0xEE); XCTAssertEqual(mbr[510], 0x55); XCTAssertEqual(mbr[511], 0xAA)
+
+        for (lba, isPrimary) in [(UInt64(1), true), (layout.diskBlocks - 1, false)] {
+            var header = try block(lba, 92)
+            XCTAssertEqual(header.prefix(8), Data("EFI PART".utf8))
+            let stored = header.subdata(in: 16..<20).withUnsafeBytes { $0.load(as: UInt32.self) }
+            header.replaceSubrange(16..<20, with: Data(count: 4))
+            var crc = CRC32(); crc.update(header)
+            XCTAssertEqual(crc.value, UInt32(littleEndian: stored), isPrimary ? "primary" : "backup")
+        }
+        let entry = try block(2, 128)
+        XCTAssertEqual(Array(entry.prefix(16)), GPT.apfsType)
+        XCTAssertEqual(entry.subdata(in: 32..<40).withUnsafeBytes { $0.load(as: UInt64.self) }, 256)
+        XCTAssertEqual(try block(layout.firstUsable, apfs.count), apfs)
+    }
+
     func testStoredZipMemberIsReadInPlace() throws {
         let payload = Data((0..<10_000).map { UInt8($0 % 251) })
         let url = tmp.appendingPathComponent("s.zip")

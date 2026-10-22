@@ -104,32 +104,56 @@ public struct UDIFImage {
         let total = max(1, chunks.reduce(0) { $0 + $1.sectorCount })
         var done: UInt64 = 0
         for chunk in chunks {
-            let length = Int(chunk.sectorCount * Self.sectorSize)
-            let base = dataForkOffset + chunk.compressedOffset
-            var payload: Data?
-            switch chunk.type {
-            case 0x0000_0000, 0x0000_0002, 0x7FFF_FFFE, 0xFFFF_FFFF:
-                payload = nil                                        // zero-fill, ignore, comment, end
-            case 0x0000_0001:
-                payload = try source.read(at: base, count: Int(chunk.compressedLength))
-            case 0x8000_0005:                                        // zlib: 2-byte header + raw deflate
-                let z = try source.read(at: base, count: Int(chunk.compressedLength))
-                payload = try Self.decode(z.dropFirst(2), algorithm: COMPRESSION_ZLIB, size: length)
-            case 0x8000_0007:                                        // LZFSE
-                let c = try source.read(at: base, count: Int(chunk.compressedLength))
-                payload = try Self.decode(c, algorithm: COMPRESSION_LZFSE, size: length)
-            case 0x8000_0008:                                        // LZMA
-                let c = try source.read(at: base, count: Int(chunk.compressedLength))
-                payload = try Self.decode(c, algorithm: COMPRESSION_LZMA, size: length)
-            default:
-                throw Error.unsupportedChunk(chunk.type)
-            }
-            if let payload, payload.contains(where: { $0 != 0 }) {
+            if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
                 try out.seek(toOffset: chunk.sector * Self.sectorSize)
                 out.write(payload)
             }
             done += chunk.sectorCount
             progress?(Double(done) / Double(total))
+        }
+    }
+
+    /// The partition holding the APFS container, if the image has one.
+    public var apfsPartition: Partition? { partitions.first { $0.name.contains("Apple_APFS") } }
+
+    /// Writes one partition's contents into `handle` starting at byte `offset`, so it can be placed
+    /// behind a partition table built for a different block size.
+    public func expand(_ partition: Partition, into handle: FileHandle, at offset: UInt64,
+                       progress: ((Double) -> Void)? = nil) throws {
+        let chunks = partition.chunks.filter { $0.sectorCount > 0 }
+        guard let start = chunks.map(\.sector).min() else { return }
+        let total = max(1, chunks.reduce(0) { $0 + $1.sectorCount })
+        var done: UInt64 = 0
+        for chunk in chunks {
+            if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
+                try handle.seek(toOffset: offset + (chunk.sector - start) * Self.sectorSize)
+                handle.write(payload)
+            }
+            done += chunk.sectorCount
+            progress?(Double(done) / Double(total))
+        }
+    }
+
+    /// Decompressed bytes of one chunk, or nil for chunks that read as zeros.
+    func decodeChunk(_ chunk: Chunk) throws -> Data? {
+        let length = Int(chunk.sectorCount * Self.sectorSize)
+        let base = dataForkOffset + chunk.compressedOffset
+        switch chunk.type {
+        case 0x0000_0000, 0x0000_0002, 0x7FFF_FFFE, 0xFFFF_FFFF:
+            return nil                                               // zero-fill, ignore, comment, end
+        case 0x0000_0001:
+            return try source.read(at: base, count: Int(chunk.compressedLength))
+        case 0x8000_0005:                                            // zlib: 2-byte header + raw deflate
+            let z = try source.read(at: base, count: Int(chunk.compressedLength))
+            return try Self.decode(z.dropFirst(2), algorithm: COMPRESSION_ZLIB, size: length)
+        case 0x8000_0007:
+            return try Self.decode(source.read(at: base, count: Int(chunk.compressedLength)),
+                                   algorithm: COMPRESSION_LZFSE, size: length)
+        case 0x8000_0008:
+            return try Self.decode(source.read(at: base, count: Int(chunk.compressedLength)),
+                                   algorithm: COMPRESSION_LZMA, size: length)
+        default:
+            throw Error.unsupportedChunk(chunk.type)
         }
     }
 

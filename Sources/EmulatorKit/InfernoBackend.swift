@@ -136,6 +136,9 @@ public struct InfernoBackend: EmulatorBackend {
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
     }
 
+    /// Logical block size of the emulated NVMe namespaces (`logical_block_size` below).
+    static let nvmeBlockSize: UInt64 = 4096
+
     /// Puts the IPSW's root filesystem on NVMe namespace 1 and returns the BSD root device name.
     ///
     /// The `OS` component is a UDIF disk image (LZFSE-compressed chunks around an APFS container,
@@ -174,8 +177,22 @@ public struct InfernoBackend: EmulatorBackend {
         let root: String
         if UDIFImage.isUDIF(source) {
             let image = try UDIFImage(source: source)
-            try image.expand(to: disk) { ctx.progress("OS", $0) }
-            root = image.hasPartitionMap ? "disk0s1s1" : "disk0s1"
+            if let apfs = image.apfsPartition {
+                // The DMG's own GPT is for 512-byte sectors; the namespace uses 4096-byte blocks.
+                // Write a GPT for the real block size and put the APFS container behind it, as a
+                // restore would: disk0s1 is the container, disk0s1s1 its system volume.
+                FileManager.default.createFile(atPath: disk.path, contents: nil)
+                let handle = try FileHandle(forWritingTo: disk)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: size)
+                let layout = GPT.layout(diskSize: size, blockSize: Self.nvmeBlockSize)
+                try GPT.write(to: handle, layout: layout)
+                try image.expand(apfs, into: handle, at: layout.partitionOffset) { ctx.progress("OS", $0) }
+                root = "disk0s1s1"
+            } else {
+                try image.expand(to: disk) { ctx.progress("OS", $0) }
+                root = "disk0s1"
+            }
         } else {
             try ctx.ipsw.archive.extract(entry, to: disk) { ctx.progress("OS", $0) }
             root = "disk0s1"
