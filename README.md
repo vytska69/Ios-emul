@@ -75,8 +75,10 @@ paleidimas pradedamas nuo `ipsw-emu boot --force-backend inferno-t8030`.
 
 Kiekvienas IPA build'as atnaujina [rolling release](https://github.com/vytska69/Ios-emul/releases/tag/Rolling):
 
-- **SideStore / AltStore:** pridėk šaltinį
+- **SideStore / AltStore Classic:** pridėk šaltinį
   `https://github.com/vytska69/Ios-emul/releases/download/Rolling/sidestore.json`.
+  **AltStore PAL** (ES versija) šio šaltinio nepriims: ji diegia tik Apple notarizuotas programas
+  su `marketplaceID`, o šis build'as nėra notarizuotas.
 - **TrollStore:** atidaryk
   `https://github.com/vytska69/Ios-emul/releases/download/Rolling/IOSEmul.ipa`.
 
