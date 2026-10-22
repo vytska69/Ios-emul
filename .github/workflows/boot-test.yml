@@ -12,6 +12,9 @@ on:
       versions:
         description: "Comma-separated iOS versions (newest build of each major/minor is used)"
         default: "14.0,14.8,15.0,16.0,17.0,18.0"
+      modes:
+        description: "Comma-separated boot modes: direct (no restore host), auto (restore ramdisk)"
+        default: "direct,auto"
       seconds:
         description: "Time budget per boot"
         default: "900"
@@ -45,11 +48,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.m.outputs.versions }}
+      modes: ${{ steps.m.outputs.modes }}
     steps:
       - id: m
         run: |
-          python3 -c "import json,sys; print('versions=' + json.dumps([v.strip() for v in sys.argv[1].split(',') if v.strip()]))" \
-            "${{ inputs.versions }}" >> "$GITHUB_OUTPUT"
+          split() { python3 -c "import json,sys; print(json.dumps([v.strip() for v in sys.argv[1].split(',') if v.strip()]))" "$1"; }
+          echo "versions=$(split '${{ inputs.versions }}')" >> "$GITHUB_OUTPUT"
+          echo "modes=$(split '${{ inputs.modes }}')" >> "$GITHUB_OUTPUT"
 
   boot:
     needs: [qemu, matrix]
@@ -59,6 +64,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ${{ fromJSON(needs.matrix.outputs.versions) }}
+        mode: ${{ fromJSON(needs.matrix.outputs.modes) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
@@ -102,7 +108,7 @@ jobs:
         run: |
           export PATH="$PWD/qemu-bin:$PATH"
           .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
-            --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 | tee boot.txt || true
+            --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 --mode "${{ matrix.mode }}" | tee boot.txt || true
 
       - name: Summary
         if: always()
@@ -110,7 +116,7 @@ jobs:
           milestone=$(grep '^==> milestone:' boot.txt | sed 's/^==> milestone: //' || true)
           panic=$(grep '^==> panic:' boot.txt | sed 's/^==> panic: //' || true)
           {
-            echo "### ${{ inputs.product }} iOS ${{ steps.ipsw.outputs.version }} (${{ steps.ipsw.outputs.build }})"
+            echo "### ${{ inputs.product }} iOS ${{ steps.ipsw.outputs.version }} (${{ steps.ipsw.outputs.build }}) — ${{ matrix.mode }}"
             echo
             echo "- Furthest milestone: **${milestone:-none}**"
             [ -n "$panic" ] && echo "- Panic: \`$panic\`"
@@ -126,7 +132,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: boot-${{ inputs.product }}-${{ matrix.version }}
+          name: boot-${{ inputs.product }}-${{ matrix.version }}-${{ matrix.mode }}
           path: |
             inspect.txt
             boot.txt
