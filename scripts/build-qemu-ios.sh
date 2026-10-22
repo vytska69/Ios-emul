@@ -24,7 +24,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/build-qemu"
 OUT="$ROOT/App/Frameworks"
-UTM_TAG="v4.6.4"
+UTM_TAG="v5.0.8"
 INFERNO_URL="https://github.com/ChefKissInc/QEMUAppleSilicon.git"
 INFERNO_REV="${INFERNO_REV:-cc4302a99167abec69b714cfd00c38caece7e7de}"
 NETTLE_SRC="https://ftp.gnu.org/gnu/nettle/nettle-3.10.1.tar.gz"
@@ -73,6 +73,7 @@ fetch "$LZFSE_SRC" lzfse-lzfse-1.0
 
 SCRIPT="$WORK/UTM/scripts/build_dependencies_inferno.sh"
 python3 - "$WORK/UTM/scripts/build_dependencies.sh" "$SCRIPT" "$EXTRA" <<'EOF'
+import re
 import sys
 src, dst, extra = sys.argv[1:]
 s = open(src).read()
@@ -83,21 +84,26 @@ def sub(old, new):
         sys.exit(f"UTM script changed; cannot find: {old!r}")
     s = s.replace(old, new)
 
+def resub(pattern, new):
+    global s
+    s, n = re.subn(pattern, lambda _: new, s, flags=re.M)
+    if n == 0:
+        sys.exit(f"UTM script changed; cannot find: {pattern!r}")
+
 # UTM-only configure flags that Inferno does not have.
 sub('HVF_FLAGS="--enable-hvf-private"', 'HVF_FLAGS="--disable-hvf"')
-sub('TCI_BUILD_FLAGS="--enable-tcg-threaded-interpreter --target-list=aarch64-softmmu,arm-softmmu,i386-softmmu,ppc-softmmu,ppc64-softmmu,riscv32-softmmu,riscv64-softmmu,x86_64-softmmu',
-    'TCI_BUILD_FLAGS="--enable-tcg-interpreter')
+resub(r'TCI_BUILD_FLAGS="--enable-tcg-threaded-interpreter[^"]*"', 'TCI_BUILD_FLAGS="--enable-tcg-interpreter"')
 # Only the Apple machines' target, Inferno's crypto backend, no extras we never use.
 sub('--enable-ucontext --with-coroutine=libucontext $HVF_FLAGS $TCI_BUILD_FLAGS"',
     '--enable-ucontext --with-coroutine=libucontext --target-list=aarch64-softmmu --disable-gcrypt --enable-nettle '
     '--enable-lzfse --disable-spice --disable-usb-redir --disable-libusb --disable-tools $HVF_FLAGS $TCI_BUILD_FLAGS"')
 # Extra libraries Inferno links against, built with the same toolchain before QEMU.
-sub('build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS',
+resub(r'^build \$QEMU_DIR --cross-prefix="" \$QEMU_PLATFORM_BUILD_FLAGS.*$',
     f'build "{extra}/nettle-3.10.1" --disable-documentation --disable-assembler --enable-mini-gmp --disable-shared\n'
     f'build "{extra}/libtasn1-4.20.0" --disable-doc --disable-shared\n'
     f'(cd "{extra}/lzfse-lzfse-1.0" && make clean >/dev/null 2>&1 || true; '
     f'make CC="$CC" CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS" INSTALL_PREFIX="$PREFIX" install)\n'
-    'build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS')
+    'build $QEMU_DIR --cross-prefix="" $QEMU_PLATFORM_BUILD_FLAGS $QEMU_DEBUG_FLAGS')
 # The SPICE client is UTM's own UI stack; we display through VNC.
 sub('\nbuild_spice_client\n', '\n')
 open(dst, "w").write(s)
