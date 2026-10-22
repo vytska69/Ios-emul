@@ -7,6 +7,10 @@ import EmulatorKit
 //   ipsw-emu inspect <file.ipsw>
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
+//                 [--force-backend inferno-t8030]
+//
+// --force-backend runs a firmware on a machine its compatibility check rejects. That is how a new
+// SoC is brought up: boot it on the closest existing model and fix whatever it trips over first.
 //
 // `boot` prepares the machine exactly like the app, runs QEMU for at most --seconds, then prints
 // the tail of the serial log and the furthest boot milestone reached.
@@ -60,9 +64,21 @@ case "inspect":
 
 case "boot":
     let rows = report.rows.filter { options["product"] == nil || $0.device.productType == options["product"] }
-    guard let row = rows.first(where: { $0.compatibility.isRunnable }), let backend = row.backend else {
-        fail("no runnable backend: " + rows.map { "\($0.device.productType): \($0.compatibility.summary)" }
-            .joined(separator: "; "))
+    let row: CompatibilityReport.Row
+    let backend: EmulatorBackend
+    if let forced = options["force-backend"] {
+        guard let b = BackendRegistry.shared.backend(id: forced) else { fail("unknown backend \(forced)") }
+        guard let first = rows.first else { fail("product not in this IPSW") }
+        row = CompatibilityReport.Row(device: first.device, backend: b,
+                                      compatibility: .experimental("forced onto \(forced)"))
+        backend = b
+    } else {
+        guard let r = rows.first(where: { $0.compatibility.isRunnable }), let b = r.backend else {
+            fail("no runnable backend: " + rows.map { "\($0.device.productType): \($0.compatibility.summary)" }
+                .joined(separator: "; "))
+        }
+        row = r
+        backend = b
     }
     let classes = ipsw.manifest.deviceClasses
     let index = ipsw.devices.firstIndex(of: row.device) ?? 0

@@ -7,6 +7,10 @@ public struct CompatibilityReport {
         public let device: DeviceInfo
         public let backend: EmulatorBackend?
         public let compatibility: Compatibility
+
+        public init(device: DeviceInfo, backend: EmulatorBackend?, compatibility: Compatibility) {
+            self.device = device; self.backend = backend; self.compatibility = compatibility
+        }
     }
 
     public let rows: [Row]
