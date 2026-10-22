@@ -73,12 +73,12 @@ paleidimas pradedamas nuo `ipsw-emu boot --force-backend inferno-t8030`.
 
 ## Įdiegimas
 
-Kiekvienas IPA build'as atnaujina [rolling release](https://github.com/vytska69/Ios-emul/releases/tag/rolling):
+Kiekvienas IPA build'as atnaujina [rolling release](https://github.com/vytska69/Ios-emul/releases/tag/Rolling):
 
 - **SideStore / AltStore:** pridėk šaltinį
-  `https://github.com/vytska69/Ios-emul/releases/download/rolling/sidestore.json`.
+  `https://github.com/vytska69/Ios-emul/releases/download/Rolling/sidestore.json`.
 - **TrollStore:** atidaryk
-  `https://github.com/vytska69/Ios-emul/releases/download/rolling/IOSEmul.ipa`.
+  `https://github.com/vytska69/Ios-emul/releases/download/Rolling/IOSEmul.ipa`.
 
 Kol QEMU iOS'ui nesikompiliuoja, programa neturi emuliatoriaus branduolio: IPSW analizuoja, bet
 paleisti negali. Release aprašymas tai nurodo, o kitas build'as su branduoliu šią versiją pakeis.

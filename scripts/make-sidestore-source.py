@@ -2,7 +2,7 @@
 """Writes the SideStore / AltStore source (sidestore.json) for the rolling release.
 
     scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa --version 0.1.42 \
-        --repo owner/name --tag rolling --out out/sidestore.json
+        --repo owner/name --tag Rolling --out out/sidestore.json
 
 The source lists one app with one version: the IPA attached to the rolling release. Both the
 current "versions" schema and the legacy top-level version fields are written so older SideStore
@@ -21,7 +21,7 @@ def main():
     ap.add_argument("--ipa", required=True)
     ap.add_argument("--version", required=True)
     ap.add_argument("--repo", required=True, help="owner/name on GitHub")
-    ap.add_argument("--tag", default="rolling")
+    ap.add_argument("--tag", default="Rolling")
     ap.add_argument("--commit", default="")
     ap.add_argument("--out", required=True)
     ap.add_argument("--no-core", action="store_true", help="the IPA was built without QEMU")

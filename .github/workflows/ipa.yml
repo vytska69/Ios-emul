@@ -91,7 +91,7 @@ jobs:
         run: |
           python3 scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
             --version "0.1.${{ github.run_number }}" --repo "${{ github.repository }}" \
-            --tag rolling --commit "${{ github.sha }}" --out out/sidestore.json \
+            --tag Rolling --commit "${{ github.sha }}" --out out/sidestore.json \
             ${{ steps.core.outputs.included != 'true' && '--no-core' || '' }}
 
       - uses: actions/upload-artifact@v4
@@ -102,16 +102,16 @@ jobs:
             out/sidestore.json
           if-no-files-found: error
 
-      # Rolling release: the "rolling" tag follows the default branch, and its release always holds
+      # Rolling release: the "Rolling" release follows the default branch, and its release always holds
       # the newest IPA and the SideStore source, so these URLs never change:
-      #   .../releases/download/rolling/IOSEmul.ipa
-      #   .../releases/download/rolling/sidestore.json   (add this to SideStore as a source)
+      #   .../releases/download/Rolling/IOSEmul.ipa
+      #   .../releases/download/Rolling/sidestore.json   (add this to SideStore as a source)
       - name: Publish rolling release
         if: github.ref_name == github.event.repository.default_branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The 'rolling' tag is created once by hand and then left alone: GITHUB_TOKEN may not create
+          # The 'Rolling' tag is created once by hand and then left alone: GITHUB_TOKEN may not create
           # refs that contain .github/workflows, and the download URLs only need the tag name.
           if [ "${{ steps.core.outputs.included }}" = "true" ]; then
             core="Includes the QEMU emulator core."
@@ -120,15 +120,15 @@ jobs:
           fi
           notes="Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}. $core
 
-          Install: add https://github.com/${{ github.repository }}/releases/download/rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
-          if gh release view rolling >/dev/null 2>&1; then
-            gh release edit rolling --title "Rolling build" --notes "$notes" --prerelease
+          Install: add https://github.com/${{ github.repository }}/releases/download/Rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
+          if gh release view Rolling >/dev/null 2>&1; then
+            gh release edit Rolling --title "Rolling build" --notes "$notes"
           else
             # GITHUB_TOKEN may not create the tag itself (403), so it has to exist already.
-            if ! git ls-remote --exit-code --tags origin refs/tags/rolling >/dev/null; then
-              echo "::error::Tag 'rolling' is missing. Create it once with: git push origin HEAD:refs/tags/rolling"
+            if ! git ls-remote --exit-code --tags origin refs/tags/Rolling >/dev/null; then
+              echo "::error::Tag 'Rolling' is missing. Create it once with: git push origin HEAD:refs/tags/Rolling"
               exit 1
             fi
-            gh release create rolling --verify-tag --title "Rolling build" --notes "$notes" --prerelease
+            gh release create Rolling --verify-tag --title "Rolling build" --notes "$notes" --prerelease
           fi
-          gh release upload rolling out/IOSEmul.ipa out/sidestore.json --clobber
+          gh release upload Rolling out/IOSEmul.ipa out/sidestore.json --clobber
