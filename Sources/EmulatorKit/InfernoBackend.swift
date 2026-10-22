@@ -1,7 +1,8 @@
 import Foundation
 import IPSWKit
 
-/// Machines from ChefKiss Inferno (QEMUAppleSilicon), the maintained successor of qemu-t8030.
+/// Machines from QEMUAppleSilicon, the maintained successor of qemu-t8030, built with the patches in
+/// qemu/patches/inferno (a derivative build: upstream's name and artwork are not used).
 ///
 /// Inferno loads IM4P kernelcaches, device trees and trust caches itself and patches the kernel
 /// at boot, so the files are passed straight from the IPSW. SEP emulation is optional and needs
@@ -23,7 +24,7 @@ public struct InfernoBackend: EmulatorBackend {
     public init(machine: Machine) { self.machine = machine }
 
     public var id: String { "inferno-\(machine.name)" }
-    public var displayName: String { "Inferno \(machine.name.uppercased())" }
+    public var displayName: String { "Apple \(machine.name.uppercased()) machine" }
     public let upstream = "https://github.com/ChefKissInc/QEMUAppleSilicon"
     public let defaultMemoryMB = 4096
     public var defaultCPUCount: Int { min(4, machine.maxCPUs) }

@@ -13,8 +13,8 @@ ataskaitą su konkrečia priežastimi, kodėl jis paleidžiamas ar ne.
 
 | Backend | Įrenginiai | iOS | Šaltinis |
 |---|---|---|---|
-| `inferno-t8030` | iPhone 11 (A13); 11 Pro / Pro Max / SE 2 eksperimentiškai | 14 palaikoma; 13, 15–18, 26 eksperimentinės | [ChefKiss Inferno](https://github.com/ChefKissInc/QEMUAppleSilicon) |
-| `inferno-s8000` | iPhone 6s / 6s Plus (A9) | 9–15 eksperimentinės | Inferno |
+| `inferno-t8030` | iPhone 11 (A13); 11 Pro / Pro Max / SE 2 eksperimentiškai | 14 palaikoma; 13, 15–18, 26 eksperimentinės | [QEMUAppleSilicon](https://github.com/ChefKissInc/QEMUAppleSilicon), modifikuotas |
+| `inferno-s8000` | iPhone 6s / 6s Plus (A9) | 9–15 eksperimentinės | QEMUAppleSilicon, modifikuotas |
 | `qemu-ios` | iPod touch 1G / 2G | iPhoneOS 1.x–2.x | [devos50/qemu-ios](https://github.com/devos50/qemu-ios) |
 
 Visi kiti IPSW (A14+, M serijos iPad'ai ir t. t.) importuojami ir išanalizuojami, bet pažymimi
@@ -78,3 +78,6 @@ leidimo, bet ~5–10 kartų lėčiau.
 - **Restore.** Pirmas Inferno paleidimas bootina restore ramdisk; pačiam iOS įdiegimui į virtualų
   NVMe reikia paleisti `idevicerestore` iš kompiuterio per USB-over-TCP (žr. Inferno dokumentaciją).
 - Naudokite tik savo teisėtai turimą programinę įrangą ir laikykitės Apple licencijos sąlygų.
+- Apple mašinų modeliai paimti iš QEMUAppleSilicon (GPLv3/AGPLv3) ir modifikuoti patch'ais iš
+  `qemu/patches/inferno/`. Tai išvestinis build'as: pagal upstream branding sąlygas jame nėra jų
+  paveikslėlio ir „ChefKiss Inferno“ pavadinimo, o šis projektas nėra su ChefKiss susijęs ar jų remiamas.
