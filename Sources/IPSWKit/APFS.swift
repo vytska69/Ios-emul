@@ -285,9 +285,15 @@ public final class APFSContainer {
             try write(empty, block: addr)
         }
 
-        // Volume object map: fs tree oid → its block.
+        // Volume object map: fs tree oid → its block. Its btree_info flags are taken from the
+        // container's own object map tree, which Apple's tools wrote.
+        let containerOmap = try read(block: r.u64(at: 160))
+        let containerTree = try read(block: ByteReader(containerOmap).u64(at: 48))
+        var emptyOmap = FixedNode.empty(blockSize: blockSize, oid: omapTreeAddr, xid: xid)
+        let info = Int(blockSize) - FixedNode.infoSize
+        emptyOmap.put32(ByteReader(containerTree).u32(at: info), at: info)
         var omapNode = try FixedNode.build(
-            from: FixedNode.empty(blockSize: blockSize, oid: omapTreeAddr, xid: xid),
+            from: emptyOmap,
             entries: [(Data.le64(fsTreeOID) + Data.le64(xid),
                        Data.le32(0) + Data.le32(UInt32(blockSize)) + Data.le64(fsTreeAddr))],
             blockSize: blockSize)
