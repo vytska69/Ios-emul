@@ -1,0 +1,62 @@
+name: IOSEmul
+options:
+  bundleIdPrefix: com.iosemul
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  IOSEmulCore:
+    path: .
+targets:
+  IOSEmul:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/IOSEmul
+      - path: App/Frameworks
+        optional: true
+        buildPhase: none
+    dependencies:
+      - package: IOSEmulCore
+        product: IPSWKit
+      - package: IOSEmulCore
+        product: EmulatorKit
+    entitlements:
+      path: App/IOSEmul.entitlements
+      properties:
+        # Needed for QEMU's TCG JIT when the app is sideloaded with a development profile
+        # and launched with a debugger/JIT enabler attached.
+        get-task-allow: true
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: iOS Emul
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iosemul.app
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        # QEMU frameworks built by scripts/build-qemu-ios.sh are copied in by the phase below.
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks"]
+    postBuildScripts:
+      - name: Embed QEMU frameworks
+        basedOnDependencyAnalysis: false
+        script: |
+          SRC="${PROJECT_DIR}/App/Frameworks"
+          [ -d "$SRC" ] || { echo "warning: App/Frameworks missing; run scripts/build-qemu-ios.sh to embed QEMU"; exit 0; }
+          DST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          mkdir -p "$DST"
+          for fw in "$SRC"/*.framework; do
+            [ -e "$fw" ] || continue
+            rsync -a --delete "$fw" "$DST/"
+            if [ -n "${EXPANDED_CODE_SIGN_IDENTITY}" ]; then
+              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements "$DST/$(basename "$fw")"
+            fi
+          done

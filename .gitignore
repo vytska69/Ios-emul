@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+App/Info.plist
+App/IOSEmul.entitlements
+App/Frameworks/
+build-qemu/
+*.ipsw

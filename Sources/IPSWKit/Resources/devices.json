@@ -1,0 +1,780 @@
+{
+ "socs": {
+  "S5L8900": {
+   "marketingName": "APL0098",
+   "core": "ARM11",
+   "arch": "armv6"
+  },
+  "S5L8720": {
+   "marketingName": "APL0278",
+   "core": "ARM11",
+   "arch": "armv6"
+  },
+  "S5L8920": {
+   "marketingName": "APL0298",
+   "core": "Cortex-A8",
+   "arch": "armv7"
+  },
+  "S5L8922": {
+   "marketingName": "APL2298",
+   "core": "Cortex-A8",
+   "arch": "armv7"
+  },
+  "S5L8930": {
+   "marketingName": "A4",
+   "core": "Cortex-A8",
+   "arch": "armv7"
+  },
+  "S5L8940": {
+   "marketingName": "A5",
+   "core": "Cortex-A9",
+   "arch": "armv7"
+  },
+  "S5L8942": {
+   "marketingName": "A5",
+   "core": "Cortex-A9",
+   "arch": "armv7"
+  },
+  "S5L8945": {
+   "marketingName": "A5X",
+   "core": "Cortex-A9",
+   "arch": "armv7"
+  },
+  "S5L8950": {
+   "marketingName": "A6",
+   "core": "Swift",
+   "arch": "armv7"
+  },
+  "S5L8955": {
+   "marketingName": "A6X",
+   "core": "Swift",
+   "arch": "armv7"
+  },
+  "S5L8960": {
+   "marketingName": "A7",
+   "core": "Cyclone",
+   "arch": "arm64"
+  },
+  "T7000": {
+   "marketingName": "A8",
+   "core": "Typhoon",
+   "arch": "arm64"
+  },
+  "T7001": {
+   "marketingName": "A8X",
+   "core": "Typhoon",
+   "arch": "arm64"
+  },
+  "S8000": {
+   "marketingName": "A9",
+   "core": "Twister",
+   "arch": "arm64"
+  },
+  "S8003": {
+   "marketingName": "A9",
+   "core": "Twister",
+   "arch": "arm64"
+  },
+  "S8001": {
+   "marketingName": "A9X",
+   "core": "Twister",
+   "arch": "arm64"
+  },
+  "T8010": {
+   "marketingName": "A10 Fusion",
+   "core": "Hurricane",
+   "arch": "arm64"
+  },
+  "T8011": {
+   "marketingName": "A10X Fusion",
+   "core": "Hurricane",
+   "arch": "arm64"
+  },
+  "T8015": {
+   "marketingName": "A11 Bionic",
+   "core": "Monsoon",
+   "arch": "arm64"
+  },
+  "T8020": {
+   "marketingName": "A12 Bionic",
+   "core": "Vortex",
+   "arch": "arm64"
+  },
+  "T8027": {
+   "marketingName": "A12X/Z Bionic",
+   "core": "Vortex",
+   "arch": "arm64"
+  },
+  "T8030": {
+   "marketingName": "A13 Bionic",
+   "core": "Lightning",
+   "arch": "arm64"
+  },
+  "T8101": {
+   "marketingName": "A14 Bionic",
+   "core": "Firestorm",
+   "arch": "arm64"
+  },
+  "T8103": {
+   "marketingName": "M1",
+   "core": "Firestorm",
+   "arch": "arm64"
+  },
+  "T8110": {
+   "marketingName": "A15 Bionic",
+   "core": "Avalanche",
+   "arch": "arm64"
+  },
+  "T8112": {
+   "marketingName": "M2",
+   "core": "Avalanche",
+   "arch": "arm64"
+  },
+  "T8120": {
+   "marketingName": "A16 Bionic",
+   "core": "Everest",
+   "arch": "arm64"
+  },
+  "T8130": {
+   "marketingName": "A17 Pro",
+   "core": "Coll",
+   "arch": "arm64"
+  },
+  "T8132": {
+   "marketingName": "M4",
+   "core": "Donan",
+   "arch": "arm64"
+  },
+  "T8140": {
+   "marketingName": "A18",
+   "core": "Tahiti",
+   "arch": "arm64"
+  }
+ },
+ "devices": {
+  "iPad1,1": {
+   "name": "iPad",
+   "soc": "S5L8930"
+  },
+  "iPad11,1": {
+   "name": "iPad mini (5th gen)",
+   "soc": "T8020"
+  },
+  "iPad11,2": {
+   "name": "iPad mini (5th gen)",
+   "soc": "T8020"
+  },
+  "iPad11,3": {
+   "name": "iPad Air (3rd gen)",
+   "soc": "T8020"
+  },
+  "iPad11,4": {
+   "name": "iPad Air (3rd gen)",
+   "soc": "T8020"
+  },
+  "iPad11,6": {
+   "name": "iPad (8th gen)",
+   "soc": "T8020"
+  },
+  "iPad11,7": {
+   "name": "iPad (8th gen)",
+   "soc": "T8020"
+  },
+  "iPad12,1": {
+   "name": "iPad (9th gen)",
+   "soc": "T8030"
+  },
+  "iPad12,2": {
+   "name": "iPad (9th gen)",
+   "soc": "T8030"
+  },
+  "iPad13,1": {
+   "name": "iPad Air (4th gen)",
+   "soc": "T8101"
+  },
+  "iPad13,10": {
+   "name": "iPad Pro (12.9-inch, 5th gen)",
+   "soc": "T8103"
+  },
+  "iPad13,11": {
+   "name": "iPad Pro (12.9-inch, 5th gen)",
+   "soc": "T8103"
+  },
+  "iPad13,16": {
+   "name": "iPad Air (5th gen)",
+   "soc": "T8103"
+  },
+  "iPad13,17": {
+   "name": "iPad Air (5th gen)",
+   "soc": "T8103"
+  },
+  "iPad13,18": {
+   "name": "iPad (10th gen)",
+   "soc": "T8101"
+  },
+  "iPad13,19": {
+   "name": "iPad (10th gen)",
+   "soc": "T8101"
+  },
+  "iPad13,2": {
+   "name": "iPad Air (4th gen)",
+   "soc": "T8101"
+  },
+  "iPad13,4": {
+   "name": "iPad Pro (11-inch, 3rd gen)",
+   "soc": "T8103"
+  },
+  "iPad13,5": {
+   "name": "iPad Pro (11-inch, 3rd gen)",
+   "soc": "T8103"
+  },
+  "iPad13,6": {
+   "name": "iPad Pro (11-inch, 3rd gen)",
+   "soc": "T8103"
+  },
+  "iPad13,7": {
+   "name": "iPad Pro (11-inch, 3rd gen)",
+   "soc": "T8103"
+  },
+  "iPad13,8": {
+   "name": "iPad Pro (12.9-inch, 5th gen)",
+   "soc": "T8103"
+  },
+  "iPad13,9": {
+   "name": "iPad Pro (12.9-inch, 5th gen)",
+   "soc": "T8103"
+  },
+  "iPad14,1": {
+   "name": "iPad mini (6th gen)",
+   "soc": "T8110"
+  },
+  "iPad14,10": {
+   "name": "iPad Air (13-inch, M2)",
+   "soc": "T8112"
+  },
+  "iPad14,11": {
+   "name": "iPad Air (13-inch, M2)",
+   "soc": "T8112"
+  },
+  "iPad14,2": {
+   "name": "iPad mini (6th gen)",
+   "soc": "T8110"
+  },
+  "iPad14,3": {
+   "name": "iPad Pro (11-inch, 4th gen)",
+   "soc": "T8112"
+  },
+  "iPad14,4": {
+   "name": "iPad Pro (11-inch, 4th gen)",
+   "soc": "T8112"
+  },
+  "iPad14,5": {
+   "name": "iPad Pro (12.9-inch, 6th gen)",
+   "soc": "T8112"
+  },
+  "iPad14,6": {
+   "name": "iPad Pro (12.9-inch, 6th gen)",
+   "soc": "T8112"
+  },
+  "iPad14,8": {
+   "name": "iPad Air (11-inch, M2)",
+   "soc": "T8112"
+  },
+  "iPad14,9": {
+   "name": "iPad Air (11-inch, M2)",
+   "soc": "T8112"
+  },
+  "iPad16,1": {
+   "name": "iPad mini (A17 Pro)",
+   "soc": "T8130"
+  },
+  "iPad16,2": {
+   "name": "iPad mini (A17 Pro)",
+   "soc": "T8130"
+  },
+  "iPad16,3": {
+   "name": "iPad Pro (11-inch, M4)",
+   "soc": "T8132"
+  },
+  "iPad16,4": {
+   "name": "iPad Pro (11-inch, M4)",
+   "soc": "T8132"
+  },
+  "iPad16,5": {
+   "name": "iPad Pro (13-inch, M4)",
+   "soc": "T8132"
+  },
+  "iPad16,6": {
+   "name": "iPad Pro (13-inch, M4)",
+   "soc": "T8132"
+  },
+  "iPad2,1": {
+   "name": "iPad 2",
+   "soc": "S5L8940"
+  },
+  "iPad2,2": {
+   "name": "iPad 2",
+   "soc": "S5L8940"
+  },
+  "iPad2,3": {
+   "name": "iPad 2",
+   "soc": "S5L8940"
+  },
+  "iPad2,4": {
+   "name": "iPad 2",
+   "soc": "S5L8940"
+  },
+  "iPad2,5": {
+   "name": "iPad mini",
+   "soc": "S5L8942"
+  },
+  "iPad2,6": {
+   "name": "iPad mini",
+   "soc": "S5L8942"
+  },
+  "iPad2,7": {
+   "name": "iPad mini",
+   "soc": "S5L8942"
+  },
+  "iPad3,1": {
+   "name": "iPad (3rd gen)",
+   "soc": "S5L8945"
+  },
+  "iPad3,2": {
+   "name": "iPad (3rd gen)",
+   "soc": "S5L8945"
+  },
+  "iPad3,3": {
+   "name": "iPad (3rd gen)",
+   "soc": "S5L8945"
+  },
+  "iPad3,4": {
+   "name": "iPad (4th gen)",
+   "soc": "S5L8955"
+  },
+  "iPad3,5": {
+   "name": "iPad (4th gen)",
+   "soc": "S5L8955"
+  },
+  "iPad3,6": {
+   "name": "iPad (4th gen)",
+   "soc": "S5L8955"
+  },
+  "iPad4,1": {
+   "name": "iPad Air",
+   "soc": "S5L8960"
+  },
+  "iPad4,2": {
+   "name": "iPad Air",
+   "soc": "S5L8960"
+  },
+  "iPad4,3": {
+   "name": "iPad Air",
+   "soc": "S5L8960"
+  },
+  "iPad4,4": {
+   "name": "iPad mini 2",
+   "soc": "S5L8960"
+  },
+  "iPad4,5": {
+   "name": "iPad mini 2",
+   "soc": "S5L8960"
+  },
+  "iPad4,6": {
+   "name": "iPad mini 2",
+   "soc": "S5L8960"
+  },
+  "iPad4,7": {
+   "name": "iPad mini 3",
+   "soc": "S5L8960"
+  },
+  "iPad4,8": {
+   "name": "iPad mini 3",
+   "soc": "S5L8960"
+  },
+  "iPad4,9": {
+   "name": "iPad mini 3",
+   "soc": "S5L8960"
+  },
+  "iPad5,1": {
+   "name": "iPad mini 4",
+   "soc": "T7000"
+  },
+  "iPad5,2": {
+   "name": "iPad mini 4",
+   "soc": "T7000"
+  },
+  "iPad5,3": {
+   "name": "iPad Air 2",
+   "soc": "T7001"
+  },
+  "iPad5,4": {
+   "name": "iPad Air 2",
+   "soc": "T7001"
+  },
+  "iPad6,11": {
+   "name": "iPad (5th gen)",
+   "soc": "S8000"
+  },
+  "iPad6,12": {
+   "name": "iPad (5th gen)",
+   "soc": "S8000"
+  },
+  "iPad6,3": {
+   "name": "iPad Pro (9.7-inch)",
+   "soc": "S8001"
+  },
+  "iPad6,4": {
+   "name": "iPad Pro (9.7-inch)",
+   "soc": "S8001"
+  },
+  "iPad6,7": {
+   "name": "iPad Pro (12.9-inch)",
+   "soc": "S8001"
+  },
+  "iPad6,8": {
+   "name": "iPad Pro (12.9-inch)",
+   "soc": "S8001"
+  },
+  "iPad7,1": {
+   "name": "iPad Pro (12.9-inch, 2nd gen)",
+   "soc": "T8011"
+  },
+  "iPad7,11": {
+   "name": "iPad (7th gen)",
+   "soc": "T8010"
+  },
+  "iPad7,12": {
+   "name": "iPad (7th gen)",
+   "soc": "T8010"
+  },
+  "iPad7,2": {
+   "name": "iPad Pro (12.9-inch, 2nd gen)",
+   "soc": "T8011"
+  },
+  "iPad7,3": {
+   "name": "iPad Pro (10.5-inch)",
+   "soc": "T8011"
+  },
+  "iPad7,4": {
+   "name": "iPad Pro (10.5-inch)",
+   "soc": "T8011"
+  },
+  "iPad7,5": {
+   "name": "iPad (6th gen)",
+   "soc": "T8010"
+  },
+  "iPad7,6": {
+   "name": "iPad (6th gen)",
+   "soc": "T8010"
+  },
+  "iPad8,1": {
+   "name": "iPad Pro (11-inch)",
+   "soc": "T8027"
+  },
+  "iPad8,10": {
+   "name": "iPad Pro (11-inch, 2nd gen)",
+   "soc": "T8027"
+  },
+  "iPad8,11": {
+   "name": "iPad Pro (12.9-inch, 4th gen)",
+   "soc": "T8027"
+  },
+  "iPad8,12": {
+   "name": "iPad Pro (12.9-inch, 4th gen)",
+   "soc": "T8027"
+  },
+  "iPad8,2": {
+   "name": "iPad Pro (11-inch)",
+   "soc": "T8027"
+  },
+  "iPad8,3": {
+   "name": "iPad Pro (11-inch)",
+   "soc": "T8027"
+  },
+  "iPad8,4": {
+   "name": "iPad Pro (11-inch)",
+   "soc": "T8027"
+  },
+  "iPad8,5": {
+   "name": "iPad Pro (12.9-inch, 3rd gen)",
+   "soc": "T8027"
+  },
+  "iPad8,6": {
+   "name": "iPad Pro (12.9-inch, 3rd gen)",
+   "soc": "T8027"
+  },
+  "iPad8,7": {
+   "name": "iPad Pro (12.9-inch, 3rd gen)",
+   "soc": "T8027"
+  },
+  "iPad8,8": {
+   "name": "iPad Pro (12.9-inch, 3rd gen)",
+   "soc": "T8027"
+  },
+  "iPad8,9": {
+   "name": "iPad Pro (11-inch, 2nd gen)",
+   "soc": "T8027"
+  },
+  "iPhone1,1": {
+   "name": "iPhone (1st gen)",
+   "soc": "S5L8900"
+  },
+  "iPhone1,2": {
+   "name": "iPhone 3G",
+   "soc": "S5L8900"
+  },
+  "iPhone10,1": {
+   "name": "iPhone 8",
+   "soc": "T8015"
+  },
+  "iPhone10,2": {
+   "name": "iPhone 8 Plus",
+   "soc": "T8015"
+  },
+  "iPhone10,3": {
+   "name": "iPhone X",
+   "soc": "T8015"
+  },
+  "iPhone10,4": {
+   "name": "iPhone 8",
+   "soc": "T8015"
+  },
+  "iPhone10,5": {
+   "name": "iPhone 8 Plus",
+   "soc": "T8015"
+  },
+  "iPhone10,6": {
+   "name": "iPhone X",
+   "soc": "T8015"
+  },
+  "iPhone11,2": {
+   "name": "iPhone XS",
+   "soc": "T8020"
+  },
+  "iPhone11,4": {
+   "name": "iPhone XS Max",
+   "soc": "T8020"
+  },
+  "iPhone11,6": {
+   "name": "iPhone XS Max",
+   "soc": "T8020"
+  },
+  "iPhone11,8": {
+   "name": "iPhone XR",
+   "soc": "T8020"
+  },
+  "iPhone12,1": {
+   "name": "iPhone 11",
+   "soc": "T8030"
+  },
+  "iPhone12,3": {
+   "name": "iPhone 11 Pro",
+   "soc": "T8030"
+  },
+  "iPhone12,5": {
+   "name": "iPhone 11 Pro Max",
+   "soc": "T8030"
+  },
+  "iPhone12,8": {
+   "name": "iPhone SE (2nd gen)",
+   "soc": "T8030"
+  },
+  "iPhone13,1": {
+   "name": "iPhone 12 mini",
+   "soc": "T8101"
+  },
+  "iPhone13,2": {
+   "name": "iPhone 12",
+   "soc": "T8101"
+  },
+  "iPhone13,3": {
+   "name": "iPhone 12 Pro",
+   "soc": "T8101"
+  },
+  "iPhone13,4": {
+   "name": "iPhone 12 Pro Max",
+   "soc": "T8101"
+  },
+  "iPhone14,2": {
+   "name": "iPhone 13 Pro",
+   "soc": "T8110"
+  },
+  "iPhone14,3": {
+   "name": "iPhone 13 Pro Max",
+   "soc": "T8110"
+  },
+  "iPhone14,4": {
+   "name": "iPhone 13 mini",
+   "soc": "T8110"
+  },
+  "iPhone14,5": {
+   "name": "iPhone 13",
+   "soc": "T8110"
+  },
+  "iPhone14,6": {
+   "name": "iPhone SE (3rd gen)",
+   "soc": "T8110"
+  },
+  "iPhone14,7": {
+   "name": "iPhone 14",
+   "soc": "T8110"
+  },
+  "iPhone14,8": {
+   "name": "iPhone 14 Plus",
+   "soc": "T8110"
+  },
+  "iPhone15,2": {
+   "name": "iPhone 14 Pro",
+   "soc": "T8120"
+  },
+  "iPhone15,3": {
+   "name": "iPhone 14 Pro Max",
+   "soc": "T8120"
+  },
+  "iPhone15,4": {
+   "name": "iPhone 15",
+   "soc": "T8120"
+  },
+  "iPhone15,5": {
+   "name": "iPhone 15 Plus",
+   "soc": "T8120"
+  },
+  "iPhone16,1": {
+   "name": "iPhone 15 Pro",
+   "soc": "T8130"
+  },
+  "iPhone16,2": {
+   "name": "iPhone 15 Pro Max",
+   "soc": "T8130"
+  },
+  "iPhone17,1": {
+   "name": "iPhone 16 Pro",
+   "soc": "T8140"
+  },
+  "iPhone17,2": {
+   "name": "iPhone 16 Pro Max",
+   "soc": "T8140"
+  },
+  "iPhone17,3": {
+   "name": "iPhone 16",
+   "soc": "T8140"
+  },
+  "iPhone17,4": {
+   "name": "iPhone 16 Plus",
+   "soc": "T8140"
+  },
+  "iPhone17,5": {
+   "name": "iPhone 16e",
+   "soc": "T8140"
+  },
+  "iPhone2,1": {
+   "name": "iPhone 3GS",
+   "soc": "S5L8920"
+  },
+  "iPhone3,1": {
+   "name": "iPhone 4",
+   "soc": "S5L8930"
+  },
+  "iPhone3,2": {
+   "name": "iPhone 4",
+   "soc": "S5L8930"
+  },
+  "iPhone3,3": {
+   "name": "iPhone 4",
+   "soc": "S5L8930"
+  },
+  "iPhone4,1": {
+   "name": "iPhone 4S",
+   "soc": "S5L8940"
+  },
+  "iPhone5,1": {
+   "name": "iPhone 5",
+   "soc": "S5L8950"
+  },
+  "iPhone5,2": {
+   "name": "iPhone 5",
+   "soc": "S5L8950"
+  },
+  "iPhone5,3": {
+   "name": "iPhone 5c",
+   "soc": "S5L8950"
+  },
+  "iPhone5,4": {
+   "name": "iPhone 5c",
+   "soc": "S5L8950"
+  },
+  "iPhone6,1": {
+   "name": "iPhone 5s",
+   "soc": "S5L8960"
+  },
+  "iPhone6,2": {
+   "name": "iPhone 5s",
+   "soc": "S5L8960"
+  },
+  "iPhone7,1": {
+   "name": "iPhone 6 Plus",
+   "soc": "T7000"
+  },
+  "iPhone7,2": {
+   "name": "iPhone 6",
+   "soc": "T7000"
+  },
+  "iPhone8,1": {
+   "name": "iPhone 6s",
+   "soc": "S8000"
+  },
+  "iPhone8,2": {
+   "name": "iPhone 6s Plus",
+   "soc": "S8000"
+  },
+  "iPhone8,4": {
+   "name": "iPhone SE",
+   "soc": "S8000"
+  },
+  "iPhone9,1": {
+   "name": "iPhone 7",
+   "soc": "T8010"
+  },
+  "iPhone9,2": {
+   "name": "iPhone 7 Plus",
+   "soc": "T8010"
+  },
+  "iPhone9,3": {
+   "name": "iPhone 7",
+   "soc": "T8010"
+  },
+  "iPhone9,4": {
+   "name": "iPhone 7 Plus",
+   "soc": "T8010"
+  },
+  "iPod1,1": {
+   "name": "iPod touch (1st gen)",
+   "soc": "S5L8900"
+  },
+  "iPod2,1": {
+   "name": "iPod touch (2nd gen)",
+   "soc": "S5L8720"
+  },
+  "iPod3,1": {
+   "name": "iPod touch (3rd gen)",
+   "soc": "S5L8922"
+  },
+  "iPod4,1": {
+   "name": "iPod touch (4th gen)",
+   "soc": "S5L8930"
+  },
+  "iPod5,1": {
+   "name": "iPod touch (5th gen)",
+   "soc": "S5L8942"
+  },
+  "iPod7,1": {
+   "name": "iPod touch (6th gen)",
+   "soc": "T7000"
+  },
+  "iPod9,1": {
+   "name": "iPod touch (7th gen)",
+   "soc": "T8010"
+  }
+ }
+}
