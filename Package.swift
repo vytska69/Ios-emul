@@ -10,7 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "IPSWKit", resources: [.process("Resources")]),
-        .target(name: "EmulatorKit", dependencies: ["IPSWKit"]),
+        .target(name: "EmulatorKit", dependencies: ["IPSWKit"], resources: [.process("Resources")]),
         .testTarget(name: "IPSWKitTests", dependencies: ["IPSWKit", "EmulatorKit"]),
     ]
 )

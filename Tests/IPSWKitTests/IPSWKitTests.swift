@@ -72,6 +72,59 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(Decompressor.lzss(src, expectedSize: 9), Data("abcabcabc".utf8))
     }
 
+    // MARK: DeviceTree + coverage
+
+    func testDeviceTreeParsing() throws {
+        let tree = try DeviceTree.parse(Self.sampleTree())
+        XCTAssertEqual(tree.name, "device-tree")
+        XCTAssertEqual(tree.node(at: "arm-io/uart0")?.compatible, ["uart-1,samsung"])
+        XCTAssertEqual(tree.node(at: "arm-io/uart0")?.path, "/arm-io/uart0")
+        XCTAssertEqual(tree.node(at: "arm-io/aic")?.u32("#main-cpus"), 6)
+        XCTAssertTrue(tree.node(at: "arm-io")!.placeholders.contains("ranges"))
+        // Also accepted wrapped in an IM4P, as it ships in the IPSW.
+        let wrapped = DER.seq([DER.ia5("IM4P"), DER.ia5("dtre"), DER.ia5(""), DER.octets(Self.sampleTree())])
+        XCTAssertEqual(try DeviceTree.parse(wrapped).children.count, 2)
+    }
+
+    func testDeviceTreeRejectsGarbage() {
+        XCTAssertThrowsError(try DeviceTree.parse(Data([0xFF, 0xFF, 0xFF, 0xFF, 1, 0, 0, 0])))
+    }
+
+    func testCoverageRanksMachinesAndFlagsMissingCriticalHardware() throws {
+        let tree = try DeviceTree.parse(Self.sampleTree())
+        let known: [String: Set<String>] = ["a": ["uart0", "aic"], "b": ["uart0"]]
+        let report = HardwareCoverage.analyze(tree, machines: known)
+        XCTAssertEqual(report.map(\.machine), ["a", "b"])
+        XCTAssertEqual(report[0].peripherals.count, 3)
+        XCTAssertEqual(report[0].emulatedCount, 2)
+        XCTAssertEqual(report[1].missingBootCritical.map(\.name), ["aic", "pmgr"])
+        XCTAssertFalse(HardwareCoverage.knownNodes["t8030"]?.isEmpty ?? true, "bundled Inferno node list loads")
+    }
+
+    /// device-tree { arm-io { aic, uart0, pmgr }, cpus } in Apple's binary format.
+    static func sampleTree() -> Data {
+        func prop(_ name: String, _ value: Data, placeholder: Bool = false) -> Data {
+            var out = Data(name.utf8) + Data(count: 32 - name.utf8.count)
+            let len = UInt32(value.count) | (placeholder ? 0x8000_0000 : 0)
+            out.append(contentsOf: withUnsafeBytes(of: len.littleEndian, Array.init))
+            out.append(value)
+            out.append(Data(count: (4 - value.count % 4) % 4))
+            return out
+        }
+        func str(_ s: String) -> Data { Data(s.utf8) + Data([0]) }
+        func u32(_ v: UInt32) -> Data { Data(withUnsafeBytes(of: v.littleEndian, Array.init)) }
+        func node(_ props: [Data], _ children: [Data]) -> Data {
+            u32(UInt32(props.count)) + u32(UInt32(children.count)) + props.reduce(Data(), +) + children.reduce(Data(), +)
+        }
+        let reg = Data(count: 16)
+        let aic = node([prop("name", str("aic")), prop("reg", reg), prop("#main-cpus", u32(6))], [])
+        let uart = node([prop("name", str("uart0")), prop("compatible", str("uart-1,samsung")), prop("reg", reg)], [])
+        let pmgr = node([prop("name", str("pmgr")), prop("reg", reg)], [])
+        let armIO = node([prop("name", str("arm-io")), prop("ranges", Data(count: 8), placeholder: true)], [aic, uart, pmgr])
+        let cpus = node([prop("name", str("cpus"))], [])
+        return node([prop("name", str("device-tree"))], [armIO, cpus])
+    }
+
     // MARK: Manifest + compatibility
 
     func testManifestAndCompatibility() throws {

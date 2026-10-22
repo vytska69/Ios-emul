@@ -7,6 +7,7 @@ import EmulatorKit
 final class FirmwareModel: ObservableObject {
     @Published var ipsw: IPSW?
     @Published var report: CompatibilityReport?
+    @Published var coverage: [HardwareCoverage] = []
     @Published var loadError: String?
     @Published var progress: (String, Double)?
     @Published var runner: QEMURunner?
@@ -27,6 +28,11 @@ final class FirmwareModel: ObservableObject {
             let parsed = try await Task.detached { try IPSW(url: scope.url) }.value
             ipsw = parsed
             report = BackendRegistry.shared.report(for: parsed)
+            if let identity = parsed.manifest.identity() {
+                coverage = (try? await Task.detached {
+                    HardwareCoverage.analyze(try parsed.deviceTree(identity: identity))
+                }.value) ?? []
+            }
         } catch {
             loadError = "\(error)"
         }
@@ -168,6 +174,10 @@ struct FirmwareDetailView: View {
                     }
                 }
 
+                if let best = model.coverage.first {
+                    CoverageSection(coverage: best)
+                }
+
                 if let ipsw = model.ipsw, let identity = ipsw.manifest.identity() {
                     Section("Components (\(identity.deviceClass))") {
                         ForEach(identity.components.keys.sorted(), id: \.self) { key in
@@ -222,6 +232,45 @@ private struct DeviceRow: View {
         }()
         return Text(text).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 2)
             .background(color.opacity(0.15), in: Capsule()).foregroundStyle(color)
+    }
+}
+
+/// What fraction of this firmware's DeviceTree hardware the closest machine model emulates.
+private struct CoverageSection: View {
+    let coverage: HardwareCoverage
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Closest model: \(coverage.machine.uppercased())")
+                    Spacer()
+                    Text(coverage.fraction, format: .percent.precision(.fractionLength(0))).bold()
+                }
+                ProgressView(value: coverage.fraction)
+                Text("\(coverage.emulatedCount) of \(coverage.peripherals.count) DeviceTree peripherals are emulated")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if !coverage.missingBootCritical.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Missing boot-critical hardware").font(.subheadline.bold())
+                    Text(coverage.missingBootCritical.map(\.name).joined(separator: ", "))
+                        .font(.caption.monospaced()).foregroundStyle(.red)
+                }
+            }
+            DisclosureGroup("All missing peripherals") {
+                ForEach(coverage.peripherals.filter { !$0.emulated }, id: \.path) { p in
+                    VStack(alignment: .leading) {
+                        Text(p.path).font(.caption.monospaced())
+                        if !p.compatible.isEmpty {
+                            Text(p.compatible.joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Hardware coverage")
+        }
     }
 }
 
