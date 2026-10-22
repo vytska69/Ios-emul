@@ -33,13 +33,14 @@ jobs:
             --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware"
           disk=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$work/sys.cdr" | awk 'NR==1{print $1}')
           diskutil apfs list
-          fsck_apfs -n "$disk"
+          fsck=0; fsck_apfs -n "$disk" || fsck=$?
           diskutil apfs list | grep -B2 -A8 Preboot
           diskutil list
           for v in $(diskutil list | awk '/Preboot/{print $NF}'); do
             diskutil mount readOnly "$v" && ls -laR "$(diskutil info "$v" | awk -F': *' '/Mount Point/{print $2}')"
           done
           hdiutil detach "$disk"
+          exit $fsck
 
       - name: Install XcodeGen
         run: brew install xcodegen

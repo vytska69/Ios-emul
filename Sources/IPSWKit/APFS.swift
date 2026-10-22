@@ -333,7 +333,7 @@ public final class APFSContainer {
         sb.put64(now, at: 304); sb.put64(xid, at: 312)
         let vname = Data(name.utf8.prefix(255))
         sb.replaceSubrange(704..<(704 + vname.count), with: vname)
-        sb.put32(1, at: 960)                                             // next_doc_id
+        sb.put32(3, at: 960)                                             // next_doc_id (MIN_DOC_ID)
         sb.put16(role.rawValue, at: 964)
         Self.seal(&sb)
         try write(sb, block: sbAddr)
