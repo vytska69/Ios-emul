@@ -1,0 +1,288 @@
+diff --git a/meson.build b/meson.build
+index 9bbd0d7..728869f 100644
+--- a/meson.build
++++ b/meson.build
+@@ -407,6 +407,14 @@ ucontext_probe = '''
+ # For POSIX prefer ucontext, but it's not always possible. The fallback
+ # is sigcontext.
+ supported_backends = []
++
++# libucontext (needed on iOS, which has no usable makecontext) is resolved here, but the
++# bundled subproject is only configured further down, after the global arguments are final.
++ucontext = dependency('libucontext', required : false)
++if ucontext.found() or get_option('ucontext').enabled()
++  supported_backends += ['libucontext']
++endif
++
+ if host_os == 'windows'
+   supported_backends += ['windows']
+ elif host_os == 'emscripten'
+@@ -425,6 +433,10 @@ elif coroutine_backend not in supported_backends
+         .format(coroutine_backend, ', '.join(supported_backends)))
+ endif
+ 
++if coroutine_backend == 'libucontext'
++  coroutine_backend = 'ucontext'
++endif
++
+ # Compiles if SafeStack *not* enabled
+ safe_stack_probe = '''
+   int main(void)
+@@ -2338,7 +2350,12 @@ if seccomp.found()
+ endif
+ config_host_data.set('CONFIG_PIXMAN', pixman.found())
+ config_host_data.set('CONFIG_PASST', enable_passt)
++if not ucontext.found() and get_option('ucontext').enabled()
++  ucontext = subproject('libucontext', default_options: ['default_library=static']).get_variable('libucontext_dep')
++endif
+ config_host_data.set('CONFIG_SLIRP', slirp.found())
++config_host_data.set('CONFIG_LIBUCONTEXT', ucontext.found())
++config_host_data.set('CONFIG_SHARED_LIBRARY_BUILD', get_option('shared_lib'))
+ config_host_data.set('CONFIG_SNAPPY', snappy.found())
+ config_host_data.set('CONFIG_SOLARIS', host_os == 'sunos')
+ if have_tcg
+@@ -3481,7 +3498,7 @@ util_ss = util_ss.apply({})
+ libqemuutil = static_library('qemuutil',
+                              build_by_default: false,
+                              sources: util_ss.sources() + stub_ss.sources() + genh,
+-                             dependencies: [util_ss.dependencies(), libm, threads, glib, socket, malloc])
++                             dependencies: [util_ss.dependencies(), libm, threads, glib, socket, malloc, ucontext])
+ qemuutil_deps = [event_loop_base]
+ if host_os != 'windows'
+   qemuutil_deps += [rt]
+@@ -3936,13 +3953,33 @@ foreach target : target_dirs
+     lib_deps += dep.partial_dependency(compile_args: true, includes: true)
+   endforeach
+ 
+-  lib = static_library('qemu-' + target,
++  # With shared_lib the whole emulator becomes libqemu-<target>.{so,dylib} exporting
++  # qemu_init/qemu_main_loop/qemu_cleanup, so hosts that cannot spawn processes (iOS) can
++  # run it in-process.
++  if get_option('shared_lib')
++    build_lib_args = {
++      'target_type': 'shared_library',
++      'install': true,
++      'dependencies': arch_deps,
++      'link_depends': [block_syms, qemu_syms],
++      'link_args': link_args,
++      'gnu_symbol_visibility': 'default'
++    }
++  else
++    build_lib_args = {
++      'target_type': 'static_library',
++      'install': false,
++      'dependencies': lib_deps
++    }
++  endif
++
++  lib = build_target('qemu-' + target,
+                  sources: arch_srcs + genh,
+-                 dependencies: lib_deps,
+                  objects: objects,
+                  include_directories: target_inc,
+                  c_args: c_args,
+-                 build_by_default: false)
++                 build_by_default: false,
++                 kwargs: build_lib_args)
+ 
+   if target.endswith('-softmmu')
+     execs = [{
+@@ -3973,11 +4010,19 @@ foreach target : target_dirs
+       exe_name += '-unsigned'
+     endif
+ 
++    if get_option('shared_lib')
++      exe_deps = [declare_dependency(link_with: lib)]
++      exe_objs = []
++    else
++      exe_deps = arch_deps
++      exe_objs = lib.extract_all_objects(recursive: true)
++    endif
++
+     emulator = executable(exe_name, exe['sources'],
+                install: true,
+                c_args: c_args,
+-               dependencies: arch_deps + exe['dependencies'],
+-               objects: lib.extract_all_objects(recursive: true),
++               dependencies: exe_deps + exe['dependencies'],
++               objects: exe_objs,
+                link_depends: [block_syms, qemu_syms],
+                link_args: link_args,
+                win_subsystem: exe['win_subsystem'])
+@@ -4304,6 +4349,8 @@ summary(summary_info, bool_yn: true, section: 'Targets and accelerators')
+ # Block layer
+ summary_info = {}
+ summary_info += {'coroutine backend': coroutine_backend}
++summary_info += {'libucontext support': ucontext.found()}
++summary_info += {'build shared lib':  get_option('shared_lib')}
+ summary_info += {'coroutine pool':    have_coroutine_pool}
+ if have_block
+   summary_info += {'Block whitelist (rw)': get_option('block_drv_rw_whitelist')}
+diff --git a/meson_options.txt b/meson_options.txt
+index 403c34a..97a02ed 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -32,7 +32,7 @@ option('rtsig_map', type : 'string', value : 'NULL',
+ option('trace_file', type: 'string', value: 'trace',
+        description: 'Trace file prefix for simple backend')
+ option('coroutine_backend', type: 'combo',
+-       choices: ['ucontext', 'sigaltstack', 'windows', 'wasm', 'auto'],
++       choices: ['libucontext', 'ucontext', 'sigaltstack', 'windows', 'wasm', 'auto'],
+        value: 'auto', description: 'coroutine backend to use')
+ 
+ # Everything else can be set via --enable/--disable-* option
+@@ -58,6 +58,11 @@ option('tools', type : 'feature', value : 'auto',
+ option('qga_vss', type : 'feature', value: 'auto',
+        description: 'build QGA VSS support (broken with MinGW)')
+ 
++option('shared_lib', type: 'boolean', value: false,
++       description: 'Build QEMU as a shared library')
++option('ucontext', type : 'feature', value : 'disabled',
++       description: 'libucontext support')
++
+ option('malloc_trim', type : 'feature', value : 'auto',
+        description: 'enable libc malloc_trim() for memory optimization')
+ option('malloc', type : 'combo', choices : ['system', 'tcmalloc', 'jemalloc'],
+diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
+index b91ccc7..4ae939e 100644
+--- a/scripts/meson-buildoptions.sh
++++ b/scripts/meson-buildoptions.sh
+@@ -43,6 +43,7 @@ meson_options_help() {
+   printf "%s\n" '                           getrandom()'
+   printf "%s\n" '  --enable-safe-stack      SafeStack Stack Smash Protection (requires'
+   printf "%s\n" '                           clang/llvm and coroutine backend ucontext)'
++  printf "%s\n" '  --enable-shared-lib      Build QEMU as a shared library'
+   printf "%s\n" '  --enable-strip           Strip targets on install'
+   printf "%s\n" '  --enable-tcg-interpreter TCG with bytecode interpreter (slow)'
+   printf "%s\n" '  --enable-trace-backends=CHOICES'
+@@ -73,8 +74,8 @@ meson_options_help() {
+   printf "%s\n" '  --sysconfdir=VALUE       Sysconf data directory [etc]'
+   printf "%s\n" '  --tls-priority=VALUE     Default TLS protocol/cipher priority string'
+   printf "%s\n" '                           [NORMAL]'
+-  printf "%s\n" '  --with-coroutine=CHOICE  coroutine backend to use (choices:'
+-  printf "%s\n" '                           auto/sigaltstack/ucontext/wasm/windows)'
++  printf "%s\n" '  --with-coroutine=CHOICE  coroutine backend to use (choices: auto/libuconte'
++  printf "%s\n" '                           xt/sigaltstack/ucontext/wasm/windows)'
+   printf "%s\n" '  --with-pkgversion=VALUE  use specified string as sub-version of the'
+   printf "%s\n" '                           package'
+   printf "%s\n" '  --with-suffix=VALUE      Suffix for QEMU data/modules/config directories'
+@@ -187,6 +188,7 @@ meson_options_help() {
+   printf "%s\n" '  tpm             TPM support'
+   printf "%s\n" '  u2f             U2F emulation support'
+   printf "%s\n" '  uadk            UADK Library support'
++  printf "%s\n" '  ucontext        libucontext support'
+   printf "%s\n" '  usb-redir       libusbredir support'
+   printf "%s\n" '  valgrind        valgrind debug support for coroutine stacks'
+   printf "%s\n" '  vde             vde network backend support'
+@@ -454,6 +456,8 @@ _meson_option_parse() {
+     --disable-seccomp) printf "%s" -Dseccomp=disabled ;;
+     --enable-selinux) printf "%s" -Dselinux=enabled ;;
+     --disable-selinux) printf "%s" -Dselinux=disabled ;;
++    --enable-shared-lib) printf "%s" -Dshared_lib=true ;;
++    --disable-shared-lib) printf "%s" -Dshared_lib=false ;;
+     --enable-slirp) printf "%s" -Dslirp=enabled ;;
+     --disable-slirp) printf "%s" -Dslirp=disabled ;;
+     --enable-slirp-smbd) printf "%s" -Dslirp_smbd=enabled ;;
+@@ -495,6 +499,8 @@ _meson_option_parse() {
+     --disable-uadk) printf "%s" -Duadk=disabled ;;
+     --enable-ubsan) printf "%s" -Dubsan=true ;;
+     --disable-ubsan) printf "%s" -Dubsan=false ;;
++    --enable-ucontext) printf "%s" -Ducontext=enabled ;;
++    --disable-ucontext) printf "%s" -Ducontext=disabled ;;
+     --enable-usb-redir) printf "%s" -Dusb_redir=enabled ;;
+     --disable-usb-redir) printf "%s" -Dusb_redir=disabled ;;
+     --enable-valgrind) printf "%s" -Dvalgrind=enabled ;;
+diff --git a/subprojects/libucontext.wrap b/subprojects/libucontext.wrap
+new file mode 100644
+index 0000000..48aac92
+--- /dev/null
++++ b/subprojects/libucontext.wrap
+@@ -0,0 +1,3 @@
++[wrap-git]
++url = https://github.com/utmapp/libucontext.git
++revision = 9b1d8f01a6e99166f9808c79966abe10786de8b6
+diff --git a/system/meson.build b/system/meson.build
+index cd1f1f1..9420fea 100644
+--- a/system/meson.build
++++ b/system/meson.build
+@@ -41,3 +41,17 @@ system_ss.add(when: 'CONFIG_DEVICE_TREE',
+ if host_os == 'linux'
+   system_ss.add(files('async-teardown.c'))
+ endif
++
++# Export the embedding entry points for shared lib builds
++if get_option('shared_lib')
++  if host_os == 'darwin'
++    configure_file(
++      input: files('qemu.symbols'),
++      output: 'qemu-ld64.symbols',
++      capture: true,
++      command: ['sed', '-ne', 's/^[[:space:]]*\\(qemu_.*\\);/_\\1/p', '@INPUT@'])
++    emulator_link_args += ['-Wl,-exported_symbols_list,system/qemu-ld64.symbols']
++  else
++    emulator_link_args += ['-Xlinker', '--dynamic-list=' + (meson.project_source_root() / 'system/qemu.symbols')]
++  endif
++endif
+diff --git a/system/qemu.symbols b/system/qemu.symbols
+new file mode 100644
+index 0000000..3e54dc5
+--- /dev/null
++++ b/system/qemu.symbols
+@@ -0,0 +1,5 @@
++{
++  qemu_init;
++  qemu_main_loop;
++  qemu_cleanup;
++};
+diff --git a/system/vl.c b/system/vl.c
+index 481cba9..41d67b9 100644
+--- a/system/vl.c
++++ b/system/vl.c
+@@ -2812,6 +2812,11 @@ void qemu_init(int argc, char **argv)
+     bool userconfig = true;
+     FILE *vmstate_dump_file = NULL;
+ 
++    /* In non-library builds this is done in a constructor. */
++#ifdef CONFIG_SHARED_LIBRARY_BUILD
++    rcu_register_thread();
++#endif
++
+     qemu_add_opts(&qemu_drive_opts);
+     qemu_add_drive_opts(&qemu_legacy_drive_opts);
+     qemu_add_drive_opts(&qemu_common_drive_opts);
+diff --git a/util/coroutine-ucontext.c b/util/coroutine-ucontext.c
+index 8ef603d..09367ce 100644
+--- a/util/coroutine-ucontext.c
++++ b/util/coroutine-ucontext.c
+@@ -23,7 +23,16 @@
+ #define _FORTIFY_SOURCE 0
+ 
+ #include "qemu/osdep.h"
++#if defined(CONFIG_LIBUCONTEXT)
++#include <libucontext/libucontext.h>
++#define ucontext_t libucontext_ucontext_t
++#define getcontext libucontext_getcontext
++#define setcontext libucontext_setcontext
++#define swapcontext libucontext_swapcontext
++#define makecontext libucontext_makecontext
++#else
+ #include <ucontext.h>
++#endif
+ #include "qemu/coroutine_int.h"
+ #include "qemu/coroutine-tls.h"
+ 
+diff --git a/util/rcu.c b/util/rcu.c
+index b703c86..9111c05 100644
+--- a/util/rcu.c
++++ b/util/rcu.c
+@@ -415,7 +415,10 @@ static void rcu_init_complete(void)
+     qemu_thread_create(&thread, "call_rcu", call_rcu_thread,
+                        NULL, QEMU_THREAD_DETACHED);
+ 
++    /* Constructors do not run on the embedding thread in shared library builds. */
++#ifndef CONFIG_SHARED_LIBRARY_BUILD
+     rcu_register_thread();
++#endif
+ }
+ 
+ static int atfork_depth = 1;
