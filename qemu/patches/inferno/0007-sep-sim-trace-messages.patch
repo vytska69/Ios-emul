@@ -1,0 +1,25 @@
+diff --git a/hw/arm/apple-silicon/sep-sim.c b/hw/arm/apple-silicon/sep-sim.c
+index f714d58..037fc19 100644
+--- a/hw/arm/apple-silicon/sep-sim.c
++++ b/hw/arm/apple-silicon/sep-sim.c
+@@ -320,6 +320,9 @@ static void apple_sep_sim_send_message(AppleSEPSimState *s, uint8_t ep,
+     sent_sep_msg->op = op;
+     sent_sep_msg->param = param;
+     sent_sep_msg->data = data;
++    qemu_log_mask(LOG_GUEST_ERROR,
++                  "SEP-SIM tx: ep %u tag 0x%02x op %u param 0x%02x data 0x%08x\n",
++                  ep, tag, op, param, data);
+     apple_a7iop_send_ap(a7iop, sent_msg);
+ }
+ 
+@@ -1003,6 +1006,10 @@ static void apple_sep_sim_handle_messages(void *opaque)
+     while (!apple_a7iop_mailbox_is_empty(a7iop->iop_mailbox)) {
+         msg = apple_a7iop_recv_iop(a7iop);
+         sep_msg = (SEPMessage *)msg->data;
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "SEP-SIM rx: ep %u tag 0x%02x op %u param 0x%02x data 0x%08x\n",
++                      sep_msg->ep, sep_msg->tag, sep_msg->op, sep_msg->param,
++                      sep_msg->data);
+ 
+         switch (sep_msg->ep) {
+         case EP_CONTROL:
