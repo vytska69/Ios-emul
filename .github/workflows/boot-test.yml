@@ -123,6 +123,7 @@ jobs:
         run: |
           .build/release/ipsw-emu inspect firmware.ipsw | tee inspect.txt
           .build/release/ipsw-emu dt firmware.ipsw --path /filesystems | tee -a inspect.txt
+          .build/release/ipsw-emu dt firmware.ipsw --path /arm-io/sep | head -80 | tee -a inspect.txt
 
       - name: Boot
         run: |

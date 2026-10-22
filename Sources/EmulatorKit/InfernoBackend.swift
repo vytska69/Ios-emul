@@ -162,6 +162,14 @@ public struct InfernoBackend: EmulatorBackend {
             .first { $0.name.hasPrefix("fstab-ephemeral-diag") }?
             .children.first { $0.properties["vol.fs_ephemeral"] != nil }
         let pruned = DeviceTree.serialize(tree) { node in
+            // iBoot records that it loaded the SEP firmware; seputil then skips loading it and
+            // talks to the running SEPOS (the simulated SEP starts that way, see sep-preloaded).
+            if node.name == "sep", node.parent?.name == "arm-io" {
+                var props = node.properties
+                props["sepfw-loaded"] = Data([1, 0, 0, 0])
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["sepfw-loaded"]),
+                                      children: node.children)
+            }
             guard node.parent?.name == "fstab", node.parent?.parent?.name == "filesystems" else { return node }
             guard Self.directInstallVolumes.contains(node.name) else { return nil }
             if node.name == "data-vol", let ephemeral {
