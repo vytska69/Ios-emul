@@ -18,18 +18,6 @@ public struct InfernoBackend: EmulatorBackend {
         let maxCPUs: Int
     }
 
-    /// iPhone 11 family. The kernel loader accepts iOS 13–18 and 26 (`t8030_init`); 14 is the most exercised.
-    public static let t8030 = Machine(name: "t8030", soc: "T8030",
-                                      productTypes: ["iPhone12,1", "iPhone12,3", "iPhone12,5", "iPhone12,8"],
-                                      referenceProduct: "iPhone12,1",
-                                      supportedMajors: 13...18, extraMajors: [26], wellTestedMajor: 14, maxCPUs: 6)
-
-    /// iPhone 6s / 6s Plus (A9, S8000). The machine has no version gate, so every release the A9
-    /// shipped with is offered as experimental.
-    public static let s8000 = Machine(name: "s8000", soc: "S8000",
-                                      productTypes: ["iPhone8,1", "iPhone8,2"], referenceProduct: "iPhone8,2",
-                                      supportedMajors: 9...15, extraMajors: [], wellTestedMajor: nil, maxCPUs: 2)
-
     public let machine: Machine
 
     public init(machine: Machine) { self.machine = machine }
@@ -134,4 +122,18 @@ public struct InfernoBackend: EmulatorBackend {
         return MachineConfiguration(backendID: id, qemuBinary: "qemu-system-aarch64", arguments: args,
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
     }
+}
+
+extension InfernoBackend.Machine {
+    /// iPhone 11 family. The kernel loader accepts iOS 13–18 and 26 (`t8030_init`); 14 is the most exercised.
+    public static let t8030 = Machine(name: "t8030", soc: "T8030",
+                                      productTypes: ["iPhone12,1", "iPhone12,3", "iPhone12,5", "iPhone12,8"],
+                                      referenceProduct: "iPhone12,1",
+                                      supportedMajors: 13...18, extraMajors: [26], wellTestedMajor: 14, maxCPUs: 6)
+
+    /// iPhone 6s / 6s Plus (A9, S8000). The machine has no version gate, so every release the A9
+    /// shipped with is offered as experimental.
+    public static let s8000 = Machine(name: "s8000", soc: "S8000",
+                                      productTypes: ["iPhone8,1", "iPhone8,2"], referenceProduct: "iPhone8,2",
+                                      supportedMajors: 9...15, extraMajors: [], wellTestedMajor: nil, maxCPUs: 2)
 }
