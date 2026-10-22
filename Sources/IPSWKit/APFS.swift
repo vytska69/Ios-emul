@@ -347,7 +347,7 @@ public final class APFSContainer {
         sb.put64(0, at: 48)
         sb.put64(templateFlags & 0x9, at: 56)                            // case/normalization only
         sb.put64(now, at: 64)
-        sb.put64(6, at: 88)                                              // fs_alloc_count
+        sb.put64(5, at: 88)                                              // fs_alloc_count (the superblock is not counted)
         sb.replaceSubrange(96..<116, with: template[template.startIndex + 96..<template.startIndex + 116])
         sb.put32(0x0000_0002, at: 116)                                   // root tree: virtual
         sb.put32(0x4000_0002, at: 120)
@@ -358,7 +358,7 @@ public final class APFSContainer {
         sb.put64(snapAddr, at: 152)
         sb.put64(fs.nextObjectID, at: 176)
         sb.put64(UInt64(fs.directoryCount), at: 192)
-        sb.put64(6, at: 224)                                             // total_blocks_alloced
+        sb.put64(5, at: 224)                                             // total_blocks_alloced
         var uuid = UUID().uuid
         Swift.withUnsafeBytes(of: &uuid) { sb.replaceSubrange(240..<256, with: $0) }
         sb.put64(now, at: 256)
@@ -563,7 +563,7 @@ struct FSTree {
         var v = Data()
         v.appendLE64(parent); v.appendLE64(id)
         for _ in 0..<4 { v.appendLE64(time) }                        // create/mod/change/access
-        v.appendLE64(0)                                              // internal_flags
+        v.appendLE64(0x8000)                                         // internal_flags: INODE_NO_RSRC_FORK
         v.appendLE32(UInt32(children))
         v.appendLE32(0); v.appendLE32(0); v.appendLE32(0)            // protection class, write gen, bsd flags
         v.appendLE32(0); v.appendLE32(0)                             // owner root, group wheel
