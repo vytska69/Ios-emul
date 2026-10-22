@@ -1,0 +1,256 @@
+# iPhone10,1 d20ap iOS 16.7.16 (20H392)
+# root compatible: D20AP, iPhone10,1, AppleARM
+# 252 nodes
+
+/chosen  []
+/chosen/manifest-properties  []
+/chosen/manifest-object-properties  []
+/chosen/boot-object-manifests  []
+/chosen/secure-boot-hashes  []
+/chosen/memory-map  []
+/chosen/carveout-memory-map  []
+/chosen/lock-regs  []
+/chosen/lock-regs/amcc  []
+/chosen/lock-regs/amcc/amcc-ctrr-a  []
+/chosen/iBoot  []
+/chosen/memory-report  []
+/chosen/memory-report/zeroization-report  []
+/options  []
+/cpus  []
+/cpus/cpu0  [apple,mistral,ARM,v8] reg=0x total=0x0
+/cpus/cpu1  [apple,mistral,ARM,v8] reg=0x total=0x0
+/cpus/cpu2  [apple,mistral,ARM,v8] reg=0x total=0x0
+/cpus/cpu3  [apple,mistral,ARM,v8] reg=0x total=0x0
+/cpus/cpu4  [apple,monsoon,ARM,v8] reg=0x total=0x0
+/cpus/cpu5  [apple,monsoon,ARM,v8] reg=0x total=0x0
+/aliases  []
+/memory  [] reg=0x total=0x0
+/pram  [] reg=1x total=0x0
+/vram  [] reg=1x total=0x0
+/arm-io  [arm-io,t8015] reg=7x total=0x7000
+/arm-io/aic  [aic,1] reg=2x total=0x9000
+/arm-io/aic-timebase  [] reg=1x total=0x1000
+/arm-io/pmgr  [pmgr1,t8015] reg=32x total=0x49b000
+/arm-io/pmgr/soc-tuner  [soc-tuner,t8010]
+/arm-io/pmgr/clpc  [clpc,t8015]
+/arm-io/pmgr/ppm  [ppm,t8015]
+/arm-io/nco  [nco,t8015,nco,s5l8960x] reg=1x total=0x14000
+/arm-io/wdt  [wdt,t8015,wdt,s5l8960x] reg=2x total=0x4004
+/arm-io/gpio  [gpio,t8015,gpio,s5l8960x] reg=1x total=0x1000
+/arm-io/mcc  [mcc,t8015] reg=1x total=0x300000
+/arm-io/error-handler  [error-handler,t8015] reg=7x total=0x118000
+/arm-io/dwi  [dwi,t8015,dwi,s8000] reg=1x total=0x4000
+/arm-io/pwm  [pwm,t8015,pwm,s5l8920x] reg=1x total=0x1000
+/arm-io/aes  [aes,s8000] reg=2x total=0x8000
+/arm-io/aop  [iop,t8015] reg=4x total=0x180108
+/arm-io/aop/iop-aop-nub  [iop-nub,rtbuddy-v2]
+/arm-io/aop/iop-aop-nub/accel  []
+/arm-io/aop/iop-aop-nub/gyro  []
+/arm-io/aop/iop-aop-nub/compass  []
+/arm-io/aop/iop-aop-nub/pressure  []
+/arm-io/aop/iop-aop-nub/spherecontrol  []
+/arm-io/aop/iop-aop-nub/prox  []
+/arm-io/aop/iop-aop-nub/SPUApp  []
+/arm-io/aop/iop-aop-nub/turtle  []
+/arm-io/aop/iop-aop-nub/aop-button  []
+/arm-io/aop/iop-aop-nub/aop-mesa  []
+/arm-io/aop/iop-aop-nub/aop-audio  [aop-audio]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-mca0  [audio-aop-mca2]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-mca1  [audio-aop-mca2]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-bhap  [audio-aop-bhap]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-buttonout  [audio-aop-buttonout]
+/arm-io/aop-gpio  [gpio,t8015,gpio,s5l8960x] reg=1x total=0x4000
+/arm-io/nub-gpio  [gpio,t8015,gpio,s5l8960x] reg=1x total=0x4000
+/arm-io/smc-gpio  [gpio,t8015,gpio,s5l8960x] reg=1x total=0x4000
+/arm-io/pmp  [iop-pmp,t8015] reg=3x total=0x50000
+/arm-io/pmp/iop-pmp-nub  [iop-nub,rtbuddy-v2]
+/arm-io/sep  [iop,t8015] reg=1x total=0x10000
+/arm-io/sep/iop-sep-nub  [iop-nub,sep]
+/arm-io/sep/iop-sep-nub/xART  []
+/arm-io/sio  [iop,t8015] reg=1x total=0x20000
+/arm-io/sio/iop-sio-nub  [iop-nub,sio]
+/arm-io/sio/iop-sio-nub/sio-dma  [sio-dma-controller]
+/arm-io/ans  [iop-ans2,t8015] reg=9x total=0x86404
+/arm-io/ans/iop-ans-nub  [iop-nub,rtbuddy-v2]
+/arm-io/sart-ans  [sart,t8015] reg=1x total=0x8000
+/arm-io/smc  [iop,t8015] reg=4x total=0x60100
+/arm-io/smc/iop-smc-nub  [iop-nub,rtbuddy-v2]
+/arm-io/smc/iop-smc-nub/smc-pmu  [smc-pmu]
+/arm-io/smc/iop-smc-nub/smc-charger  []
+/arm-io/smc/iop-smc-nub/smc-ext-charger  []
+/arm-io/smc/iop-smc-nub/portmicro  [portmicro,smc-ccg2]
+/arm-io/uart0  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart0/debug-console  []
+/arm-io/uart1  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart1/bluetooth  [bluetooth,n88]
+/arm-io/uart3  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart3/stockholm  [nfc,primary,gpio]
+/arm-io/uart4  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart4/wlan  [wlan-pcie-uart,bcm4357,wlan-pcie-uart,bcm]
+/arm-io/uart6  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart6/iap-uart-1  [iap,uart]
+/arm-io/spi1  [spi-1,samsung] reg=1x total=0x4000
+/arm-io/spi1/multi-touch  [hid-transport,k1] reg=2x total=0x138808010301
+/arm-io/spi2  [spi-1,samsung] reg=1x total=0x4000
+/arm-io/spi2/audio-codec  [audio-control,cs42l75] reg=2x total=0x8010000
+/arm-io/spi3  [spi-1,samsung] reg=1x total=0x4000
+/arm-io/spi3/mesa  [biosensor,mesa] reg=2x total=0x8010100
+/arm-io/i2c0  [i2c,t8015,i2c,s5l8940x,iic,soft] reg=1x total=0x1000
+/arm-io/i2c0/boost  [] reg=1x total=0x0
+/arm-io/i2c0/display-pmu  [display-pmu,chestnut] reg=1x total=0x0
+/arm-io/i2c0/accbuck  [accbuck,fan53741] reg=1x total=0x0
+/arm-io/i2c1  [i2c,t8015,i2c,s5l8940x,iic,soft] reg=1x total=0x1000
+/arm-io/i2c1/mic-temp-sens1  [mic-temp-sens,ica60] reg=1x total=0x0
+/arm-io/i2c1/mic-temp-sens2  [mic-temp-sens,ica60] reg=1x total=0x0
+/arm-io/i2c2  [i2c,t8015,i2c,s5l8940x,iic,soft] reg=1x total=0x1000
+/arm-io/i2c2/audio-speaker-top  [audio-control,cs35l26] reg=1x total=0x0
+/arm-io/i2c2/audio-convoy  [audio-control,ad81006] reg=1x total=0x0
+/arm-io/i2c3  [i2c,t8015,i2c,s5l8940x,iic,soft] reg=1x total=0x1000
+/arm-io/i2c3/lm3539  [backlight,lm3539] reg=1x total=0x0
+/arm-io/i2c3/display-eeprom  [eeprom,i2c] reg=1x total=0x0
+/arm-io/i2c3/display-eeprom/display-eeprom-data  [diagnostic-data,format1] reg=0x total=0x0
+/arm-io/i2c3/ad5860  [halle-sensor,ad5860] reg=1x total=0x0
+/arm-io/i2c3/arc-eeprom  [eeprom,i2c] reg=1x total=0x0
+/arm-io/smc-i2c1  [i2c,t8015,i2c,s5l8940x,iic,soft] reg=1x total=0x1000
+/arm-io/smc-i2c1/tristar  [tristar,cbtl1610] reg=1x total=0x0
+/arm-io/spmi  [spmi,gen0] reg=3x total=0x204
+/arm-io/spmi/spmi-pmu  [pmu,d2422] reg=1x total=0x400000000
+/arm-io/otgphyctrl  [otgphyctrl,t8015,otgphyctrl,t8011] reg=2x total=0x24
+/arm-io/usb-complex  [usb-complex,t8015,usb-complex,t8011] reg=1x total=0x100
+/arm-io/usb-complex/usb-device  [usb-device,t8015,usb-device,t7000,usb-device,s5l8900x] reg=1x total=0x10000
+/arm-io/usb-complex/usb-ehci0  [usb-ehci,t8015,usb-ehci,t8002] reg=2x total=0x10008
+/arm-io/usb-complex/usb-ehci0/usb-ehci0-port1  []
+/arm-io/usb-complex/usb-ohci0  [usb-ohci,t8015,usb-ohci,t8002] reg=2x total=0x10008
+/arm-io/usb-complex/usb-ohci0/usb-ohci0-port1  []
+/arm-io/mipi-dsim  [mipi-dsim-1,synopsys] reg=1x total=0x100000
+/arm-io/mipi-dsim/lcd  [lcd,pinot]
+/arm-io/disp0  [disp0,t8015] reg=4x total=0x2a9000
+/arm-io/dart-disp0  [dart,t8015] reg=2x total=0x8000
+/arm-io/dart-disp0/mapper-disp0  [iommu-mapper] reg=0x total=0x0
+/arm-io/scaler0  [scaler,t8015,scaler,s5l8960x] reg=2x total=0x40000
+/arm-io/dart-scaler  [dart,t8015] reg=3x total=0x8000
+/arm-io/dart-scaler/mapper-scaler  [iommu-mapper] reg=0x total=0x0
+/arm-io/jpeg0  [jpeg,t8015,jpeg,s5l8920x] reg=1x total=0x4000
+/arm-io/dart-jpeg0  [dart,t8015] reg=1x total=0x4000
+/arm-io/dart-jpeg0/mapper-jpeg0  [iommu-mapper] reg=0x total=0x0
+/arm-io/jpeg1  [jpeg,t8015,jpeg,s5l8920x] reg=1x total=0x4000
+/arm-io/dart-jpeg1  [dart,t8015] reg=1x total=0x4000
+/arm-io/dart-jpeg1/mapper-jpeg1  [iommu-mapper] reg=0x total=0x0
+/arm-io/isp  [isp,t8015,isp,s5l8960x] reg=1x total=0x3681000
+/arm-io/dart-isp  [dart,t8015] reg=3x total=0xc000
+/arm-io/dart-isp/mapper-isp  [iommu-mapper] reg=0x total=0x0
+/arm-io/ave  [ave2] reg=5x total=0x395000
+/arm-io/dart-ave  [dart,t8015] reg=3x total=0xc000
+/arm-io/dart-ave/mapper-ave  [iommu-mapper] reg=0x total=0x0
+/arm-io/vxd  [vxd,t8015,vxd,s5l8920x] reg=2x total=0x31000
+/arm-io/avd  [avd,t8015,avd,s5l8920x] reg=1x total=0x2000000
+/arm-io/dart-avd  [dart,t8015] reg=3x total=0xc000
+/arm-io/dart-avd/mapper-avd  [iommu-mapper] reg=0x total=0x0
+/arm-io/sgx  [gpu,t8015] reg=2x total=0x120000
+/arm-io/gfx-kf  [iop-gfx,t8015] reg=2x total=0x40000
+/arm-io/gfx-kf/iop-gfx-nub  [iop-nub,rtbuddy-v2]
+/arm-io/mca-switch  [mca-switch,t8015] reg=3x total=0x48018
+/arm-io/mca0  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca0/mca0a  [mca,t8015]
+/arm-io/mca0/mca0a/audio-codec-voice  [audio-data,mikeybus-secondary] reg=2x total=0x1819030200b71b03
+/arm-io/mca0/mca0b  [mca,t8015]
+/arm-io/mca0/mca0b/audio-dsp-debug1  [audio-data,dsp-debug1] reg=2x total=0x181908fa000003fc
+/arm-io/mca1  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca1/mca1a  [mca,t8015]
+/arm-io/mca1/mca1a/audio-codec  [audio-data,cs42l75] reg=2x total=0x1819040100b71b0f
+/arm-io/mca2  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca2/mca2a  [mca,t8015]
+/arm-io/mca2/mca2a/audio-speaker-top  [audio-data,cs35l26] reg=2x total=0x101105fc00b71ee0
+/arm-io/mca2/mca2b  [mca,t8015]
+/arm-io/mca2/mca2b/audio-loopback  [audio-data,audio-loopback] reg=2x total=0x101102fc00b74b00
+/arm-io/mca3  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca3/mca3a  [mca,t8015]
+/arm-io/mca3/mca3a/audio-baseband-voice  [audio-data,baseband-voice] reg=2x total=0x1010020200000003
+/arm-io/mca4  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca4/mca4a  [mca,t8015]
+/arm-io/mca4/mca4a/audio-dsp-debug2  [audio-data,dsp-debug2] reg=2x total=0x101104fa00007800
+/arm-io/mca4/mca4b  [mca,t8015]
+/arm-io/mca4/mca4b/audio-codec-hawking  [audio-data,hawking] reg=2x total=0x101101fa00000010
+/arm-io/mca5  [mcaCluster,t8015] reg=3x total=0xc000
+/arm-io/mca5/mca5a  [mca,t8015]
+/arm-io/mca5/mca5a/audio-haptic  [audio-data,actuator] reg=2x total=0x101102fb00b71b0c
+/arm-io/apcie  [apcie,t8015] reg=12x total=0x10b4000
+/arm-io/apcie/pci-bridge2  [apcie-bridge]
+/arm-io/apcie/pci-bridge2/baseband-pcie  []
+/arm-io/apcie/pci-bridge3  [apcie-bridge]
+/arm-io/apcie/pci-bridge3/wlan  [wlan-pcie,bcm4357,wlan-pcie,bcm]
+/arm-io/dart-apcie2  [dart,t8015] reg=1x total=0x4000
+/arm-io/dart-apcie2/mapper-apcie2  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-apcie3  [dart,t8015] reg=1x total=0x4000
+/arm-io/dart-apcie3/mapper-apcie3  [iommu-mapper] reg=0x total=0x0
+/arm-io/amc  [amctempsensor,t8015,amctempsensor,s5l8960x] reg=1x total=0x1000
+/arm-io/sochot0  [sochot,s5l8955x] reg=4x total=0x7000
+/arm-io/sochot1  [sochot,s5l8955x] reg=1x total=0x1000
+/arm-io/tempsensor0  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor1  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor2  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor3  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor4  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor5  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/tempsensor6  [tempsensor,t8015] reg=1x total=0x8000
+/arm-io/dietempctl0  [dietempctl,t8015] reg=4x total=0x4000
+/arm-io/vtempctl0  [vtempctl,t8015]
+/arm-io/smctempsensor0  [smc-tempsensor]
+/arm-io/cpu-debug-interface  []
+/arm-io/swcpt  [swcpt,t8015] reg=1x total=0x40000
+/arm-io/aod2  [aod,t8015,aod,s5l8960x]
+/arm-io/haptics-support-interface  [haptics-support-interface]
+/buttons  [buttons]
+/port-lightning-1  [dock,9pin]
+/port-inductive-1  [dock,0pin]
+/backlight  [backlight]
+/baseband  [baseband,n41]
+/sacm  [sacm,1]
+/defaults  []
+/product  []
+/product/camera  []
+/product/facetime  []
+/product/maps  []
+/product/haptics  []
+/product/audio  []
+/filesystems  []
+/filesystems/fstab  []
+/filesystems/fstab/xart-vol  []
+/filesystems/fstab/system-vol  []
+/filesystems/fstab/preboot-vol  []
+/filesystems/fstab/data-vol  []
+/filesystems/fstab/baseband-vol  []
+/filesystems/fstab/update-vol  []
+/filesystems/fstab/hardware-vol  []
+/filesystems/fstab-ephemeral-recovery-data  []
+/filesystems/fstab-ephemeral-recovery-data/ephemeral-recovery-data-vol  []
+/filesystems/fstab-ephemeral-recovery-data/preboot-vol  []
+/filesystems/fstab-ephemeral-recovery-data/hardware-vol  []
+/filesystems/fstab-ephemeral-diag-data  []
+/filesystems/fstab-ephemeral-diag-data/ephemeral-diag-data-vol  []
+/filesystems/fstab-ephemeral-diag-data/baseband-vol  []
+/filesystems/fstab-ephemeral-diag-data/update-vol  []
+/filesystems/fstab-ephemeral-diag-data/preboot-vol  []
+/filesystems/fstab-ephemeral-diag-data/hardware-vol  []
+/osenvironments  []
+/osenvironments/recovery-environment  []
+/osenvironments/recovery-environment/ephemeral-recovery-data-volume  []
+/osenvironments/recovery-environment/ephemeral-storage  []
+/osenvironments/recovery-environment/no-sepfw-load-at-boot  []
+/osenvironments/recovery-environment/no-protected-data-access  []
+/osenvironments/recovery-environment/amfi-allows-trust-cache-load  []
+/osenvironments/recovery-environment/disable-av-content-protection  []
+/osenvironments/recovery-environment/use-recovery-securityd  []
+/osenvironments/recovery-environment/disable-accessory-firmware  []
+/osenvironments/diagnostics-environment  []
+/osenvironments/diagnostics-environment/ephemeral-diag-data-volume  []
+/osenvironments/diagnostics-environment/ephemeral-storage  []
+/osenvironments/diagnostics-environment/disable-transport-rm  []
+/osenvironments/diagnostics-environment/no-protected-data-access  []
+/osenvironments/diagnostics-environment/amfi-allows-trust-cache-load  []
+/osenvironments/darwinos-ramdisk-environment  []
+/osenvironments/darwinos-ramdisk-environment/isp-horizon  []
+/osenvironments/darwinos-ramdisk-environment/ephemeral-recovery-data-volume  []
+/osenvironments/darwinos-ramdisk-environment/ephemeral-storage  []
+/osenvironments/darwinos-ramdisk-environment/no-protected-data-access  []
+/osenvironments/darwinos-ramdisk-environment/no-sepfw-load-at-boot  []

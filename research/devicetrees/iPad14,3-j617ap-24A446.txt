@@ -1,0 +1,361 @@
+# iPad14,3 j617ap iOS 27.0.1 (24A446)
+# root compatible: J617AP, iPad14,3, AppleARM
+# 357 nodes
+
+/machine-timeouts  []
+/chosen  []
+/chosen/manifest-properties  []
+/chosen/manifest-object-properties  []
+/chosen/boot-object-manifests  []
+/chosen/secure-boot-hashes  []
+/chosen/dynamic-object-map  []
+/chosen/memory-map  []
+/chosen/carveout-memory-map  []
+/chosen/lock-regs  []
+/chosen/lock-regs/amcc  []
+/chosen/lock-regs/amcc/amcc-ctrr-a  []
+/chosen/lock-regs/amcc/amcc-ctrr-b  []
+/chosen/lock-regs/amcc/amcc-ctrr-c  []
+/chosen/lock-regs/amcc/amcc-ctrr-d  []
+/chosen/iBoot  []
+/chosen/memory-report  []
+/chosen/memory-report/zeroization-report  []
+/options  []
+/cpus  []
+/cpus/cpu0  [apple,blizzard,ARM,v8] reg=0x total=0x0
+/cpus/cpu1  [apple,blizzard,ARM,v8] reg=0x total=0x0
+/cpus/cpu2  [apple,blizzard,ARM,v8] reg=0x total=0x0
+/cpus/cpu3  [apple,blizzard,ARM,v8] reg=0x total=0x0
+/cpus/cpu4  [apple,avalanche,ARM,v8] reg=0x total=0x0
+/cpus/cpu5  [apple,avalanche,ARM,v8] reg=0x total=0x0
+/cpus/cpu6  [apple,avalanche,ARM,v8] reg=0x total=0x0
+/cpus/cpu7  [apple,avalanche,ARM,v8] reg=0x total=0x0
+/aliases  []
+/memory  [] reg=0x total=0x0
+/pram  [] reg=1x total=0x0
+/vram  [] reg=1x total=0x0
+/arm-io  [arm-io,t8110] reg=10x total=0x14000
+/arm-io/aic  [aic,2] reg=1x total=0x20000
+/arm-io/aic-timebase  [] reg=1x total=0x1000
+/arm-io/pmgr  [pmgr1,t8112] reg=77x total=0x15eab000
+/arm-io/pmgr/clpc  [clpc,t8112]
+/arm-io/pmgr/soc-tuner  [soc-tuner,t8020]
+/arm-io/pmgr/ppm  [ppm,cpms]
+/arm-io/event-log-handler  [event-log-handler,t8101] reg=16x total=0x27c000
+/arm-io/nco  [nco,t8101,nco,s5l8960x] reg=1x total=0x14000
+/arm-io/admac-sio  [admac,t8112] reg=2x total=0x34008
+/arm-io/admac-aop-audio  [admac,t8112] reg=2x total=0x34008
+/arm-io/wdt  [wdt,t8101,wdt,s5l8960x] reg=5x total=0x4010
+/arm-io/gpio  [gpio,t8101] reg=1x total=0x100000
+/arm-io/mcc  [mcc,t8112] reg=5x total=0x22a0000
+/arm-io/error-handler  [error-handler,t8112] reg=18x total=0x2288000
+/arm-io/dwi  [dwi,t8101,dwi,s8000] reg=1x total=0x4000
+/arm-io/pwm  [pwm,s5l8920x] reg=1x total=0x4000
+/arm-io/aes  [aes,s8000] reg=2x total=0xc000
+/arm-io/aop  [iop,ascwrap-v4] reg=4x total=0x250008
+/arm-io/aop/iop-aop-nub  [iop-nub,rtbuddy-v2]
+/arm-io/aop/iop-aop-nub/accel  []
+/arm-io/aop/iop-aop-nub/gyro  []
+/arm-io/aop/iop-aop-nub/compass  []
+/arm-io/aop/iop-aop-nub/pressure  []
+/arm-io/aop/iop-aop-nub/spherecontrol  []
+/arm-io/aop/iop-aop-nub/aop-audio  [aop-audio]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-lp-mic-in  [audio-aop-lp-mic-in]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-pdm2  [audio-aop-pdm2]
+/arm-io/aop/iop-aop-nub/aop-audio/dc-800000  [audio-aop-pdm2]
+/arm-io/aop/iop-aop-nub/aop-audio/dc-2400000  [audio-aop-pdm2]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-hp  [audio-aop-hp]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-aop-ldcm  [audio-aop-ldcm]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-aop-hawking  [audio-aop-hawking]
+/arm-io/aop/iop-aop-nub/aop-audio/audio-leap-internal-loopback  [audio-aop-leap-int-loopback]
+/arm-io/aop/iop-aop-nub/prox  []
+/arm-io/aop/iop-aop-nub/als  []
+/arm-io/aop/iop-aop-nub/als2  []
+/arm-io/aop/iop-aop-nub/smc-control  []
+/arm-io/dart-aop  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-aop/mapper-aop  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-aop/mapper-aop-admac  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-aop/mapper-scm  [iommu-mapper] reg=0x total=0x0
+/arm-io/aop-gpio  [gpio,t8101] reg=1x total=0x4000
+/arm-io/nub-gpio  [gpio,t8101] reg=1x total=0x4000
+/arm-io/smc-gpio  [gpio,t8101] reg=1x total=0x4000
+/arm-io/pmp  [iop,ascwrap-v4] reg=4x total=0xf4000
+/arm-io/pmp/iop-pmp-nub  [iop-nub,rtbuddy-v2]
+/arm-io/dart-pmp  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-pmp/mapper-pmp  [iommu-mapper] reg=0x total=0x0
+/arm-io/sep  [iop-sep,ascwrap-v4] reg=2x total=0xcc000
+/arm-io/sep/iop-sep-nub  [iop-nub,sep]
+/arm-io/sep/iop-sep-nub/Ocelot  []
+/arm-io/sep/iop-sep-nub/xART  []
+/arm-io/sep/iop-sep-nub/InvalidateHmac  []
+/arm-io/dart-sep  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-sep/mapper-sep  [iommu-mapper] reg=0x total=0x0
+/arm-io/sio  [iop,ascwrap-v4] reg=2x total=0x70000
+/arm-io/sio/iop-sio-nub  [iop-nub,rtbuddy-v2]
+/arm-io/sio/iop-sio-nub/sio-dma  [sio-dma-controller]
+/arm-io/dart-sio  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-sio/mapper-sio  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-sio/mapper-aes  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-sio/mapper-admac  [iommu-mapper] reg=0x total=0x0
+/arm-io/ans  [iop,ascwrap-v4] reg=14x total=0x1124000
+/arm-io/ans/iop-ans-nub  [iop-nub,rtbuddy-v2]
+/arm-io/sart-ans  [sart,coastguard] reg=3x total=0x10000
+/arm-io/smc  [iop,ascwrap-v4] reg=3x total=0x70014
+/arm-io/smc/iop-smc-nub  [iop-nub,rtbuddy-v2]
+/arm-io/smc/iop-smc-nub/smc-pmu  [smc-pmu]
+/arm-io/smc/iop-smc-nub/smc-charger  []
+/arm-io/smc/iop-smc-nub/smc-orion-charger  []
+/arm-io/smc/iop-smc-nub/smc-aop  []
+/arm-io/uart0  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart0/debug-console  []
+/arm-io/uart4  [uart-1,samsung] reg=1x total=0x4000
+/arm-io/uart4/hsaid-uart  []
+/arm-io/dockchannel-uart  [aapl,dock-channels] reg=2x total=0x11000
+/arm-io/dockchannel-mtp  [dockchannel,t8002] reg=6x total=0x6000
+/arm-io/dockchannel-mtp/mtp-transport  [hid-transport,dc]
+/arm-io/dockchannel-mtp/mtp-transport/multi-touch  []
+/arm-io/dockchannel-mtp/mtp-transport/firefly  []
+/arm-io/mtp  [iop,ascwrap-v4] reg=2x total=0x70000
+/arm-io/mtp/iop-mtp-nub  [iop-nub,rtbuddy-v2]
+/arm-io/dart-mtp  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-mtp/mapper-mtp  [iommu-mapper] reg=0x total=0x0
+/arm-io/mtp-aop-mux  [hid-transport,mux]
+/arm-io/spi5  [spi-1,spimc] reg=1x total=0x4000
+/arm-io/spi5/multi-touch-without-mtp  [hid-transport,spi] reg=2x total=0x8010301
+/arm-io/mt-bt-timestamp-sync  [timestamp-sync]
+/arm-io/atc-phy0  [atc-phy,t8112] reg=29x total=0x106d100
+/arm-io/dart-usb0  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-usb0/mapper-usb0  [iommu-mapper] reg=0x total=0x0
+/arm-io/usb-drd0  [usb-drd,t8112] reg=9x total=0x33000
+/arm-io/usb-drd0/usb-drd0-port-hs  []
+/arm-io/usb-drd0/usb-drd0-port-ss  []
+/arm-io/usb-otg0  [usb-otg,t8103] reg=2x total=0x5000
+/arm-io/i2c1  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/i2c1/hpm  [usbc,cd3217] reg=1x total=0x0
+/arm-io/i2c1/atcrt0  [atcrt] reg=1x total=0x0
+/arm-io/i2c2  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/i2c2/orion-ic  [orion,bellatrix] reg=1x total=0x0
+/arm-io/i2c4  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/i2c4/dp825  [parade,DP825] reg=1x total=0x0
+/arm-io/i2c4/dp825/lcd-pmicwp  [] reg=0x total=0x0
+/arm-io/i2c4/dp825/lcd-pmic  [] reg=0x total=0x0
+/arm-io/i2c4/dp825/lcd-sswp  [] reg=0x total=0x0
+/arm-io/i2c4/dp825/lcd-ss  [] reg=0x total=0x0
+/arm-io/i2c4/dp825/tcon-registers  [] reg=0x total=0x0
+/arm-io/i2c4/dp825/lcd-eeprom  [] reg=0x total=0x0
+/arm-io/i2c4/display-temp-sens1  [temperature,tmp103] reg=1x total=0x0
+/arm-io/i2c0  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/i2c0/spkr-cn-left-tweeter-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-left-woofer-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-right-tweeter-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-right-woofer-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-left-tweeter-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-left-woofer-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-right-tweeter-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c0/spkr-cn-right-woofer-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c0/audio-boost-borris0  [audio-control,cs37l90] reg=1x total=0x0
+/arm-io/i2c0/audio-boost-borris1  [audio-control,cs37l90] reg=1x total=0x0
+/arm-io/i2c3  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/i2c3/spkr-fh-left-tweeter-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-left-woofer-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-right-tweeter-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-right-woofer-cs35l91  [audio-control,cs35l91] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-left-tweeter-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-left-woofer-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-right-tweeter-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/i2c3/spkr-fh-right-woofer-max98709  [audio-control,max98709] reg=1x total=0x0
+/arm-io/aop-i2c1  [i2c,t8101,i2c,s5l8940x,iic,soft] reg=1x total=0x4000
+/arm-io/aop-i2c1/atcrt0  [atcrt] reg=1x total=0x0
+/arm-io/nub-spmi0  [aapl,spmi] reg=2x total=0x8000
+/arm-io/nub-spmi0/pmu-main  [pmu,spmi,pmu,stowe] reg=1x total=0x400000000
+/arm-io/nub-spmi0/pmu-backlight  [] reg=1x total=0x400000000
+/arm-io/nub-spmi0/btm  [btm,phone] reg=1x total=0x400000000
+/arm-io/nub-spmi1  [aapl,spmi] reg=2x total=0x8000
+/arm-io/nub-spmi1/pmu-aux  [pmu,spmi,pmu,vale] reg=1x total=0x400000000
+/arm-io/aop-spmi0  [aapl,spmi] reg=2x total=0x8000
+/arm-io/aop-spmi0/wifibt-heb  [] reg=1x total=0x400000000
+/arm-io/aop-spmi0/stockholm-spmi  [nfc,primary,spmi] reg=1x total=0x400000000
+/arm-io/aop-spmi0/stockholm-spmi/stockholm  [nfc,primary,gpio]
+/arm-io/aop-spmi1  [aapl,spmi] reg=2x total=0x8000
+/arm-io/aop-spmi1/arrow-idc  [] reg=1x total=0x400000000
+/arm-io/aop-spmi1/wifibt-idc  [] reg=1x total=0x400000000
+/arm-io/scaler0  [scaler,t8101,scaler,s5l8960x] reg=3x total=0x30000
+/arm-io/dart-scaler  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-scaler/mapper-scaler  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-scaler/mapper-scaler-piodma  [iommu-mapper] reg=0x total=0x0
+/arm-io/jpeg0  [jpeg,t8101,jpeg,s5l8920x] reg=1x total=0x4000
+/arm-io/dart-jpeg0  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-jpeg0/mapper-jpeg0  [iommu-mapper] reg=0x total=0x0
+/arm-io/jpeg1  [jpeg,t8101,jpeg,s5l8920x] reg=1x total=0x4000
+/arm-io/dart-jpeg1  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-jpeg1/mapper-jpeg1  [iommu-mapper] reg=0x total=0x0
+/arm-io/isp  [isp,h13-generic,isp,s5l8960x] reg=4x total=0x4040000
+/arm-io/dart-isp  [dart,t8110] reg=6x total=0x18000
+/arm-io/dart-isp/mapper-isp  [iommu-mapper] reg=0x total=0x0
+/arm-io/ave  [ave2] reg=5x total=0x1c68000
+/arm-io/dart-ave  [dart,t8110] reg=4x total=0x10000
+/arm-io/dart-ave/mapper-ave  [iommu-mapper] reg=0x total=0x0
+/arm-io/avd  [avd,t8103,avd,t8112] reg=1x total=0x1404000
+/arm-io/dart-avd  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-avd/mapper-avd  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-avd/mapper-avd-piodma  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-avd/mapper-avd-adsbuf  [iommu-mapper] reg=0x total=0x0
+/arm-io/apr  [apr,c0] reg=2x total=0x8000
+/arm-io/dart-apr  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-apr/mapper-apr  [iommu-mapper] reg=0x total=0x0
+/arm-io/ane  [ane,t8020] reg=3x total=0x201c000
+/arm-io/dart-ane  [dart,t8110] reg=4x total=0x10000
+/arm-io/dart-ane/mapper-ane  [iommu-mapper] reg=0x total=0x0
+/arm-io/sgx  [gpu,t8112] reg=2x total=0x4020000
+/arm-io/gfx-asc  [iop,ascwrap-v4] reg=2x total=0x6c008
+/arm-io/gfx-asc/iop-gfx-nub  [iop-nub,rtbuddy-v2]
+/arm-io/mapper-gfx-asc  [iommu-mapper,gfx]
+/arm-io/disp0  [disp0,t8112] reg=7x total=0xe2a000
+/arm-io/dcp0-expert  [dcp-expert-v1]
+/arm-io/dcp  [iop,ascwrap-v4] reg=2x total=0x70000
+/arm-io/dcp/iop-dcp-nub  [iop-nub,rtbuddy-v2]
+/arm-io/dart-dcp  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-dcp/mapper-dcp  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-disp0  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-disp0/mapper-disp0  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-disp0/mapper-disp0-piodma  [iommu-mapper] reg=0x total=0x0
+/arm-io/dcp-sac-controller  []
+/arm-io/dispext0  [dispext0,t8112] reg=7x total=0xe2a000
+/arm-io/dcpext-expert  [dcp-expert-v1]
+/arm-io/dcpext  [iop,ascwrap-v4] reg=2x total=0x70000
+/arm-io/dcpext/iop-dcpext-nub  [iop-nub,rtbuddy-v2]
+/arm-io/dart-dcpext  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-dcpext/mapper-dcpext  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-dispext0  [dart,t8110] reg=2x total=0x8000
+/arm-io/dart-dispext0/mapper-dispext0  [iommu-mapper] reg=0x total=0x0
+/arm-io/dart-dispext0/mapper-dispext0-piodma  [iommu-mapper] reg=0x total=0x0
+/arm-io/dp-audio1  []
+/arm-io/mca-switch  [mca-switch,t8112] reg=4x total=0x4c018
+/arm-io/mca0  [mcaCluster,t8112] reg=3x total=0xc000
+/arm-io/mca0/mca0a  [mca,t8112]
+/arm-io/mca0/mca0a/audio-loopback  [audio-data,audio-loopback] reg=2x total=0x101102fc00b71b03
+/arm-io/mca1  [mcaCluster,t8112] reg=3x total=0xc000
+/arm-io/mca1/mca1a  [mca,t8112]
+/arm-io/mca1/mca1a/spkr-cn-left-tweeter-cs35l91  [audio-data,cs35l91] reg=2x total=0x101111080000ffff
+/arm-io/mca1/mca1a/spkr-cn-left-tweeter-max98709  [audio-data,max98709] reg=2x total=0x101111080000ffff
+/arm-io/alc0  [alc,t8112]
+/arm-io/alc0/audio-leap-mic  [audio-data,external] reg=2x total=0x200105fa00b71b1f
+/arm-io/alc1  [alc,t8112]
+/arm-io/alc1/audio-leap-ldcm  [audio-data,external] reg=2x total=0x202102fb00b71b03
+/arm-io/alc2  [alc,t8112]
+/arm-io/alc2/audio-leap-hawking  [audio-data,external] reg=2x total=0x200104ee00b71b03
+/arm-io/alc4  [alc,t8112]
+/arm-io/alc4/audio-leap-internal-loopback  [audio-data,external] reg=2x total=0x202102fc00b71b03
+/arm-io/apcie  [apcie,t8112] reg=26x total=0x1011d100
+/arm-io/apcie/pci-bridge0  [apcie-bridge]
+/arm-io/apcie/pci-bridge0/wlan  [wlan-pcie,bcm4387,wlan-pcie,bcm]
+/arm-io/apcie/pci-bridge0/bluetooth-pcie  [wlan-pcie,bcm4387,wlan-pcie,bcm]
+/arm-io/dart-apcie0  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-apcie0/mapper-apcie0-wlan  [iommu-mapper]
+/arm-io/dart-apcie0/mapper-apcie0-bt  [iommu-mapper]
+/arm-io/wlan  []
+/arm-io/bluetooth  [bluetooth,n88]
+/arm-io/cpu-debug-interface  []
+/arm-io/aft  [aft,t8110] reg=1x total=0x10000
+/arm-io/aod1  [aod,t8101,aod,s5l8960x]
+/arm-io/aod2  [aod,t8101,aod,s5l8960x]
+/arm-io/pearl-sep  [biosensor,pearl]
+/arm-io/apciec0  [apciec,t8103] reg=7x total=0x1001c000
+/arm-io/apciec0/pcic0-bridge  [pciec-bridge]
+/arm-io/dart-apciec0  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-apciec0/mapper-pciec0-piodma  [iommu-mapper] reg=0x total=0x0
+/arm-io/apciec0-piodma  [pciec-apiodma,t8103] reg=4x total=0x10000
+/arm-io/acio0  [acio] reg=6x total=0x140004
+/arm-io/dart-acio0  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-acio0/mapper-acio0  [iommu-mapper] reg=0x total=0x0
+/arm-io/acio-cpu0  [iop,mxwrap-acio] reg=2x total=0x8000
+/arm-io/acio-cpu0/iop-acio0-nub  [iop-nub,rtbuddy-v2]
+/arm-io/display-crossbar0  [display-crossbar,t8112]
+/arm-io/atc0-dpxbar  [atc-dpxbar,t8112] reg=1x total=0x4000
+/arm-io/atc0-dpphy  [atc-dpphy,t8112]
+/arm-io/atc0-dpin0  [atc-dpin,t8112] reg=1x total=0x4000
+/arm-io/atc0-dpin1  [atc-dpin,t8112] reg=1x total=0x4000
+/arm-io/rsm  [rsm,t8101] reg=2x total=0x4004
+/arm-io/dart-rsm  [dart,t8110] reg=1x total=0x4000
+/arm-io/dart-rsm/mapper-rsm  [iommu-mapper] reg=0x total=0x0
+/arm-io/timesync  []
+/arm-io/smctempsensor0  [smc-tempsensor]
+/arm-io/apple-processor-trace  [apple-processor-trace,t8112]
+/buttons  [buttons]
+/port-usb-c-1  [dock,usb-c]
+/port-smart-connector-1  [dock,orion]
+/backlight  []
+/core-brightness  []
+/socd-trace-ram  [] reg=1x total=0x0
+/sacm  [sacm,1]
+/defaults  []
+/product  []
+/product/camera  []
+/product/facetime  []
+/product/maps  []
+/product/audio  []
+/amfm  []
+/filesystems  []
+/filesystems/fstab  []
+/filesystems/fstab/xart-vol  []
+/filesystems/fstab/system-vol  []
+/filesystems/fstab/preboot-vol  []
+/filesystems/fstab/data-vol  []
+/filesystems/fstab/update-vol  []
+/filesystems/fstab/hardware-vol  []
+/filesystems/fstab-ephemeral-recovery-data  []
+/filesystems/fstab-ephemeral-recovery-data/ephemeral-recovery-data-vol  []
+/filesystems/fstab-ephemeral-recovery-data/preboot-vol  []
+/filesystems/fstab-ephemeral-recovery-data/hardware-vol  []
+/filesystems/fstab-ephemeral-diag-data  []
+/filesystems/fstab-ephemeral-diag-data/ephemeral-diag-data-vol  []
+/filesystems/fstab-ephemeral-diag-data/update-vol  []
+/filesystems/fstab-ephemeral-diag-data/preboot-vol  []
+/filesystems/fstab-ephemeral-diag-data/hardware-vol  []
+/filesystems/fstab-ephemeral-devrecov-data  []
+/filesystems/fstab-ephemeral-devrecov-data/xart-vol  []
+/filesystems/fstab-ephemeral-devrecov-data/ephemeral-diag-data-vol  []
+/filesystems/fstab-ephemeral-devrecov-data/preboot-vol  []
+/filesystems/fstab-ephemeral-devrecov-data/hardware-vol  []
+/iboot-syscfg  []
+/iboot-syscfg/manifest-entitlements  []
+/osenvironments  []
+/osenvironments/recovery-environment  []
+/osenvironments/recovery-environment/ephemeral-recovery-data-volume  []
+/osenvironments/recovery-environment/ephemeral-storage  []
+/osenvironments/recovery-environment/no-sepfw-load-at-boot  []
+/osenvironments/recovery-environment/no-protected-data-access  []
+/osenvironments/recovery-environment/amfi-allows-trust-cache-load  []
+/osenvironments/recovery-environment/disable-av-content-protection  []
+/osenvironments/recovery-environment/use-recovery-securityd  []
+/osenvironments/recovery-environment/disable-accessory-firmware  []
+/osenvironments/recovery-environment/image4-allow-magazine-updates  []
+/osenvironments/diagnostics-environment  []
+/osenvironments/diagnostics-environment/ephemeral-diag-data-volume  []
+/osenvironments/diagnostics-environment/ephemeral-storage  []
+/osenvironments/diagnostics-environment/disable-transport-rm  []
+/osenvironments/diagnostics-environment/no-protected-data-access  []
+/osenvironments/diagnostics-environment/amfi-allows-trust-cache-load  []
+/osenvironments/darwinos-ramdisk-environment  []
+/osenvironments/darwinos-ramdisk-environment/isp-horizon  []
+/osenvironments/darwinos-ramdisk-environment/ephemeral-recovery-data-volume  []
+/osenvironments/darwinos-ramdisk-environment/ephemeral-storage  []
+/osenvironments/darwinos-ramdisk-environment/no-protected-data-access  []
+/osenvironments/darwinos-ramdisk-environment/disable-ephemeral-data-mode  []
+/osenvironments/darwinos-ramdisk-environment/no-sepfw-load-at-boot  []
+/osenvironments/macos-darwinos-environment  []
+/osenvironments/macos-darwinos-environment/set-macos-darwinos-env  []
+/osenvironments/macos-darwinos-environment/set-unrestricted-subsystem-root  []
+/osenvironments/embedded-darwinos-environment  []
+/osenvironments/embedded-darwinos-environment/set-embedded-darwinos-env  []
+/osenvironments/embedded-darwinos-environment/set-unrestricted-subsystem-root  []
+/osenvironments/trusted-darwinos-environment  []
+/osenvironments/trusted-darwinos-environment/set-trusted-darwinos-env  []
+/osenvironments/trusted-darwinos-environment/set-userspace-reboot-rem  []
+/osenvironments/trusted-darwinos-environment/set-unrestricted-subsystem-root  []
+/osenvironments/repair-environment  []
+/osenvironments/repair-environment/set-repair-env  []
+/osenvironments/device-recovery-environment  []
+/osenvironments/device-recovery-environment/ephemeral-devrecov-data-volume  []
+/osenvironments/device-recovery-environment/ephemeral-storage  []
+/osenvironments/device-recovery-environment/amfi-allows-trust-cache-load  []
