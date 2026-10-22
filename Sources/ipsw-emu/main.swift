@@ -47,6 +47,14 @@ while !args.isEmpty {
 
 // Adds a Preboot volume to a raw APFS container, the step direct installs use instead of a
 // restore. CI runs it on a fresh macOS-made image and checks the result with fsck_apfs.
+if command == "apfs-dump" {
+    do {
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+        let container = try APFSContainer(handle: handle, offset: UInt64(options["offset"] ?? "0") ?? 0)
+        try container.dump().forEach { print($0) }
+    } catch { fail("\(error)") }
+    exit(0)
+}
 if command == "apfs-add-volume" {
     do {
         let handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))

@@ -260,6 +260,39 @@ public final class APFSContainer {
         try volumeOIDs.map { ByteReader(try volumeSuperblock($0)).u16(at: 964) }
     }
 
+    /// Human-readable dump of every volume: superblock fields, object maps and the records of a
+    /// single-leaf file-system tree. Used to compare volumes written here with ones made by Apple.
+    public func dump() throws -> [String] {
+        func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+        var out: [String] = []
+        for oid in volumeOIDs {
+            let sb = try volumeSuperblock(oid)
+            let r = ByteReader(sb)
+            let name = String(decoding: sb.slice(704, 256).prefix { $0 != 0 }, as: UTF8.self)
+            out.append("volume \(name) oid \(oid) role 0x\(String(r.u16(at: 964), radix: 16))")
+            out.append("  sb[32..320] " + hex(sb.slice(32, 288)))
+            out.append("  sb[960..1056] " + hex(sb.slice(960, 96)))
+            let omap = try read(block: r.u64(at: 128))
+            out.append("  omap_phys[32..88] " + hex(omap.slice(32, 56)))
+            let omapTree = try read(block: ByteReader(omap).u64(at: 48))
+            out.append("  omap tree hdr " + hex(omapTree.slice(24, 32)) + " info " + hex(omapTree.slice(Int(blockSize) - 40, 40)))
+            let root = try read(block: omapLookup(tree: ByteReader(omap).u64(at: 48), oid: r.u64(at: 136)))
+            let n = ByteReader(root)
+            out.append("  fs root hdr " + hex(root.slice(8, 48)) + " info " + hex(root.slice(Int(blockSize) - 40, 40)))
+            guard n.u16(at: 32) & 0x2 != 0 else { out.append("  (fs root is an index node)"); continue }
+            let tocOff = 56 + Int(n.u16(at: 40)), keyStart = tocOff + Int(n.u16(at: 42))
+            let valEnd = Int(blockSize) - (n.u16(at: 32) & 0x1 != 0 ? 40 : 0)
+            for i in 0..<Int(n.u32(at: 36)) {
+                let t = tocOff + i * 8
+                let k = root.slice(keyStart + Int(n.u16(at: t)), Int(n.u16(at: t + 2)))
+                let vLen = Int(n.u16(at: t + 6))
+                let v = vLen == 0 ? Data() : root.slice(valEnd - Int(n.u16(at: t + 4)), vLen)
+                out.append("  rec k=\(hex(k)) v=\(hex(v))")
+            }
+        }
+        return out
+    }
+
     /// Adds an unencrypted volume with `role`, `name` and the directories in `tree`.
     /// The new volume copies the format flags of the container's first volume.
     public func addVolume(name: String, role: Role, tree: Tree) throws {
