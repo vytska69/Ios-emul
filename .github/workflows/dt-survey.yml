@@ -29,4 +29,5 @@ jobs:
           git add research/devicetrees
           git diff --cached --quiet && { echo "no changes"; exit 0; }
           git commit -m "Update DeviceTree hardware inventories"
-          git push
+          for i in 1 2 3; do git pull --rebase -q && git push && exit 0; sleep 5; done
+          exit 1
