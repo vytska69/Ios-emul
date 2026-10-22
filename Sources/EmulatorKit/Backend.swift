@@ -40,6 +40,14 @@ public enum BootMode: String, CaseIterable, Codable {
     case enterRecovery = "enter_recovery"
     /// Set `auto-boot` and boot the installed OS.
     case exitRecovery = "exit_recovery"
+    /// Skip the restore entirely: write the IPSW's root filesystem image straight onto the
+    /// virtual disk and boot it. No restore host (computer, idevicerestore) is needed.
+    case direct
+
+    /// Value for the Inferno machines' `boot-mode` property.
+    public var machineBootMode: String {
+        self == .direct ? BootMode.exitRecovery.rawValue : rawValue
+    }
 }
 
 /// Everything needed to start one virtual machine.

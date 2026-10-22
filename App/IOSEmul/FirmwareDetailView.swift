@@ -79,7 +79,7 @@ struct FirmwareDetailView: View {
     let itemID: UUID
     @EnvironmentObject private var library: Library
     @StateObject private var model = FirmwareModel()
-    @State private var bootMode: BootMode = .auto
+    @State private var bootMode: BootMode = .direct
     @State private var memoryMB = 2048
     @State private var cpus = 2
     @State private var pickingAsset: ExternalAsset?
@@ -124,7 +124,8 @@ struct FirmwareDetailView: View {
                 if let best = report.best, let backend = best.backend {
                     Section("Machine — \(backend.displayName)") {
                         Picker("Boot", selection: $bootMode) {
-                            Text("Automatic").tag(BootMode.auto)
+                            Text("Install directly (no computer)").tag(BootMode.direct)
+                            Text("Restore via ramdisk").tag(BootMode.auto)
                             Text("Force restore ramdisk").tag(BootMode.enterRecovery)
                             Text("Force installed OS").tag(BootMode.exitRecovery)
                         }

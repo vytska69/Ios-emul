@@ -65,10 +65,18 @@ public struct InfernoBackend: EmulatorBackend {
         }
         let ticket = ctx.externalAssets["apticket"].flatMap { fm.fileExists(atPath: $0.path) ? $0 : nil }
 
-        // Restore components boot the ramdisk; Inferno falls back to the disk once NVRAM says the restore finished.
+        // Restore components boot the ramdisk; Inferno falls back to the disk once NVRAM says the restore
+        // finished. Direct mode boots the installed system instead, so it needs the OS trust cache.
         let identity = ctx.identity
-        var components = ["DeviceTree", "RestoreRamDisk"]
-        let trustcache = identity.path("RestoreTrustCache") != nil ? "RestoreTrustCache" : "StaticTrustCache"
+        let direct = ctx.bootMode == .direct
+        var components = ["DeviceTree"]
+        let trustcache: String
+        if direct {
+            trustcache = "StaticTrustCache"
+        } else {
+            components.append("RestoreRamDisk")
+            trustcache = identity.path("RestoreTrustCache") != nil ? "RestoreTrustCache" : "StaticTrustCache"
+        }
         components.append(trustcache)
         let files = try ctx.ipsw.extract(components: components, identity: identity, to: fwDir, progress: ctx.progress)
 
@@ -88,10 +96,11 @@ public struct InfernoBackend: EmulatorBackend {
             ("nvme.6", 6, 6, 4 << 10, "nvme-ns"),      // effaceable storage
             ("nvme.7", 7, 8, 1 << 20, "nvme-ns"),      // panic log
         ]
+        if direct { try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size) }
         for ns in namespaces { try ensureDisk(dir.appendingPathComponent(ns.file), sizeBytes: ns.size) }
 
         var props = ["\(machine.name)", "trustcache=\(files[trustcache]!.path)", "kaslr-off=true",
-                     "boot-mode=\(ctx.bootMode.rawValue)"]
+                     "boot-mode=\(ctx.bootMode.machineBootMode)"]
         if let ticket { props.append("ticket=\(ticket.path)") }
         if let seprom, let sepfw { props += ["sep-rom=\(seprom.path)", "sep-fw=\(sepfw.path)"] }
 
@@ -105,12 +114,12 @@ public struct InfernoBackend: EmulatorBackend {
             "-cpu", "max", "-smp", "\(cpus)", "-m", "\(ctx.memoryMB)M",
             "-kernel", kernel.path,
             "-dtb", files["DeviceTree"]!.path,
-            "-initrd", files["RestoreRamDisk"]!.path,
             "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1",
             "-serial", "file:\(dir.appendingPathComponent("serial.log").path)",
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
             "-vnc", "127.0.0.1:\(vncPort - 5900)",
         ]
+        if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
         for ns in namespaces {
             let drive = "drive.\(ns.nsid)"
             let idSuffix = ns.device == "apple-nvram" ? ",id=nvram" : ""
@@ -121,6 +130,26 @@ public struct InfernoBackend: EmulatorBackend {
 
         return MachineConfiguration(backendID: id, qemuBinary: "qemu-system-aarch64", arguments: args,
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
+    }
+
+    /// The IPSW's `OS` image is a raw APFS container. Written to the start of namespace 1 it shows
+    /// up as disk0s1, which Inferno roots from when no `rd=` is given. A marker records which build
+    /// is installed so the multi-GiB copy happens once.
+    func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws {
+        let marker = disk.deletingLastPathComponent().appendingPathComponent("installed-build")
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass)"
+        if (try? String(contentsOf: marker, encoding: .utf8)) == build { return }
+        guard let path = ctx.identity.path("OS"), let entry = ctx.ipsw.archive.entry(path) else {
+            throw IPSWError.missingComponent("OS")
+        }
+        guard !path.hasSuffix(".aea") else {
+            throw BackendError.incompatible("the root filesystem is AEA-encrypted; direct install needs its key")
+        }
+        try ctx.ipsw.archive.extract(entry, to: disk) { ctx.progress("OS", $0) }
+        let handle = try FileHandle(forWritingTo: disk)
+        defer { try? handle.close() }
+        if try handle.seekToEnd() < size { try handle.truncate(atOffset: size) }
+        try build.write(to: marker, atomically: true, encoding: .utf8)
     }
 }
 

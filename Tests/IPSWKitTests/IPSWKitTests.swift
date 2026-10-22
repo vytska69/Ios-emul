@@ -210,6 +210,30 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertTrue(args[args.firstIndex(of: "-M")! + 1].contains("sep-fw="))
     }
 
+    func testInfernoDirectInstallWritesRootFilesystemOnce() throws {
+        let ipsw = try IPSW(url: try fullIPSW())
+        let vm = tmp.appendingPathComponent("direct")
+        var ctx = context(ipsw, vm: vm, assets: [:])
+        ctx = PrepareContext(ipsw: ipsw, identity: ctx.identity, device: ctx.device, workDirectory: vm,
+                             externalAssets: [:], bootMode: .direct, memoryMB: 2048, cpuCount: 2)
+        let args = try InfernoBackend(machine: .t8030).prepare(ctx).arguments
+        XCTAssertFalse(args.contains("-initrd"), "direct boot does not use the restore ramdisk")
+        let machine = args[args.firstIndex(of: "-M")! + 1]
+        XCTAssertTrue(machine.contains("boot-mode=exit_recovery"), machine)
+        XCTAssertTrue(machine.contains("038-44087-125.dmg.trustcache"), "OS trust cache, not the restore one")
+
+        let disk = vm.appendingPathComponent("nvme.1")
+        let head = try FileHandle(forReadingFrom: disk).read(upToCount: 4)
+        XCTAssertEqual(head, Data("NXSB".utf8))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: disk.path)[.size] as? UInt64, 32 << 30)
+
+        // A second prepare keeps the installed disk (and anything the guest wrote to it).
+        let handle = try FileHandle(forWritingTo: disk)
+        try handle.seek(toOffset: 0); handle.write(Data("USER".utf8)); try handle.close()
+        _ = try InfernoBackend(machine: .t8030).prepare(ctx)
+        XCTAssertEqual(try FileHandle(forReadingFrom: disk).read(upToCount: 4), Data("USER".utf8))
+    }
+
     private func fullIPSW() throws -> URL {
         let url = tmp.appendingPathComponent("full.ipsw")
         try TestZip.write(to: url, entries: [
@@ -220,6 +244,8 @@ final class IPSWKitTests: XCTestCase {
             ("Firmware/all_flash/DeviceTree.n104ap.im4p", Self.im4p("dtre"), false),
             ("Firmware/038-44135-124.dmg.trustcache", Data([1]), false),
             ("038-44135-124.dmg", Data([2]), true),
+            ("Firmware/038-44087-125.dmg.trustcache", Data([3]), false),
+            ("038-44087-125.dmg", Data("NXSB-apfs-container".utf8), true),
         ])
         return url
     }
@@ -247,6 +273,8 @@ final class IPSWKitTests: XCTestCase {
                     "DeviceTree": info("Firmware/all_flash/DeviceTree.\(board).im4p"),
                     "RestoreRamDisk": info("038-44135-124.dmg"),
                     "RestoreTrustCache": info("Firmware/038-44135-124.dmg.trustcache"),
+                    "StaticTrustCache": info("Firmware/038-44087-125.dmg.trustcache"),
+                    "OS": info("038-44087-125.dmg"),
                  ]],
             ],
         ]
