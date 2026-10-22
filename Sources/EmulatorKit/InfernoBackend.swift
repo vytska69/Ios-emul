@@ -186,7 +186,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -230,8 +230,18 @@ public struct InfernoBackend: EmulatorBackend {
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.
                 let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
+                // The firmware folder also holds the SEP firmware: at boot init_data_protection
+                // (seputil) loads /usr/standalone/firmware/sep-firmware.img4 into the SEP before it
+                // sets up the gigalocker. A restore writes it personalised; here it is the IPSW's
+                // payload, with the AP ticket as manifest when one was provided.
+                let firmware = String(repeating: "0", count: 96) + "/usr/standalone/firmware"
+                var prebootFiles: [String: Data] = [:]
+                if let sep = try? ctx.ipsw.rawComponent("SEP", identity: ctx.identity) {
+                    let ticket = ctx.externalAssets["apticket"].flatMap { try? Data(contentsOf: $0) }
+                    prebootFiles[firmware + "/sep-firmware.img4"] = IMG4.wrap(payload: sep, manifest: ticket)
+                }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
-                    directories: [String(repeating: "0", count: 96) + "/usr/standalone/firmware"]))
+                    directories: [firmware], files: prebootFiles))
                 // data-protection then needs the xART volume with the device's gigalocker, which a
                 // restore asks the SEP to create. The simulated SEP owns its format; start it empty.
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(

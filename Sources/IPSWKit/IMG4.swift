@@ -101,3 +101,32 @@ public struct IM4P {
             || data.prefix(32).range(of: Data("IMG4".utf8)) != nil
     }
 }
+
+/// Builds IMG4 containers, the form in which a device keeps personalised firmware on disk
+/// (for example `sep-firmware.img4` in Preboot's firmware folder).
+public enum IMG4 {
+    /// SEQUENCE { IA5String "IMG4", IM4P, [0] EXPLICIT IM4M }. The manifest is optional: without a
+    /// personalised ticket the container holds only the payload.
+    public static func wrap(payload im4p: Data, manifest im4m: Data? = nil) -> Data {
+        var body = der(tag: 0x16, Data("IMG4".utf8))
+        body.append(im4p)
+        if let im4m { body.append(der(tag: 0xA0, im4m)) }
+        return der(tag: 0x30, body)
+    }
+
+    static func der(tag: UInt8, _ content: Data) -> Data {
+        var out = Data([tag])
+        let n = content.count
+        if n < 0x80 {
+            out.append(UInt8(n))
+        } else {
+            var bytes: [UInt8] = []
+            var v = n
+            while v > 0 { bytes.insert(UInt8(v & 0xFF), at: 0); v >>= 8 }
+            out.append(0x80 | UInt8(bytes.count))
+            out.append(contentsOf: bytes)
+        }
+        out.append(content)
+        return out
+    }
+}
