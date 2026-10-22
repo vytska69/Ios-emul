@@ -24,7 +24,7 @@ jobs:
           set -x
           swift build --product ipsw-emu
           work=$(mktemp -d)
-          hdiutil create -size 64m -layout NONE -fs APFS -volname System "$work/sys.dmg"
+          hdiutil create -size 1100m -layout NONE -fs APFS -volname System "$work/sys.dmg"
           dev=$(hdiutil attach -nobrowse "$work/sys.dmg" | awk '/\/Volumes\//{print $NF; exit}')
           mkdir -p "$dev/usr/bin" && echo hello > "$dev/usr/bin/hello"
           hdiutil detach "$(hdiutil info | awk -v m="$dev" '$NF==m{print $1}')"

@@ -566,8 +566,15 @@ struct FSTree {
         }
         inode(Self.rootID, parent: 1, name: "root", children: children[Self.rootID] ?? 0)
         inode(Self.privateID, parent: 1, name: "private-dir", children: 0)
+        // The kernel finds the root and private directories through directory records in
+        // ROOT_DIR_PARENT (1), as newfs_apfs writes them; without them a mount fails with
+        // "No entry for root dir".
+        drecs.insert((1, "root", Self.rootID), at: 0)
+        drecs.insert((1, "private-dir", Self.privateID), at: 1)
         for d in drecs {
-            inode(d.id, parent: d.parent, name: d.name, children: children[d.id] ?? 0)
+            if d.parent != 1 {
+                inode(d.id, parent: d.parent, name: d.name, children: children[d.id] ?? 0)
+            }
             var key = Data.le64(d.parent | Self.typeDirRecord << 60)
             let nameBytes = Data(d.name.utf8) + Data([0])
             var hash: UInt32 = 0
