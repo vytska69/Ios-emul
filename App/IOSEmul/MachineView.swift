@@ -10,6 +10,7 @@ final class DisplayModel: ObservableObject {
     @Published var fps = 0
     private var framesThisSecond = 0
     private var fpsTimer: Timer?
+    private var waitTimer: Timer?
 
     let runner: QEMURunner
     private var vnc: VNCClient?
@@ -25,6 +26,12 @@ final class DisplayModel: ObservableObject {
             }
         }
         connect()
+        waitTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.connected, case .running = self.vmState else { return }
+                self.status = "Waiting for the display · \(Int(Date().timeIntervalSince(self.started))) s"
+            }
+        }
         if Pref.experimentalBool(Pref.fpsCounter) {
             fpsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in
@@ -45,15 +52,14 @@ final class DisplayModel: ObservableObject {
             switch event {
             case .connected(let w, let h, _):
                 self.connected = true
+                self.waitTimer?.invalidate()
                 self.status = "\(w)×\(h)"
             case .frame(let image):
                 self.frame = image
                 self.framesThisSecond += 1
             case .disconnected:
                 guard case .running = self.vmState else { return }
-                if !self.connected {
-                    self.status = "Waiting for the display · \(Int(Date().timeIntervalSince(self.started))) s"
-                }
+                self.connected = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.connect() }
             }
         }
@@ -71,6 +77,7 @@ final class DisplayModel: ObservableObject {
 
     func shutdown() {
         fpsTimer?.invalidate()
+        waitTimer?.invalidate()
         vnc?.disconnect()
         runner.stop()
     }
@@ -117,10 +124,10 @@ struct MachineView: View {
                         ProgressView().tint(theme.accent).scaleEffect(1.4)
                     }
                     Text(display.status).font(.headline).foregroundStyle(.white)
-                    Text("The screen appears once QEMU has built the machine; until then this is the kernel's serial output.")
+                    Text("The screen appears once QEMU has built the machine; until then this shows the kernel's serial output, or QEMU's log before the kernel prints anything.")
                         .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
                     if !consoleVisible {
-                        SerialConsole(log: display.runner.configuration.workingDirectory.appendingPathComponent("serial.log"))
+                        SerialConsole(directory: display.runner.configuration.workingDirectory)
                     }
                 }
                 .padding(32)
@@ -134,7 +141,7 @@ struct MachineView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 if consoleVisible {
-                    SerialConsole(log: display.runner.configuration.workingDirectory.appendingPathComponent("serial.log"))
+                    SerialConsole(directory: display.runner.configuration.workingDirectory)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 if controlsVisible {
@@ -231,16 +238,17 @@ private struct ControlButton: View {
     }
 }
 
-/// Last lines of the guest's serial output, refreshed every second (experimental).
+/// The kernel's serial output; until the kernel prints anything, QEMU's own log, so a machine that
+/// is still being built (or failed to build) is not just a blank box.
 private struct SerialConsole: View {
-    let log: URL
+    let directory: URL
     @State private var text = ""
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Text(text.isEmpty ? "(no serial output yet)" : text)
+                Text(text.isEmpty ? "(no output yet)" : text)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.green.opacity(0.9))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,8 +260,15 @@ private struct SerialConsole: View {
         .frame(height: 180)
         .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.1)))
-        .onReceive(timer) { _ in text = Self.tail(of: log) }
-        .onAppear { text = Self.tail(of: log) }
+        .onReceive(timer) { _ in text = current() }
+        .onAppear { text = current() }
+    }
+
+    private func current() -> String {
+        let serial = Self.tail(of: directory.appendingPathComponent("serial.log"))
+        if !serial.isEmpty { return serial }
+        let qemu = Self.tail(of: directory.appendingPathComponent("qemu.log"))
+        return qemu.isEmpty ? "" : "[QEMU — no kernel output yet]\n" + qemu
     }
 
     /// The last 6 KB of the log, starting at a line boundary.

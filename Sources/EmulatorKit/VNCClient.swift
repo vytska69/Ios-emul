@@ -28,7 +28,11 @@ public final class VNCClient {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready: Task { await self?.run() }
-            case .failed(let e): self?.emit(.disconnected(e))
+            // Nothing listening yet (QEMU has not opened its VNC server) leaves the connection in
+            // .waiting, where it would sit until the network changes; report it so the caller retries.
+            case .failed(let e), .waiting(let e):
+                self?.connection.cancel()
+                self?.emit(.disconnected(e))
             default: break
             }
         }
