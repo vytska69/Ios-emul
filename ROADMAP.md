@@ -37,8 +37,10 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 ### Artimiausi žingsniai
 
 1. Effaceable saugykla, kad pirmo boot'o „Erase All Content“ sukurtų sistemos keybag'ą.
-2. iPhone XR (A12): nustatyti, kuri instrukcija ar sistemos registras sukelia pirmą išimtį
-   (`-d int`), ir pridėti A12 CPU skirtumus; vėliau `usb-complex` USB modelis.
+2. iPhone XR (A12, atidėta): kernelis panikuoja `rtclock` inicializacijoje dar prieš serial išvestį,
+   nors patch 0014 grąžino CPU mazgus su `timebase-frequency`. Kita – `-d exec,nochain,int` kelias iki
+   pirmos išimties (įrankiai: `scripts/xref.py`, `scripts/adt.py`, boot testo `after` įvestis);
+   vėliau `usb-complex` USB modelis.
 3. iPhone 6s (A9) su iOS 15.8: kernelio „data abort“ po MIPI DSI valdiklio paleidimo (ekrano
    kelias S8000 mašinoje).
 4. iOS 14 iki SpringBoard: pilnas `/private/var` Data tome. Tam reikia APFS skaitytuvo, kuris
