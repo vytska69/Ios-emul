@@ -10,8 +10,9 @@ rezultatą: kiek toli bootina tikras IPSW.
 
 > **Dabar:** iOS 14.0 ant emuliuojamo iPhone 11 įdiegiamas be restore ir praeina 11 launchd boot
 > žingsnių (`fsck` … `fips`, macOS CI). Simuliuotas SEP užkrauna SEP firmware, inicializuoja
-> gigalocker ir įjungia raktų saugyklą; System, Preboot, xART ir Data tomai prijungiami. Boot'as
-> stoja `keybag` žingsnyje: trūksta sistemos keybag'o, kurį paprastai sukuria restore.
+> gigalocker ir įjungia raktų saugyklą; System, Preboot, xART ir Data tomai prijungiami. Trūksta
+> sistemos keybag'o, kurį paprastai sukuria restore: pirmas boot'as todėl paleidžia iOS „Erase All
+> Content“ pabaigimą, kuris dabar stoja ties nesuformatuota effaceable saugykla.
 > Telefone: Rolling release IPA (nuo 0.1.85) turi QEMU emuliatoriaus branduolį; programa
 > parsisiunčia IPSW iš ipsw.me, juos analizuoja ir gali paleisti emuliuojamą mašiną. Žr. [Būsena](#būsena).
 
