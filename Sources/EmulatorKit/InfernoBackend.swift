@@ -293,9 +293,7 @@ public struct InfernoBackend: EmulatorBackend {
         defer { try? handle.close() }
         if try handle.seekToEnd() < size { try handle.truncate(atOffset: size) }
         try "\(build) \(root)".write(to: marker, atomically: true, encoding: .utf8)
-        if root == "disk0s1s1" {
-            FileManager.default.createFile(atPath: dir.appendingPathComponent(Self.firstBootMarker).path, contents: nil)
-        }
+        FileManager.default.createFile(atPath: dir.appendingPathComponent(Self.firstBootMarker).path, contents: nil)
         return root
     }
 }
