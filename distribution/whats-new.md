@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- iPhone 11 iOS 14: the first-start erase no longer starts over on every restart.
 - iPhone 11 iOS 14: on the first start the user data storage is kept and prepared in place, so iOS can save its encryption keybag (experimental).
 - The emulator debug log now also records what iOS asks of the emulated Secure Enclave, to help get iPhone 11 past its first start.
 - iPhone 11 iOS 14: the first start can now erase and recreate the user data storage, as a real iPhone does. Existing iPhone 11 machines reinstall iOS once on their next start.

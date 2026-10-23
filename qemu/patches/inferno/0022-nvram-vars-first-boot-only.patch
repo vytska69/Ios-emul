@@ -1,0 +1,44 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index 2235ef3..e55712d 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -541,9 +541,23 @@ static void t8030_memory_setup(AppleT8030MachineState *t8030)
+             info_report("NVRAM: %s=%s", kv[0], kv[1] ? kv[1] : "");
+             env_set(nvram, kv[0], kv[1] ? kv[1] : "", 0);
+         }
+-        /* Only for the first boot: guest reboots run this again and must keep what it changed. */
+-        g_free(t8030->nvram_vars);
+-        t8030->nvram_vars = NULL;
++        /*
++         * Only for the first boot. The guest's own NVRAM writes do not reach the drive this is
++         * loaded from, so on a guest reboot the variables are removed again (as the guest would
++         * have, e.g. finish-obliteration clearing oblit-inprogress) instead of being kept.
++         */
++        t8030->nvram_once = g_steal_pointer(&t8030->nvram_vars);
++    } else if (t8030->nvram_once != NULL) {
++        g_auto(GStrv) vars = g_strsplit(t8030->nvram_once, ";", -1);
++        for (char **var = vars; *var != NULL; var++) {
++            g_auto(GStrv) kv = g_strsplit(*var, "=", 2);
++            if (kv[0] != NULL && kv[0][0] != '\0') {
++                info_report("NVRAM: removing %s after the first boot", kv[0]);
++                env_unset(nvram, kv[0]);
++            }
++        }
++        g_free(t8030->nvram_once);
++        t8030->nvram_once = NULL;
+     }
+ 
+     info_report("Boot Mode: %u", t8030->boot_info.boot_mode);
+diff --git a/include/hw/arm/apple-silicon/t8030.h b/include/hw/arm/apple-silicon/t8030.h
+index a4285bb..2060fef 100644
+--- a/include/hw/arm/apple-silicon/t8030.h
++++ b/include/hw/arm/apple-silicon/t8030.h
+@@ -61,6 +61,8 @@ typedef struct {
+     char *sep_fw_filename;
+     /* "name=value;name=value" NVRAM variables set before boot. */
+     char *nvram_vars;
++    /* nvram_vars after the first boot, removed on the next one. */
++    char *nvram_once;
+     char *securerom_filename;
+     uint32_t sio_protocol;
+     uint32_t build_version;

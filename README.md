@@ -225,6 +225,7 @@ Pagalbiniai įrankiai:
 | 0017–0019 | Interpretatoriaus (TCI) build'as: `Int128` dydis ir 128 bitų atomikai, be disasemblerio |
 | 0020 | Branduolio pataisa: tuščia effaceable saugykla laikoma suformatuota (iOS 14) |
 | 0021 | SEP simuliatoriaus žurnale – AppleSEPKeyStore užklausų baitai |
+| 0022 | `nvram-vars` galioja tik pirmam startui: guest perkrovus jie pašalinami |
 
 ### Pakeitimai programoje
 
