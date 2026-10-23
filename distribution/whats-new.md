@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- While waiting for the display, the screen shows where the emulated processor is and whether it is moving, to tell a slow start from a stuck one.
 - While a machine starts, the screen now tells you whether QEMU is still building it or the machine is already running and the display is not on yet.
 - Each firmware now shows a badge for its iOS version, in that release's colours, in the library, the download list and the firmware page.
 - The machine screen no longer gets stuck on "Starting QEMU…": it keeps trying to show the display and counts how long it has been waiting.

@@ -5,6 +5,10 @@ import EmulatorKit
 final class DisplayModel: ObservableObject {
     @Published var frame: CGImage?
     @Published var status = "Starting QEMU…"
+    /// Where the emulated CPU 0 is, sampled every few seconds while the display is not up, so a
+    /// guest that is running can be told apart from one that is stuck (e.g. "0xfffffff007a1b2c4 · moving").
+    @Published var cpuTrace: String?
+    private var lastPC: String?
     @Published var vmState: QEMURunner.State = .running
     /// Display frames received in the last second (experimental frame counter).
     @Published var fps = 0
@@ -37,7 +41,7 @@ final class DisplayModel: ObservableObject {
                 self.status = self.machineBuilt
                     ? "Machine running, waiting for the display · \(seconds) s"
                     : "Building the machine · \(seconds) s"
-                if seconds % 3 == 0 && !self.machineBuilt { self.checkMachine() }
+                if seconds % 3 == 0 { self.checkMachine() }
             }
         }
         if Pref.experimentalBool(Pref.fpsCounter) {
@@ -79,12 +83,20 @@ final class DisplayModel: ObservableObject {
         guard !checking else { return }
         checking = true
         let monitor = QEMUMonitor(port: runner.configuration.monitorPort)
+        let built = machineBuilt
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let answer = monitor.query("info status") ?? ""
+            let answer = monitor.query(built ? "info registers" : "info status") ?? ""
+            // "info registers" starts with CPU 0: " PC=fffffff0071c3a58 X00=..."
+            let pc = answer.range(of: #"PC=[0-9a-f]+"#, options: .regularExpression).map { String(answer[$0].dropFirst(3)) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.checking = false
                 if answer.contains("VM status") { self.machineBuilt = true }
+                if let pc {
+                    let moving = self.lastPC.map { $0 != pc } ?? true
+                    self.cpuTrace = "CPU 0 at 0x\(pc) · " + (moving ? "running" : "not moving")
+                    self.lastPC = pc
+                }
             }
         }
     }
@@ -146,6 +158,10 @@ struct MachineView: View {
                         ProgressView().tint(theme.accent).scaleEffect(1.4)
                     }
                     Text(display.status).font(.headline).foregroundStyle(.white)
+                    if let trace = display.cpuTrace {
+                        Text(trace).font(.caption.monospaced()).foregroundStyle(theme.accent)
+                            .textSelection(.enabled)
+                    }
                     Text("Building the machine (unpacking and patching the kernel) can take several minutes on a phone, and QEMU prints nothing meanwhile. Then the kernel's serial output appears here, and the screen once iOS turns the display on.")
                         .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
                     if !consoleVisible {
