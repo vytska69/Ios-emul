@@ -1,0 +1,34 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index e439c65..2235ef3 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -2591,7 +2591,9 @@ static void t8030_create_mipi_dsim(AppleT8030MachineState *t8030)
+     reg = (uint64_t *)prop->data;
+ 
+     sysbus_mmio_map(sbd, 0, t8030->armio_base + reg[0]);
+-    sysbus_mmio_map(sbd, 1, t8030->armio_base + reg[2]);
++    if (prop->len >= 4 * sizeof(uint64_t)) {
++        sysbus_mmio_map(sbd, 1, t8030->armio_base + reg[2]);
++    }
+ 
+     prop = apple_dt_get_prop(child, "interrupts");
+     assert_nonnull(prop);
+diff --git a/hw/display/synopsys_mipi_dsim.c b/hw/display/synopsys_mipi_dsim.c
+index fcd6c97..95317f1 100644
+--- a/hw/display/synopsys_mipi_dsim.c
++++ b/hw/display/synopsys_mipi_dsim.c
+@@ -138,9 +138,13 @@ SysBusDevice *synopsys_mipi_dsim_create(AppleDTNode *node)
+                           &synopsys_mipi_dsim_reg_ops, s,
+                           TYPE_SYNOPSYS_MIPI_DSIM ".regs", reg[1]);
+     sysbus_init_mmio(sbd, &s->iomems[0]);
++    // Some device trees (A12) describe only the main register window; reading
++    // reg[3] there would size the swmpr window from whatever follows the
++    // property and map it over DRAM.
+     memory_region_init_io(&s->iomems[1], OBJECT(dev),
+                           &synopsys_mipi_dsim_swmpr_reg_ops, s,
+-                          TYPE_SYNOPSYS_MIPI_DSIM ".swmpr_regs", reg[3]);
++                          TYPE_SYNOPSYS_MIPI_DSIM ".swmpr_regs",
++                          prop->len >= 4 * sizeof(uint64_t) ? reg[3] : 0x4000);
+     sysbus_init_mmio(sbd, &s->iomems[1]);
+ 
+     sysbus_init_irq(sbd, &s->irqs[0]);
