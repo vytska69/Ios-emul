@@ -21,24 +21,34 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 ## Etapai
 
-| # | Etapas | Rezultatas |
-|---|---|---|
-| 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia |
-| 1 | DeviceTree parseris + padengimo ataskaita | Kiekvienam IPSW matosi, kiek % hardware emuliuojama ir ko trūksta |
-| 2 | Bendra DT valdoma mašina (`apple-generic`) mūsų QEMU fork'e | A13 bootina per bendrą kelią, kaip ir per Inferno T8030 |
-| 3 | A14 (T8101) ir M1 (T8103) | iPhone 12 / iPad Air 4 / iPad Pro M1 iki launchd, vėliau SpringBoard |
-| 4 | Restore programoje | `idevicerestore` + libimobiledevice įkompiliuoti į programą, jungiasi prie VM per vidinį USB-over-TCP |
-| 5 | A15–A18, M2, M4 | Naujos CPU sistemos instrukcijos (SPRR, GXF, AMX…), AIC v3, nauji ANS/DCP |
-| 6 | 32 bitų era (A4–A6, iOS 4–10) | IMG3 + AES (raktai pateikiami vartotojo), S5L8920/8930/8940/8950 mašinos; uždaro iOS 3–8 skylę |
-| 7 | Greitis | TCG optimizacijos ir JIT režimas iOS (TrollStore/JIT įjungikliai), TCI kaip atsarginis |
+| # | Etapas | Rezultatas | Būsena |
+|---|---|---|---|
+| 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia | Programa veikia telefone ir importuoja IPSW. QEMU iOS'ui kompiliuojasi, laukiama pirmo IPA su branduoliu |
+| 1 | DeviceTree parseris + padengimo ataskaita | Kiekvienam IPSW matosi, kiek % hardware emuliuojama ir ko trūksta | Atlikta |
+| 1b | Įdiegimas be restore | iOS įrašoma į virtualų diską tiesiai iš IPSW: UDIF → GPT → APFS konteineris, Preboot/xART/Data tomai, pritaikytas `fstab` | Veikia iOS 14 (iPhone 11): visi tomai prijungiami, `fsck_apfs` švarus |
+| 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | `data-protection` praeina; boot'as stoja ties `mount-phase-2` (`/private/var` turinys) |
+| 2 | Bendra DT valdoma mašina (`apple-generic`) mūsų QEMU fork'e | A13 bootina per bendrą kelią, kaip ir per Inferno T8030 | Planuojama |
+| 3 | A14 (T8101) ir M1 (T8103) | iPhone 12 / iPad Air 4 / iPad Pro M1 iki launchd, vėliau SpringBoard | Planuojama |
+| 4 | Restore programoje | `idevicerestore` + libimobiledevice įkompiliuoti į programą, jungiasi prie VM per vidinį USB-over-TCP | Planuojama (1b daugeliu atvejų jį pakeičia) |
+| 5 | A15–A18, M2, M4 | Naujos CPU sistemos instrukcijos (SPRR, GXF, AMX…), AIC v3, nauji ANS/DCP | Planuojama |
+| 6 | 32 bitų era (A4–A6, iOS 4–10) | IMG3 + AES (raktai pateikiami vartotojo), S5L8920/8930/8940/8950 mašinos; uždaro iOS 3–8 skylę | Planuojama |
+| 7 | Greitis | TCG optimizacijos ir JIT režimas iOS (TrollStore/JIT įjungikliai), TCI kaip atsarginis | Planuojama |
+
+### Artimiausi žingsniai
+
+1. Pirmas IPA su QEMU branduoliu Rolling release'e (iOS build'e paliekama tik QEMU biblioteka).
+2. iOS 14 iki SpringBoard: pilnas `/private/var` Data tome. Tam reikia APFS skaitytuvo, kuris
+   nukopijuoja System tomo `/private/var` su savininkais, xattr'ais ir suspaustais failais.
+3. Tas pats kelias iOS 13 ir 15–18 ant T8030; iOS 16+ dar reikia cryptex'ų Preboot tome.
 
 Kiekvienas etapas push'inamas į GitHub atskirais commit'ais. Kiekvieną komponentą dengia testai, o CI
 jį kompiliuoja macOS runneryje.
 
 ## Ribos, kurių neperšoksim be vartotojo failų
 
-- **SecureROM / SEP ROM** yra lusto viduje, ne IPSW. Be jų bootinam be SEP (simuliuotas SEP, kaip
-  Inferno), o tikrą SEP galima įjungti, jei vartotojas pateikia savo dump'ą.
+- **SecureROM / SEP ROM** yra lusto viduje, ne IPSW. Be jų bootinam su simuliuotu SEP: jis atlieka
+  SEP ROM vaidmenį (priima IPSW SEP firmware ir paskelbia SEPOS endpoint'us), todėl duomenų apsauga
+  veikia be dump'o. Tikrą SEP galima įjungti, jei vartotojas pateikia savo dump'ą.
 - **Šifruoti komponentai.** 64 bitų IPSW iBoot/SEP yra šifruoti GID raktu. Kernelcache nuo iOS 10
   nešifruotas, todėl bootinam tiesiai kernelį ir iBoot'o nereikia. 32 bitų erai reikia viešai
   žinomų arba vartotojo pateiktų raktų.

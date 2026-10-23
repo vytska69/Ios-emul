@@ -40,3 +40,20 @@ a few generations shared by many SoCs. Each generation modelled once unlocks eve
 The method for each step: boot the target IPSW on the closest existing machine with
 `ipsw-emu boot --force-backend …` (Boot test workflow input `force_backend`), read the first panic,
 model that block, repeat.
+
+## Booting without a restore (iOS 14, T8030)
+
+A direct install writes what a restore would create, and each piece below was found by booting
+iOS 14.0 on the emulated iPhone 11 (Boot test workflow, `modes: direct`) and reading where launchd
+stopped. Root filesystem facts come from the `Root filesystem probe` workflow.
+
+| Boot step | What it needs | How a direct install provides it |
+|---|---|---|
+| `fsck`, `mount-phase-1` | A Preboot volume with `<96 zeros>/usr/standalone/firmware` (the boot manifest hash; all zeros without a personalised manifest), an xART volume | `APFSContainer.addVolume` writes both into the IPSW's container |
+| SEP boot (kernel) | `/arm-io/sep` `sepfw-loaded` = 1, as iBoot sets after loading the SEP firmware | Set in the DeviceTree; the kernel then sends `BOOT_TZ0` / `BOOT_IMG4` to the simulated SEP's ROM, which advertises the SEPOS endpoints. Starting the SEP already in SEPOS state panics (`unexpected status 1:2`) |
+| `data-protection` | `/usr/standalone/firmware/sep-firmware.img4` on Preboot; the gigalocker `/private/xarts/<uuid>.gl` | The IPSW's SEP firmware wrapped as IMG4. `seputil` rejects an existing gigalocker smaller than 6 MiB with `EEXIST` (17) and creates missing ones as a preallocated 0x600000-byte zero file, so the install writes exactly that |
+| `mount-phase-2` | A volume with the Data role (found by role, not by fstab name) mounted on `/private/var`, and `hardware/FactoryData/System/Library/Caches/com.apple.factorydata` for a bind mount (normally on the Hardware volume) | A Data volume with the base directories and owners (`mobile` is 501:501, `tmp` 1777). The ephemeral fstab variants do not satisfy it |
+| later | The rest of `/private/var`: the root filesystem ships ~17,800 entries (~175 MB, mostly `staged_system_apps`) that a restore copies onto Data | Not yet: needs an APFS reader to copy them with owners, xattrs and compressed data |
+
+The kernel logs `fs_alloc_count mismatch` for the added volumes; it is informational and
+`fsck_apfs` reports them clean.
