@@ -338,6 +338,16 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(FirmwareCatalog.compatibility(of: firmwares[0]), .supported)
     }
 
+    func testGuestVoiceOverPreference() throws {
+        XCTAssertNil(InfernoBackend.dataVolumeTree(voiceOver: false).files["mobile/Library/Preferences/com.apple.Accessibility.plist"])
+        let tree = InfernoBackend.dataVolumeTree(voiceOver: true)
+        let path = "mobile/Library/Preferences/com.apple.Accessibility.plist"
+        let data = try XCTUnwrap(tree.files[path])
+        let prefs = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        XCTAssertEqual(prefs["VoiceOverTouchEnabled"] as? Bool, true)
+        XCTAssertEqual(tree.attributes[path], APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600))
+    }
+
     func testMachineMemoryLimits() {
         // QEMU's S8000 model only builds with 2 GiB; anything else exits QEMU (and the iOS app).
         let s8000 = InfernoBackend(machine: .s8000)

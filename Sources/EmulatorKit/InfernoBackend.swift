@@ -204,6 +204,19 @@ public struct InfernoBackend: EmulatorBackend {
                          "root": APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o750)])
     }()
 
+    /// The Data volume, optionally with VoiceOver turned on: the accessibility preferences domain
+    /// (com.apple.Accessibility, read by SpringBoard and the setup assistant) owned by mobile.
+    static func dataVolumeTree(voiceOver: Bool) -> APFSContainer.Tree {
+        var tree = dataVolumeTree
+        guard voiceOver,
+              let plist = try? PropertyListSerialization.data(fromPropertyList: ["VoiceOverTouchEnabled": true],
+                                                              format: .binary, options: 0) else { return tree }
+        let path = "mobile/Library/Preferences/com.apple.Accessibility.plist"
+        tree.files[path] = plist
+        tree.attributes[path] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
+        return tree
+    }
+
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
     func directDeviceTree(from file: URL) throws -> URL {
         let tree = try DeviceTree.parse(Data(contentsOf: file))
@@ -298,7 +311,7 @@ public struct InfernoBackend: EmulatorBackend {
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
                     directories: [], files: [Self.gigalockerName: Data(count: Self.gigalockerSize)]))
                 // mount-phase-2 mounts the Data volume (found by its role) on /private/var.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree)
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(voiceOver: ctx.guestVoiceOver))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }

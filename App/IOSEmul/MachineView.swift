@@ -100,6 +100,8 @@ struct MachineView: View {
                     .interpolation(.medium)
                     .aspectRatio(aspect, contentMode: .fit)
                     .overlay(TouchSurface(display: display))
+                    .accessibilityLabel("Emulated screen")
+                    .accessibilityHint("Touches are sent to the emulated device")
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: theme.colors.0.opacity(0.25), radius: 30)
                     .padding(.vertical, 56)
@@ -137,6 +139,7 @@ struct MachineView: View {
                             .background(.ultraThinMaterial, in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Show controls")
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)

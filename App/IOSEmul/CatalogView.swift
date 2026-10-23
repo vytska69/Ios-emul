@@ -252,6 +252,7 @@ struct DownloadProgressRow: View {
                     Button(role: .destructive) { downloads.cancel(item) } label: {
                         Image(systemName: "xmark.circle.fill").font(.title3)
                     }
+                    .accessibilityLabel("Cancel download")
                     .buttonStyle(.plain).foregroundStyle(.white.opacity(0.5))
                 }
             case .verifying:

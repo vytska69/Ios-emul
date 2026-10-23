@@ -203,6 +203,8 @@ struct RingGauge: View {
                 .font(.system(.headline, design: .rounded).weight(.bold))
         }
         .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(value, format: .percent.precision(.fractionLength(0))))
     }
 }
 
@@ -222,6 +224,7 @@ struct InfoRow: View {
                 .textSelection(.enabled)
         }
         .font(.callout)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -237,6 +240,7 @@ struct GlyphTile: View {
             .foregroundStyle(.black.opacity(0.8))
             .frame(width: size, height: size)
             .background(theme.gradient, in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 

@@ -132,11 +132,13 @@ struct IPSWExplorer: View {
                             Spacer()
                             if let url = exported[entry.path] {
                                 ShareLink(item: url) { Image(systemName: "square.and.arrow.up").font(.title3) }
+                                    .accessibilityLabel("Share \((entry.path as NSString).lastPathComponent)")
                             } else if exporting == entry.path {
                                 ProgressView(value: progress).frame(width: 60).tint(theme.accent)
                             } else {
                                 Button { export(entry) } label: { Image(systemName: "arrow.down.doc").font(.title3) }
                                     .buttonStyle(.plain).foregroundStyle(theme.accent)
+                                    .accessibilityLabel("Export \((entry.path as NSString).lastPathComponent)")
                                     .disabled(exporting != nil)
                             }
                         }
@@ -269,6 +271,7 @@ struct LogsView: View {
                             Text(ByteCountFormatter.string(fromByteCount: log.size, countStyle: .file))
                                 .font(.caption2).foregroundStyle(.white.opacity(0.45))
                             ShareLink(item: log.url) { Image(systemName: "square.and.arrow.up") }
+                                .accessibilityLabel("Share \(log.name)")
                         }
                         ScrollView(.horizontal) {
                             Text(log.tail.isEmpty ? "(empty)" : log.tail)
@@ -357,6 +360,7 @@ struct MachineToolsPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(running || command.isEmpty)
+                .accessibilityLabel("Run monitor command")
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {

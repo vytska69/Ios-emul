@@ -29,6 +29,8 @@ enum Pref {
     static let machineTools = "experimentalMachineTools"
     /// IPSW explorer, DeviceTree browser, logs and disk wipe on the firmware page.
     static let firmwareTools = "experimentalFirmwareTools"
+    /// VoiceOver on in the emulated iOS from its first start.
+    static let guestVoiceOver = "experimentalGuestVoiceOver"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
@@ -51,6 +53,7 @@ enum Pref {
             fpsCounter: false,
             machineTools: false,
             firmwareTools: false,
+            guestVoiceOver: false,
         ])
     }
 
@@ -72,7 +75,7 @@ enum Pref {
 
     /// Every experimental key, reset when the features are turned off.
     static let experimentalKeys = [forceBackend, qemuDebugFlags, extraBootArgs, serialConsole, skipFirstBootErase,
-                                   extraQEMUArgs, fpsCounter, machineTools, firmwareTools]
+                                   extraQEMUArgs, fpsCounter, machineTools, firmwareTools, guestVoiceOver]
 }
 
 extension BootMode {
@@ -626,6 +629,7 @@ private struct ExperimentalPage: View {
     @AppStorage(Pref.fpsCounter) private var fpsCounter = false
     @AppStorage(Pref.machineTools) private var machineTools = false
     @AppStorage(Pref.firmwareTools) private var firmwareTools = false
+    @AppStorage(Pref.guestVoiceOver) private var guestVoiceOver = false
 
     private let debugPresets = ["guest_errors", "guest_errors,unimp", "int", "in_asm", "exec,nochain,int"]
 
@@ -653,6 +657,22 @@ private struct ExperimentalPage: View {
                     ToggleRow(title: "Skip first-boot erase",
                               detail: "Boot a direct install as written instead of resuming Erase All Content (no system keybag).",
                               isOn: $skipErase)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Emulated iOS", icon: "accessibility")
+                Card {
+                    ToggleRow(title: "VoiceOver at startup",
+                              detail: "The installed iOS starts with VoiceOver on, from the setup assistant onwards.",
+                              isOn: $guestVoiceOver)
+                    Hint(text: "Written into the Data volume when iOS is installed directly, so it applies to new machines (or after Wipe this machine). The first-boot erase recreates the Data volume, so turn on Skip first-boot erase too for it to stay.")
+                    if guestVoiceOver && !skipErase {
+                        Button { skipErase = true } label: {
+                            Label("Also skip the first-boot erase", systemImage: "checkmark.circle")
+                        }
+                        .buttonStyle(GhostButtonStyle())
+                    }
                 }
             }
 

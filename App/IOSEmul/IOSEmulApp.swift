@@ -114,6 +114,7 @@ struct LibraryView: View {
                             .background(theme.gradient, in: Circle())
                             .foregroundStyle(.black.opacity(0.8))
                     }
+                    .accessibilityLabel("Add IPSW")
                 }
             }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.ipsw, .zip, .data],
@@ -203,6 +204,8 @@ private struct FirmwareCard: View {
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
             .strokeBorder(emulated ? AnyShapeStyle(theme.gradient(opacity: 0.6)) : AnyShapeStyle(.white.opacity(0.08))))
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens the firmware page")
     }
 }
 
