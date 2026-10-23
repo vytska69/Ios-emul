@@ -47,6 +47,10 @@ jobs:
           print("root filesystem:", os_dmg.filename, os_dmg.file_size)
           with z.open(os_dmg) as src, open("root.dmg", "wb") as dst:
               shutil.copyfileobj(src, dst, 1 << 24)
+          # Kernel caches too ($KERNELCACHES), for probing the kernel's drivers.
+          for i in z.infolist():
+              if i.filename.startswith("kernelcache."):
+                  z.extract(i, "kernelcaches")
           EOF
           rm firmware.ipsw
           mkdir -p root
@@ -55,6 +59,7 @@ jobs:
       - name: Probe
         env:
           ROOT: ${{ github.workspace }}/root
+          KERNELCACHES: ${{ github.workspace }}/kernelcaches
           # Passed through the environment so quotes in the commands survive.
           COMMANDS: ${{ inputs.commands }}
         run: |
