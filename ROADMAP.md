@@ -23,7 +23,7 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 | # | Etapas | Rezultatas | Būsena |
 |---|---|---|---|
-| 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia | Programa veikia telefone ir importuoja IPSW. QEMU iOS'ui kompiliuojasi, laukiama pirmo IPA su branduoliu |
+| 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia | Atlikta: Rolling IPA su QEMU branduoliu (nuo 0.1.85), IPSW parsisiuntimas iš ipsw.me |
 | 1 | DeviceTree parseris + padengimo ataskaita | Kiekvienam IPSW matosi, kiek % hardware emuliuojama ir ko trūksta | Atlikta |
 | 1b | Įdiegimas be restore | iOS įrašoma į virtualų diską tiesiai iš IPSW: UDIF → GPT → APFS konteineris, Preboot/xART/Data tomai, pritaikytas `fstab` | Veikia iOS 14 (iPhone 11): visi tomai prijungiami, `fsck_apfs` švarus |
 | 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | `data-protection` praeina; boot'as stoja ties `mount-phase-2` (`/private/var` turinys) |
@@ -36,7 +36,7 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 ### Artimiausi žingsniai
 
-1. Pirmas IPA su QEMU branduoliu Rolling release'e (iOS build'e paliekama tik QEMU biblioteka).
+1. Effaceable saugykla, kad pirmo boot'o „Erase All Content“ sukurtų sistemos keybag'ą.
 2. iOS 14 iki SpringBoard: pilnas `/private/var` Data tome. Tam reikia APFS skaitytuvo, kuris
    nukopijuoja System tomo `/private/var` su savininkais, xattr'ais ir suspaustais failais.
 3. Tas pats kelias iOS 13 ir 15–18 ant T8030; iOS 16+ dar reikia cryptex'ų Preboot tome.

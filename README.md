@@ -12,8 +12,8 @@ rezultatą: kiek toli bootina tikras IPSW.
 > žingsnių (`fsck` … `fips`, macOS CI). Simuliuotas SEP užkrauna SEP firmware, inicializuoja
 > gigalocker ir įjungia raktų saugyklą; System, Preboot, xART ir Data tomai prijungiami. Boot'as
 > stoja `keybag` žingsnyje: trūksta sistemos keybag'o, kurį paprastai sukuria restore.
-> Telefone programa veikia, parsisiunčia IPSW iš ipsw.me ir juos analizuoja; QEMU branduolys
-> iOS'ui kompiliuojasi, laukiama pirmo IPA su juo. Žr. [Būsena](#būsena).
+> Telefone: Rolling release IPA (nuo 0.1.85) turi QEMU emuliatoriaus branduolį; programa
+> parsisiunčia IPSW iš ipsw.me, juos analizuoja ir gali paleisti emuliuojamą mašiną. Žr. [Būsena](#būsena).
 
 ## Kaip pasiekti universalumą
 
@@ -46,7 +46,7 @@ Visas planas su etapais: [ROADMAP.md](ROADMAP.md).
 
 | # | Etapas | Būsena |
 |---|---|---|
-| 0 | Programa telefone be kompiuterio (IPA per GitHub Actions, SideStore/TrollStore) | Programa veikia telefone ir importuoja IPSW; QEMU branduolys iOS'ui kompiliuojasi, taisomas linkavimas |
+| 0 | Programa telefone be kompiuterio (IPA per GitHub Actions, SideStore/TrollStore) | Veikia: Rolling IPA su QEMU branduoliu, IPSW parsisiuntimas iš ipsw.me |
 | 1 | DeviceTree parseris ir hardware padengimo ataskaita | Atlikta |
 | 1b | Įdiegimas be restore (UDIF, GPT, APFS tomai, fstab) | Veikia iOS 14: Preboot, xART ir Data tomai įrašomi, `fsck_apfs` švarus, iOS juos prijungia |
 | 1c | Simuliuotas SEP (SEP boot, raktų saugykla, xART, gigalocker) | SEP boot, gigalocker ir raktų saugyklos endpoint'as veikia; toliau sistemos keybag'as |
@@ -67,7 +67,7 @@ Visas planas su etapais: [ROADMAP.md](ROADMAP.md).
 | iOS 14.0, iPhone 11, tiesioginis įdiegimas | Praeina `fsck`, `mount-phase-1`, `data-protection`, `finish-obliteration`, `commit-boot-mode`, `mount-phase-2` (Data tomas ant `/private/var`), `init-with-data-volume`, `MSUEarlyBootTask`, `fips`. Stoja `keybag`: nėra `/private/var/keybags/systembag.kb`, todėl iOS persikrauna ratu |
 | APFS rašytuvas | Prideda tomus su katalogais, failais, savininkais ir teisėmis; daugiapakopiai B-medžiai dideliems tomams. CI tikrina `fsck_apfs` ir macOS mount'u (6000 katalogų, 300 failų) |
 | SpringBoard | Dar nepasiekta |
-| QEMU iOS'ui | Visas QEMU kompiliuojasi; iOS build'e paliekama tik biblioteka (be `qemu-system` programos), laukiama pirmo žalio IPA |
+| QEMU iOS'ui | Kompiliuojasi ir įdedamas į IPA (biblioteka be `qemu-system` programos); pirmas toks build'as 0.1.85 |
 | Rolling release | Publikuojamas į [`Rolling`](https://github.com/vytska69/Ios-emul/releases/tag/Rolling) kiekvienam IPA build'ui; SideStore šaltinio versijos imamos iš paties IPA |
 
 Šiuo metu emuliuojamos mašinos:
@@ -99,8 +99,9 @@ paleisti. Failas siunčiamas iš Apple CDN fone (tęsiasi ir uždarius programą
 pratęsiamas nuo tos vietos), įrašomas į `Firmware` aplanką (matomas Files programoje) ir
 importuojamas automatiškai. Turimą `.ipsw` galima ir tiesiog importuoti iš Files.
 
-Dabartinė versija dar neturi emuliatoriaus branduolio: IPSW analizuoja, bet paleisti negali.
-Release aprašymas tai nurodo, o pirmas build'as su branduoliu šią versiją pakeis.
+Nuo 0.1.85 IPA turi emuliatoriaus branduolį. Greitam darbui QEMU reikia JIT (TrollStore,
+SideStore su JIT įjungikliu); be jo naudok `scripts/build-qemu-ios.sh --tci` build'ą. Kiek toli
+bootina kiekvienas iOS, rodo [Būsena](#būsena): telefone tai tas pats kelias, kurį CI tikrina macOS'e.
 
 ## Struktūra
 
