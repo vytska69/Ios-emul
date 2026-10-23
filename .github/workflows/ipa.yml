@@ -4,11 +4,6 @@ name: IPA
 # install the artifact with TrollStore (entitlements are fake-signed in) or SideStore (re-signs it).
 on:
   workflow_dispatch:
-    inputs:
-      tci:
-        description: "Build the TCG interpreter instead of the JIT (works without JIT, slower)"
-        type: boolean
-        default: false
   push:
     branches: [claude/ipsw-emulator-app, main, master]
     # Only changes that end up in the IPA; the QEMU build takes ~20 minutes and a newer push
@@ -52,12 +47,21 @@ jobs:
           rev() { git ls-remote "$1" "refs/heads/$2" | cut -c1-12; }
           echo "key=$(rev https://github.com/ChefKissInc/QEMUAppleSilicon.git master)-$(rev https://github.com/devos50/qemu-ios.git ipod_touch_2g)-$(rev https://github.com/devos50/qemu-ios.git ipod_touch_1g)" >> "$GITHUB_OUTPUT"
 
+      # The IPA carries two QEMU builds: the JIT one (fast, needs JIT enabled) and the TCG interpreter
+      # (slow, runs anywhere). They share the dependency frameworks; QEMURunner picks one at run time.
       - name: Cache QEMU frameworks
         id: cache
         uses: actions/cache@v4
         with:
           path: App/Frameworks
-          key: qemu-ios-${{ inputs.tci && 'tci' || 'jit' }}-${{ hashFiles('scripts/build-qemu-ios.sh', 'qemu/patches/**') }}-${{ steps.forks.outputs.key }}
+          key: qemu-ios-jit-${{ hashFiles('scripts/build-qemu-ios.sh', 'qemu/patches/**') }}-${{ steps.forks.outputs.key }}
+
+      - name: Cache QEMU interpreter
+        id: cache-tci
+        uses: actions/cache@v4
+        with:
+          path: build-qemu-tci-out
+          key: qemu-ios-tci-${{ hashFiles('scripts/build-qemu-ios.sh', 'qemu/patches/**') }}-${{ steps.forks.outputs.key }}
 
       # A failed QEMU build does not hold back the release: the app is still built and published,
       # and the release notes say the emulator core is missing until the next green build.
@@ -65,7 +69,32 @@ jobs:
         id: qemu
         if: steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        run: scripts/build-qemu-ios.sh ${{ inputs.tci && '--tci' || '' }}
+        run: scripts/build-qemu-ios.sh
+
+      - name: Build QEMU interpreter for iOS
+        if: steps.cache-tci.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: QEMU_IOS_OUT="$PWD/build-qemu-tci-out" scripts/build-qemu-ios.sh --tci
+
+      - name: Add the interpreter to the frameworks
+        run: |
+          src=build-qemu-tci-out/qemu-aarch64-softmmu.framework
+          if [ -d App/Frameworks ] && [ -f "$src/qemu-aarch64-softmmu" ]; then
+            dst=App/Frameworks/qemu-aarch64-softmmu-tci.framework
+            rm -rf "$dst"
+            cp -R "$src" "$dst"
+            mv "$dst/qemu-aarch64-softmmu" "$dst/qemu-aarch64-softmmu-tci"
+            install_name_tool -id @rpath/qemu-aarch64-softmmu-tci.framework/qemu-aarch64-softmmu-tci \
+              "$dst/qemu-aarch64-softmmu-tci"
+            plist="$dst/Info.plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable qemu-aarch64-softmmu-tci" "$plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.iosemul.qemu-aarch64-softmmu-tci" "$plist" \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.iosemul.qemu-aarch64-softmmu-tci" "$plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleName qemu-aarch64-softmmu-tci" "$plist" || true
+            echo "interpreter included"
+          else
+            echo "::warning::no QEMU interpreter build; this IPA needs JIT"
+          fi
 
       - name: Emulator core status
         id: core
@@ -85,10 +114,6 @@ jobs:
       - name: Build app
         run: |
           xcodegen generate
-          # TCI builds run without JIT; tell the app so it does not ask for it (QEMURunner.needsJIT).
-          if [ "${{ inputs.tci }}" = "true" ]; then
-            /usr/libexec/PlistBuddy -c "Add :IOSEmulQEMUInterpreter bool true" App/Info.plist
-          fi
           xcodebuild -project IOSEmul.xcodeproj -scheme IOSEmul -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
             MARKETING_VERSION="0.1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
@@ -134,13 +159,6 @@ jobs:
         run: |
           # The 'Rolling' tag is created once by hand and then left alone: GITHUB_TOKEN may not create
           # refs that contain .github/workflows, and the download URLs only need the tag name.
-          # An interpreter (TCI) build, for devices where JIT does not work, is attached next to the JIT
-          # build as IOSEmul-TCI.ipa; it leaves the release notes and the SideStore source alone.
-          if [ "${{ inputs.tci }}" = "true" ]; then
-            cp out/IOSEmul.ipa out/IOSEmul-TCI.ipa
-            gh release upload Rolling out/IOSEmul-TCI.ipa --clobber
-            exit 0
-          fi
           if [ "${{ steps.core.outputs.included }}" = "true" ]; then
             core="Includes the QEMU emulator core."
           else

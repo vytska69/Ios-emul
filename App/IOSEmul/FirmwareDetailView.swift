@@ -68,6 +68,7 @@ final class FirmwareModel: ObservableObject {
             runError = "\(IPSWError.noIdentity)"
             return
         }
+        Pref.applyEngine()
         // Likewise without JIT: say so before the install rather than after it.
         if QEMURunner.needsJIT && !QEMURunner.jitAvailable {
             runError = "\(QEMURunner.RunnerError.jitUnavailable)"

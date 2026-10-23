@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- The app now runs without JIT too: it includes a slower interpreter and uses it automatically when JIT is not enabled. You can also pick JIT or Interpreter yourself under Settings → Emulator → Engine, e.g. if a machine stops right after starting with JIT on.
 - iPod touch 1G/2G firmware is now marked as not supported yet in the app, instead of asking for a boot ROM file it could not use.
 - While waiting for the display, the screen shows where the emulated processor is and whether it is moving, to tell a slow start from a stuck one.
 - While a machine starts, the screen now tells you whether QEMU is still building it or the machine is already running and the display is not on yet.

@@ -9,6 +9,8 @@ enum Pref {
     /// 0: the machine's own default.
     static let memoryMB = "defaultMemoryMB"
     static let translationCacheMB = "translationCacheMB"
+    /// QEMURunner.Engine: automatic, jit or interpreter.
+    static let engine = "engine"
     static let verboseBoot = "verboseBoot"
     static let verifyDownloads = "verifyDownloads"
     static let cellularDownloads = "cellularDownloads"
@@ -81,6 +83,7 @@ enum Pref {
             cpus: 2,
             memoryMB: 0,
             translationCacheMB: QEMURunner.defaultTranslationCacheMB,
+            engine: QEMURunner.Engine.automatic.rawValue,
             verboseBoot: true,
             verifyDownloads: true,
             cellularDownloads: false,
@@ -97,6 +100,12 @@ enum Pref {
             firmwareTools: false,
             guestVoiceOver: false,
         ])
+        applyEngine()
+    }
+
+    /// Hands the engine setting to QEMURunner, which reads it when a machine is prepared.
+    static func applyEngine() {
+        QEMURunner.preferredEngine = QEMURunner.Engine(rawValue: defaults.string(forKey: engine) ?? "") ?? .automatic
     }
 
     static var defaults: UserDefaults { .standard }
@@ -236,7 +245,7 @@ struct SettingsView: View {
 extension QEMURunner {
     /// One word for the Settings summary row.
     static var jitStatusWord: String {
-        if !needsJIT { return "not needed" }
+        if !needsJIT { return "interpreter" }
         return jitAvailable ? "on" : "off"
     }
 }
@@ -411,9 +420,13 @@ private struct EmulatorPage: View {
     @AppStorage(Pref.verboseBoot) private var verboseBoot = true
     @AppStorage(Pref.keepAwake) private var keepAwake = true
 
+    @AppStorage(Pref.engine) private var engine = QEMURunner.Engine.automatic.rawValue
+
     private var jit: (String, Color, String, String) {
+        _ = engine  // re-evaluate when the setting changes
         if !QEMURunner.needsJIT {
-            return ("Not needed", .green, "checkmark.circle", "This build interprets guest code (TCI).")
+            return ("Interpreter", .green, "checkmark.circle",
+                    "Guest code is interpreted: no JIT needed, but several times slower.")
         }
         return QEMURunner.jitAvailable
             ? ("Enabled", .green, "bolt.fill", "Generated code can run; machines boot at full speed.")
@@ -432,6 +445,21 @@ private struct EmulatorPage: View {
                         }
                         Spacer()
                         Chip(text: jit.0, color: jit.1, icon: jit.2)
+                    }
+                }
+            }
+            if QEMURunner.interpreterBundled && QEMURunner.jitBundled {
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionLabel(text: "Engine", icon: "cpu")
+                    Card {
+                        Picker("Engine", selection: $engine) {
+                            Text("Automatic").tag(QEMURunner.Engine.automatic.rawValue)
+                            Text("JIT").tag(QEMURunner.Engine.jit.rawValue)
+                            Text("Interpreter").tag(QEMURunner.Engine.interpreter.rawValue)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: engine) { _ in Pref.applyEngine() }
+                        Hint(text: "Automatic uses JIT when it is enabled for the app and the interpreter otherwise. Choose Interpreter if machines stop right after starting with JIT on. Applies to machines started afterwards.")
                     }
                 }
             }

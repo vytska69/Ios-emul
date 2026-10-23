@@ -28,7 +28,8 @@ public final class QEMURunner {
             case .jitUnavailable:
                 return "JIT is not enabled for this app, and iOS closes an app that runs the emulator without it. "
                     + "Enable JIT before booting: in SideStore, open the app through StikDebug or another JIT "
-                    + "enabler; in TrollStore, use \"Open with JIT\". Then return here and boot again."
+                    + "enabler; in TrollStore, use \"Open with JIT\". Then return here and boot again. "
+                    + "Or choose Interpreter under Settings → Emulator → Engine (slower, no JIT needed)."
             }
         }
     }
@@ -126,11 +127,38 @@ public final class QEMURunner {
     private typealias LoopFn = @convention(c) () -> Int32
     private typealias CleanupFn = @convention(c) (Int32) -> Void
 
-    /// TCI builds of QEMU (scripts/build-qemu-ios.sh --tci) interpret guest code and need no JIT;
-    /// the IPA workflow marks them with this Info.plist key.
-    public static var needsJIT: Bool {
-        !(Bundle.main.object(forInfoDictionaryKey: "IOSEmulQEMUInterpreter") as? Bool ?? false)
+    /// How guest code is run. The IPA carries QEMU twice: the JIT build (fast, needs JIT enabled
+    /// for the app) and the TCG interpreter (several times slower, runs anywhere) as
+    /// qemu-aarch64-softmmu-tci.framework.
+    public enum Engine: String, CaseIterable {
+        /// JIT when this process may run generated code, otherwise the interpreter.
+        case automatic, jit, interpreter
     }
+
+    /// Set by the app from its settings before a machine is prepared.
+    public static var preferredEngine = Engine.automatic
+
+    private static func bundled(_ framework: String) -> Bool {
+        guard let dir = Bundle.main.privateFrameworksURL else { return false }
+        return FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(framework).framework/\(framework)").path)
+    }
+    /// Older single-engine interpreter builds were marked with this Info.plist key.
+    private static var interpreterOnly: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "IOSEmulQEMUInterpreter") as? Bool ?? false
+    }
+    public static var interpreterBundled: Bool { interpreterOnly || bundled("qemu-aarch64-softmmu-tci") }
+    public static var jitBundled: Bool { !interpreterOnly && bundled("qemu-aarch64-softmmu") }
+
+    /// The engine the next machine runs on: .jit or .interpreter.
+    public static var activeEngine: Engine {
+        switch preferredEngine {
+        case .jit: return jitBundled || !interpreterBundled ? .jit : .interpreter
+        case .interpreter: return interpreterBundled ? .interpreter : .jit
+        case .automatic: return (jitAvailable && jitBundled) || !interpreterBundled ? .jit : .interpreter
+        }
+    }
+
+    public static var needsJIT: Bool { activeEngine == .jit }
 
     /// Whether this process may run generated code: on iOS that needs a debugger to have attached
     /// (CS_DEBUGGED), which is what SideStore's JIT enablers and TrollStore's "Open with JIT" do.
@@ -146,7 +174,8 @@ public final class QEMURunner {
         if Self.needsJIT && !Self.jitAvailable { throw RunnerError.jitUnavailable }
         // qemu-system-aarch64 → qemu-aarch64-softmmu.framework
         let target = configuration.qemuBinary.replacingOccurrences(of: "qemu-system-", with: "")
-        let name = "qemu-\(target)-softmmu"
+        var name = "qemu-\(target)-softmmu"
+        if Self.activeEngine == .interpreter && !Self.interpreterOnly { name += "-tci" }
         let path = Bundle.main.privateFrameworksURL!.appendingPathComponent("\(name).framework/\(name)").path
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw RunnerError.binaryNotFound(String(cString: dlerror()))

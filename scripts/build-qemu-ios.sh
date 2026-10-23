@@ -18,12 +18,14 @@
 #   3. UTM's fixup step turns every dylib into a framework; they are copied to App/Frameworks.
 #
 # --tci builds the TCG interpreter instead of the JIT: much slower, but runs without a JIT
-# entitlement or debugger attached (the same trade-off as UTM SE).
+# entitlement or debugger attached (the same trade-off as UTM SE). The IPA carries both: the JIT
+# build in App/Frameworks and the interpreter's QEMU as qemu-aarch64-softmmu-tci.framework (see
+# .github/workflows/ipa.yml); QEMURunner picks one at run time.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/build-qemu"
-OUT="$ROOT/App/Frameworks"
+OUT="${QEMU_IOS_OUT:-$ROOT/App/Frameworks}"   # QEMU_IOS_OUT: put the frameworks elsewhere
 UTM_TAG="v5.0.8"
 INFERNO_URL="https://github.com/ChefKissInc/QEMUAppleSilicon.git"
 INFERNO_REV="${INFERNO_REV:-cc4302a99167abec69b714cfd00c38caece7e7de}"
