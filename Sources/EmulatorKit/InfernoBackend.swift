@@ -133,13 +133,17 @@ public struct InfernoBackend: EmulatorBackend {
 
         let vncPort: UInt16 = 5901
         let monitorPort: UInt16 = 1235
-        var args = [
+        var bootArgs = "debug=0x14e kextlog=0xffff serial=3"
+        if ctx.verboseBoot { bootArgs += " -v" }
+        bootArgs += " wdt=-1"
+        if let rootDevice { bootArgs += " rd=\(rootDevice)" }
+        let memory = min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound)
+        var args: [String] = [
             "-M", props.joined(separator: ","),
-            "-cpu", "max", "-smp", "\(cpus)", "-m", "\(min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound))M",
+            "-cpu", "max", "-smp", "\(cpus)", "-m", "\(memory)M",
             "-kernel", kernel.path,
             "-dtb", deviceTree.path,
-            "-append", "debug=0x14e kextlog=0xffff serial=3" + (ctx.verboseBoot ? " -v" : "") + " wdt=-1"
-                + (rootDevice.map { " rd=\($0)" } ?? ""),
+            "-append", bootArgs,
             "-serial", "file:\(dir.appendingPathComponent("serial.log").path)",
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
             "-vnc", "127.0.0.1:\(vncPort - 5900)",
