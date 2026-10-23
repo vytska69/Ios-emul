@@ -16,12 +16,15 @@ public final class QEMURunner {
         case symbolMissing(String)
         case alreadyUsed
         case jitUnavailable
+        case missingData(String)
 
         public var description: String {
             switch self {
             case .binaryNotFound(let b): return "QEMU binary/framework not found: \(b)"
             case .symbolMissing(let s): return "QEMU framework does not export \(s)"
             case .alreadyUsed: return "QEMU already ran in this process; relaunch the app to start another machine"
+            case .missingData(let what):
+                return "This build of the app is missing QEMU's \(what), and QEMU would exit at start-up. Install a newer build."
             case .jitUnavailable:
                 return "JIT is not enabled for this app, and iOS closes an app that runs the emulator without it. "
                     + "Enable JIT before booting: in SideStore, open the app through StikDebug or another JIT "
@@ -155,13 +158,19 @@ public final class QEMURunner {
         let qemuInit = try sym("qemu_init", InitFn.self)
         let qemuLoop = try sym("qemu_main_loop", LoopFn.self)
         let qemuCleanup = try sym("qemu_cleanup", CleanupFn.self)
-        Self.used = true
 
         // QEMU's data files (VNC keymaps, firmware blobs) ship in the app as a QEMUData folder.
         var dataArgs: [String] = []
         if let data = Bundle.main.url(forResource: "QEMUData", withExtension: nil) {
             dataArgs = ["-L", data.path]
         }
+        // The VNC server loads the en-us keymap at start-up and exits QEMU (and so the app) without it.
+        let keymap = Bundle.main.url(forResource: "QEMUData", withExtension: nil)?.appendingPathComponent("keymaps/en-us")
+        if configuration.arguments.contains("-vnc"),
+           keymap.map({ FileManager.default.fileExists(atPath: $0.path) }) != true {
+            throw RunnerError.missingData("VNC keyboard layouts (QEMUData/keymaps)")
+        }
+        Self.used = true
         let argv = [configuration.qemuBinary] + dataArgs + configuration.arguments
         let cwd = configuration.workingDirectory.path
 

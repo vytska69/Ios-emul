@@ -71,6 +71,10 @@ jobs:
         run: |
           if ls App/Frameworks/*.framework >/dev/null 2>&1; then
             echo "included=true" >> "$GITHUB_OUTPUT"
+            # QEMU's VNC server exits without its keymaps; the cache holds only App/Frameworks.
+            mkdir -p App/QEMUData/keymaps
+            cp qemu/keymaps/* App/QEMUData/keymaps/
+            rm -f App/QEMUData/keymaps/README.md
           else
             rm -rf App/Frameworks App/QEMUData
             echo "included=false" >> "$GITHUB_OUTPUT"
