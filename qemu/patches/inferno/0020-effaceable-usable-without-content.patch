@@ -1,0 +1,52 @@
+diff --git a/hw/arm/apple-silicon/kernel_patches.c b/hw/arm/apple-silicon/kernel_patches.c
+index 125d247..d014c00 100644
+--- a/hw/arm/apple-silicon/kernel_patches.c
++++ b/hw/arm/apple-silicon/kernel_patches.c
+@@ -761,6 +761,34 @@ static void ck_kp_pmap_cs_enforce_patch(CKPatcherRange *range)
+                             sizeof(repl));
+ }
+ 
++/*
++ * A restore formats the effaceable storage (the NAND area holding the BAG1, Dkey and EMF lockers);
++ * an install without one leaves it blank. At start the driver scans its units, finds no valid
++ * content ("unable to find content") and never marks the storage usable, so every later write
++ * fails with "couldn't find the droid you were looking for" and the first boot's obliteration
++ * panics with "Failed to write effaceable.". Mark the storage usable even when the scan found
++ * nothing, as a freshly formatted one: the first write then creates the content.
++ */
++static void ck_kp_effaceable_patch(CKPatcherRange *range)
++{
++    static const uint8_t pattern[] = {
++        0x00, 0x00, 0x00, 0x34, // cbz w?, #? (no unit with valid content)
++        0x68, 0x02, 0x40, 0xF9, // ldr x8, [x19]
++        0x14, 0x09, 0x40, 0xB9, // ldr w20, [x8, #0x8]
++        0x29, 0x00, 0x80, 0x52, // mov w9, #1
++        0x09, 0x09, 0x00, 0x39, // strb w9, [x8, #0x2] (storage usable)
++    };
++    static const uint8_t mask[] = {
++        0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++    };
++    static const uint8_t repl[] = { NOP_BYTES };
++    QEMU_BUILD_BUG_ON(sizeof(pattern) != sizeof(mask));
++    ck_patcher_find_replace(range, "effaceable storage usable without content", pattern,
++                            mask, sizeof(pattern), sizeof(uint32_t), repl, NULL, 0,
++                            sizeof(repl));
++}
++
+ void ck_patch_kernel(MachoHeader64 *hdr)
+ {
+     MachoHeader64 *apfs_hdr;
+@@ -794,6 +822,12 @@ void ck_patch_kernel(MachoHeader64 *hdr)
+     ck_kp_img4_patches(img4_text);
+ 
+     kernel_text = ck_kp_get_kernel_section(hdr, "__TEXT_EXEC", "__text");
++    {
++        g_autofree CKPatcherRange *effaceable_text = ck_kp_find_image_text(
++            hdr, "com.apple.driver.AppleEffaceableStorage");
++        ck_kp_effaceable_patch(effaceable_text != NULL ? effaceable_text :
++                                                         kernel_text);
++    }
+     ck_kp_mac_mount_patch(kernel_text);
+     ck_kp_kprintf_patch(kernel_text);
+     ck_kp_amx_patch(kernel_text);
