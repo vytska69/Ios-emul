@@ -150,6 +150,9 @@ public struct InfernoBackend: EmulatorBackend {
 
     /// The gigalocker init_data_protection looks for on the emulated iPhone 11 (from its boot log).
     static let gigalockerName = "81879F33-B0F2-573A-AE12-6B517C322E33.gl"
+    /// seputil creates a missing gigalocker as a preallocated, zero-filled file of this size and
+    /// refuses (EEXIST) an existing one smaller than 6 MiB.
+    static let gigalockerSize = 0x600000
 
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
     ///
@@ -198,7 +201,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -255,9 +258,10 @@ public struct InfernoBackend: EmulatorBackend {
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [firmware], files: prebootFiles))
                 // data-protection then needs the xART volume with the device's gigalocker, which a
-                // restore asks the SEP to create. The simulated SEP owns its format; start it empty.
+                // restore asks the SEP to create. Lay it out the way seputil creates one: zeros,
+                // the SEP fills it in.
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
-                    directories: [], files: [Self.gigalockerName: Data()]))
+                    directories: [], files: [Self.gigalockerName: Data(count: Self.gigalockerSize)]))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }
