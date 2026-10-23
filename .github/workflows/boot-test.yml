@@ -24,6 +24,9 @@ on:
       seconds:
         description: "Time budget per boot"
         default: "900"
+      monitor:
+        description: "QEMU monitor commands run at the time limit, separated by ';'"
+        default: ""
 
 jobs:
   qemu:
@@ -120,12 +123,15 @@ jobs:
           grep -E '^ *[A-Za-z0-9,_-]+/$' arm-io.txt | tr -d ' ' | tr '\n' ' ' | fold -w 200; echo
 
       - name: Boot
+        env:
+          MONITOR: ${{ inputs.monitor }}
         run: |
           export PATH="$PWD/qemu-bin/bin:$PATH"
           .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
             --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 --mode "${{ matrix.mode }}" \
             ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} \
-            ${{ inputs.qemu_debug && format('--qemu-debug {0}', inputs.qemu_debug) || '' }} | tee boot.txt || true
+            ${{ inputs.qemu_debug && format('--qemu-debug {0}', inputs.qemu_debug) || '' }} \
+            ${MONITOR:+--monitor "$MONITOR"} | tee boot.txt || true
 
       - name: Summary
         if: always()

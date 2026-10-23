@@ -7,6 +7,7 @@ import EmulatorKit
 //   ipsw-emu inspect <file.ipsw>
 //   ipsw-emu dt <file.ipsw> [--product iPhone11,8] --path /filesystems/fstab
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
+//                 [--monitor "x /32wx 0xfffffff007000000; info mtree -f"]  (run at the time limit)
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
 //   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--role preboot|data|xart]
@@ -174,6 +175,14 @@ case "boot":
                let code = monitor.query(String(format: "x /64wx 0x%llx", pc - 0x80)) {
                 print("==> code around CPU0 PC 0x\(String(pc, radix: 16)):")
                 code.split(separator: "\n").prefix(40).forEach { print("  | \($0)") }
+            }
+        }
+        // Extra monitor commands from --monitor "cmd; cmd" (e.g. x /32wx at an exception's ELR).
+        for command in (options["monitor"] ?? "").split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) })
+            where !command.isEmpty {
+            if let out = monitor.query(command, idleSeconds: 2) {
+                print("==> \(command):")
+                out.split(separator: "\n").prefix(80).forEach { print("  | \($0)") }
             }
         }
         // What the kernel's first instructions are in guest memory (Inferno logs the entry point).
