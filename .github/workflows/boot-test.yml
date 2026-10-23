@@ -27,6 +27,9 @@ on:
       monitor:
         description: "QEMU monitor commands run at the time limit, separated by ';'"
         default: ""
+      after:
+        description: "Shell commands run after the boot (e.g. scripts/xref.py on a pmemsave dump)"
+        default: ""
 
 jobs:
   qemu:
@@ -132,6 +135,12 @@ jobs:
             ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} \
             ${{ inputs.qemu_debug && format('--qemu-debug {0}', inputs.qemu_debug) || '' }} \
             ${MONITOR:+--monitor "$MONITOR"} | tee boot.txt || true
+
+      - name: After
+        if: inputs.after != ''
+        env:
+          AFTER: ${{ inputs.after }}
+        run: bash -c "$AFTER" | tee after.txt || true
 
       - name: Summary
         if: always()
