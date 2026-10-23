@@ -223,7 +223,7 @@ Pagalbiniai įrankiai:
 | 0010–0014 | Kitų lustų (A12) DeviceTree T8030 mašinoje: DART, PCIe SID, MIPI DSI, APRR registrai, CPU mazgai |
 | 0015 | ANS NVMe „tunnel“ komandų žurnalas |
 | 0016 | iOS 26+ (TXM) JIT per StikDebug `brk #0xf00d` |
-| 0017, 0018 | Interpretatoriaus (TCI) build'as: `Int128` dydis, be disasemblerio |
+| 0017–0019 | Interpretatoriaus (TCI) build'as: `Int128` dydis ir 128 bitų atomikai, be disasemblerio |
 
 ### Pakeitimai programoje
 
