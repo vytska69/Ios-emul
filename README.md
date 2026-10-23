@@ -224,6 +224,7 @@ Pagalbiniai įrankiai:
 | 0016 | iOS 26+ (TXM) JIT per StikDebug `brk #0xf00d` |
 | 0017–0019 | Interpretatoriaus (TCI) build'as: `Int128` dydis ir 128 bitų atomikai, be disasemblerio |
 | 0020 | Branduolio pataisa: tuščia effaceable saugykla laikoma suformatuota (iOS 14) |
+| 0021 | SEP simuliatoriaus žurnale – AppleSEPKeyStore užklausų baitai |
 
 ### Pakeitimai programoje
 

@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- The emulator debug log now also records what iOS asks of the emulated Secure Enclave, to help get iPhone 11 past its first start.
 - iPhone 11 iOS 14: the first start can now erase and recreate the user data storage, as a real iPhone does. Existing iPhone 11 machines reinstall iOS once on their next start.
 - Experimental fix for the first start of iPhone 11 iOS 14 stopping at "Failed to write effaceable.": the emulated storage that holds iOS's encryption lockers is now accepted when blank.
 - Settings → Emulator → Engine is always shown, and says when a build has only one engine.
