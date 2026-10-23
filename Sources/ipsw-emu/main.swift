@@ -5,7 +5,7 @@ import EmulatorKit
 // Command-line front end used by the CI boot-test harness (and handy on a Mac):
 //
 //   ipsw-emu inspect <file.ipsw>
-//   ipsw-emu dt <file.ipsw> --path /filesystems/fstab
+//   ipsw-emu dt <file.ipsw> [--product iPhone11,8] --path /filesystems/fstab
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
@@ -125,10 +125,7 @@ case "boot":
         row = r
         backend = b
     }
-    let classes = ipsw.manifest.deviceClasses
-    let index = ipsw.devices.firstIndex(of: row.device) ?? 0
-    let board = classes.count == ipsw.devices.count ? classes[index] : classes.first
-    guard let identity = ipsw.manifest.identity(for: board) else { fail("no build identity") }
+    guard let identity = ipsw.identity(forProduct: row.device.productType) else { fail("no build identity") }
 
     let work = URL(fileURLWithPath: options["work"] ?? "vm")
     let ctx = PrepareContext(
@@ -201,7 +198,7 @@ case "boot":
     }
 
 case "dt":
-    guard let identity = ipsw.manifest.identity() else { fail("no build identity") }
+    guard let identity = ipsw.identity(forProduct: options["product"]) else { fail("no build identity") }
     let tree: DeviceTreeNode
     do { tree = try ipsw.deviceTree(identity: identity) } catch { fail("\(error)") }
     let path = options["path"] ?? "/"

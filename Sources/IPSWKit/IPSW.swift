@@ -29,6 +29,16 @@ public final class IPSW {
         devices = manifest.supportedProductTypes.map(database.device)
     }
 
+    /// The build identity for one of the IPSW's devices; shared IPSWs (e.g. iPhone XR + iPhone 11
+    /// on iOS 14) carry one per board. Without a product, the first erase identity.
+    public func identity(forProduct productType: String?) -> BuildManifest.Identity? {
+        guard let productType, let index = devices.firstIndex(where: { $0.productType == productType }) else {
+            return manifest.identity()
+        }
+        let classes = manifest.deviceClasses
+        return manifest.identity(for: classes.count == devices.count ? classes[index] : classes.first)
+    }
+
     /// Image container format used by this firmware generation.
     public var imageFormat: String {
         guard let identity = manifest.identity(),
