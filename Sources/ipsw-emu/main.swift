@@ -160,7 +160,15 @@ case "boot":
     while Date() < deadline && done.wait(timeout: .now()) == .timedOut {
         RunLoop.main.run(until: Date().addingTimeInterval(1))
     }
-    if Date() >= deadline { print("==> time limit reached, stopping"); runner.stop() }
+    if Date() >= deadline {
+        print("==> time limit reached, stopping")
+        // A boot that hangs without printing anything is found by where its CPUs are spinning.
+        if let regs = QEMUMonitor(port: runner.configuration.monitorPort).query("info registers -a") {
+            print("==> CPU state at the time limit:")
+            regs.split(separator: "\n").prefix(400).forEach { print("  | \($0)") }
+        }
+        runner.stop()
+    }
 
     let serial = (try? String(contentsOf: work.appendingPathComponent("serial.log"), encoding: .utf8)) ?? ""
     let milestone = BootMilestone.furthest(in: serial)

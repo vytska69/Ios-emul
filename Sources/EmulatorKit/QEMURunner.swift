@@ -187,4 +187,39 @@ public struct QEMUMonitor {
         let line = command + "\n"
         _ = line.withCString { write(fd, $0, strlen($0)) }
     }
+
+    /// Runs a monitor command and returns what QEMU printed, read until it goes quiet for `idleSeconds`.
+    public func query(_ command: String, idleSeconds: Int = 1) -> String? {
+        var hints = addrinfo(ai_flags: 0, ai_family: AF_INET, ai_socktype: SOCK_STREAM, ai_protocol: 0,
+                             ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo("127.0.0.1", String(port), &hints, &res) == 0, let ai = res else { return nil }
+        defer { freeaddrinfo(res) }
+        let fd = socket(ai.pointee.ai_family, ai.pointee.ai_socktype, ai.pointee.ai_protocol)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        guard connect(fd, ai.pointee.ai_addr, ai.pointee.ai_addrlen) == 0 else { return nil }
+        var timeout = timeval()
+        timeout.tv_sec = idleSeconds
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        func drain() -> Data {
+            var out = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let n = read(fd, &buffer, buffer.count)
+                if n <= 0 { break }
+                out.append(contentsOf: buffer[0..<n])
+            }
+            return out
+        }
+        _ = drain()                                     // banner and telnet negotiation
+        let line = command + "\n"
+        _ = line.withCString { write(fd, $0, strlen($0)) }
+        // Telnet option bytes (IAC sequences) and the echoed prompt are not part of the answer.
+        let text = String(decoding: drain().filter { $0 < 0x80 }, as: UTF8.self)
+        return text.replacingOccurrences(of: "\r", with: "")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.hasPrefix("(qemu)") }
+            .joined(separator: "\n")
+    }
 }
