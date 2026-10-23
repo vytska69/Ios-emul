@@ -115,6 +115,9 @@ jobs:
           .build/release/ipsw-emu inspect firmware.ipsw | tee inspect.txt
           .build/release/ipsw-emu dt firmware.ipsw --path /filesystems | tee -a inspect.txt
           .build/release/ipsw-emu dt firmware.ipsw --path /arm-io/sep | head -80 | tee -a inspect.txt
+          # The whole arm-io tree, for SoC bring-up: which blocks (DARTs, SART, PMGR...) this device has.
+          .build/release/ipsw-emu dt firmware.ipsw --path /arm-io > arm-io.txt
+          grep -E '^ *[A-Za-z0-9,_-]+/$' arm-io.txt | tr -d ' ' | tr '\n' ' ' | fold -w 200; echo
 
       - name: Boot
         run: |
@@ -156,6 +159,7 @@ jobs:
           name: boot-${{ inputs.product }}-${{ matrix.version }}-${{ matrix.mode }}
           path: |
             inspect.txt
+            arm-io.txt
             boot.txt
             vm/serial.log
             vm/qemu.log
