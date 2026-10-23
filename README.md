@@ -146,8 +146,10 @@ leidimo, bet kelis kartus lėčiau.
   įrenginiams jo apskaičiavimas dar nežinomas. Failas yra 6 MiB nulių, kaip jį sukuria `seputil`.
 - **Sistemos keybag'as.** Restore jį sukuria per SEP ir užšifruoja effaceable saugyklos `BAG1`
   raktu. Simuliuoto SEP raktų saugykla bet kokį keybag'ą priima, bet effaceable saugykla ir
-  `systembag.kb` dar tušti. Tiriamas kelias, kai juos sukuria pati iOS (`finish-obliteration`,
-  kaip „Erase All Content“), kad kompiuterio nereikėtų.
+  `systembag.kb` dar tušti. Pirmas boot'as po įdiegimo todėl paleidžia iOS „Erase All Content“
+  pabaigimą (`oblit-inprogress` NVRAM'e): iOS ištrina Data, atšaukia raktus ir išvalo gigalocker'ius,
+  bet stoja ties „Failed to write effaceable.“, nes effaceable saugykla (NVMe namespace 6)
+  nesuformatuota. Ją paruošti yra kitas žingsnis.
 - **Data tomas** kol kas turi tik pagrindinius katalogus. Restore į jį nukopijuoja visą rootfs
   `/private/var` (~17 tūkst. įrašų); tam reikia APFS skaitytuvo su suspaustų failų palaikymu.
 - **JIT.** Greitam QEMU reikia JIT leidimo (TrollStore, SideStore su JIT įjungikliu, debugger).
