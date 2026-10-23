@@ -39,9 +39,21 @@ public final class APFSContainer {
         public var directories: [String]
         /// Regular files by path; their parent directories are created as needed.
         public var files: [String: Data]
-        public init(directories: [String], files: [String: Data] = [:]) {
+        /// Owner and permissions by path; anything not listed is root:wheel, 0755 or 0644.
+        public var attributes: [String: Attributes]
+        public init(directories: [String], files: [String: Data] = [:], attributes: [String: Attributes] = [:]) {
             self.directories = directories
             self.files = files
+            self.attributes = attributes
+        }
+    }
+
+    public struct Attributes: Equatable {
+        public var uid: UInt32, gid: UInt32
+        /// Permission bits only (e.g. 0o755); the file type is added from the entry.
+        public var mode: UInt16
+        public init(uid: UInt32, gid: UInt32, mode: UInt16) {
+            self.uid = uid; self.gid = gid; self.mode = mode
         }
     }
 
@@ -351,8 +363,8 @@ public final class APFSContainer {
         let templateFlags = ByteReader(template).u64(at: 56)
         let caseInsensitive = templateFlags & 0x1 != 0
         let hashedNames = caseInsensitive || templateFlags & 0x8 != 0
-        let fs = FSTree(directories: tree.directories, files: files, blockSize: blockSize, hashedNames: hashedNames,
-                        caseInsensitive: caseInsensitive, time: now)
+        let fs = FSTree(directories: tree.directories, files: files, attributes: tree.attributes, blockSize: blockSize,
+                        hashedNames: hashedNames, caseInsensitive: caseInsensitive, time: now)
 
         // Format details (B-tree flags, TOC sizes, object map flags) are copied from structures
         // Apple's tools wrote: the template volume's trees and the container's object map tree.
@@ -576,8 +588,8 @@ struct FSTree {
     static let typeExtent: UInt64 = 2, typeInode: UInt64 = 3, typeDStreamID: UInt64 = 6
     static let typeFileExtent: UInt64 = 8, typeDirRecord: UInt64 = 9
 
-    init(directories: [String], files: [File] = [], blockSize: UInt64 = 4096,
-         hashedNames: Bool, caseInsensitive: Bool, time: UInt64) {
+    init(directories: [String], files: [File] = [], attributes: [String: APFSContainer.Attributes] = [:],
+         blockSize: UInt64 = 4096, hashedNames: Bool, caseInsensitive: Bool, time: UInt64) {
         // Every intermediate directory, parents before children.
         var all = Set<String>()
         let fileDirs = files.map { $0.path.split(separator: "/").dropLast().joined(separator: "/") }.filter { !$0.isEmpty }
@@ -611,12 +623,15 @@ struct FSTree {
             drecs.append((parent, String(file.path.split(separator: "/").last!), id))
         }
         let fileByID = Dictionary(uniqueKeysWithValues: zip(fileIDs, files))
+        var pathByID = Dictionary(uniqueKeysWithValues: ids.map { ($0.value, $0.key) })
+        for (id, file) in fileByID { pathByID[id] = file.path }
 
         var recs: [(sort: (UInt64, UInt64, UInt32, String), key: Data, value: Data)] = []
         func inode(_ id: UInt64, parent: UInt64, name: String, children: Int) {
             recs.append(((id, Self.typeInode, 0, ""), Data.le64(id | Self.typeInode << 60),
                          Self.inodeValue(parent: parent, id: id, name: name, children: children, time: time,
-                                         file: fileByID[id], blockSize: blockSize)))
+                                         file: fileByID[id], attributes: pathByID[id].flatMap { attributes[$0] },
+                                         blockSize: blockSize)))
         }
         inode(Self.rootID, parent: 1, name: "root", children: children[Self.rootID] ?? 0)
         inode(Self.privateID, parent: 1, name: "private-dir", children: 0)
@@ -669,15 +684,17 @@ struct FSTree {
     }
 
     static func inodeValue(parent: UInt64, id: UInt64, name: String, children: Int, time: UInt64,
-                           file: File? = nil, blockSize: UInt64 = 4096) -> Data {
+                           file: File? = nil, attributes: APFSContainer.Attributes? = nil,
+                           blockSize: UInt64 = 4096) -> Data {
         var v = Data()
         v.appendLE64(parent); v.appendLE64(id)                       // parent, private id (= data stream id)
         for _ in 0..<4 { v.appendLE64(time) }                        // create/mod/change/access
         v.appendLE64(0x8000)                                         // internal_flags: INODE_NO_RSRC_FORK
         v.appendLE32(file == nil ? UInt32(children) : 1)             // nchildren, or nlink for a file
         v.appendLE32(0); v.appendLE32(0); v.appendLE32(0)            // protection class, write gen, bsd flags
-        v.appendLE32(0); v.appendLE32(0)                             // owner root, group wheel
-        v.appendLE16(file == nil ? 0o040755 : 0o100644); v.appendLE16(0)
+        v.appendLE32(attributes?.uid ?? 0); v.appendLE32(attributes?.gid ?? 0)   // owner, group
+        v.appendLE16((file == nil ? 0o040000 : 0o100000) | (attributes?.mode ?? (file == nil ? 0o755 : 0o644)))
+        v.appendLE16(0)
         v.appendLE64(0)
         // Extended fields: the inode's name (INO_EXT_TYPE_NAME, XF_DO_NOT_COPY) and, for a file,
         // its data stream (INO_EXT_TYPE_DSTREAM, XF_SYSTEM_FIELD).
