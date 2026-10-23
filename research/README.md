@@ -41,6 +41,29 @@ The method for each step: boot the target IPSW on the closest existing machine w
 `ipsw-emu boot --force-backend …` (Boot test workflow input `force_backend`), read the first panic,
 model that block, repeat.
 
+## A12 (T8020, iPhone XR) on the T8030 machine
+
+Boot test: `product: iPhone11,8`, `force_backend: inferno-t8030`. iOS 14 ships one IPSW for the
+iPhone XR and iPhone 11, each with its own build identity; `ipsw-emu dt --product` picks the right
+DeviceTree. Differences from the A13 that the machine had to tolerate, from the XR's `arm-io`:
+
+| Block | A13 (n104) | A12 (n841) | Handling |
+|---|---|---|---|
+| `dart-rsm` / `rsm` | present | absent | skipped (patch 0010) |
+| USB | `usb-drd`, `atc-phy` (Type-C) | `usb-complex`, `usb-device`, `otgphyctrl`, EHCI/OHCI | USB skipped for now; needs an `usb-complex` model (S8000 has one) |
+| AES DMA | `dart-sio/mapper-aes` | no `mapper-aes` | AES DMA goes to system memory, as on S8000 |
+| SPMI | `spmi0`–`spmi2` | one `spmi` | PMU attached to `spmi` |
+| `roswell` (i2c3), `smc-i2c0` | present | absent | skipped |
+| `accbuck` | on `smc-i2c1` | on `i2c0` | looked up on either bus |
+| `bluetooth` | `arm-io/bluetooth` | under `uart1` | MAC address only set where the node exists |
+| temperature sensors | `tempsensor0-5`, `mtrtempsensor6-15` | `tempsensor0-8`, `mtrtempsensor3` | missing ones skipped |
+| `dart-apcie2` | has SID 1 | different SID set | first available SID (patch 0011) |
+
+With these the machine builds and QEMU enters the XR kernel, but nothing reaches the serial port:
+at the time limit CPU0 sits at `PC=0x200` with VBAR still 0, i.e. one of the kernel's first
+instructions took an exception before it installed its vectors. The next run logs exceptions
+(`qemu_debug: int`) to name the instruction or system register the A12 kernel expects.
+
 ## Booting without a restore (iOS 14, T8030)
 
 A direct install writes what a restore would create, and each piece below was found by booting

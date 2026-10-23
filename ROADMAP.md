@@ -26,8 +26,8 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 | 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia | Atlikta: Rolling IPA su QEMU branduoliu (nuo 0.1.85), IPSW parsisiuntimas iš ipsw.me |
 | 1 | DeviceTree parseris + padengimo ataskaita | Kiekvienam IPSW matosi, kiek % hardware emuliuojama ir ko trūksta | Atlikta |
 | 1b | Įdiegimas be restore | iOS įrašoma į virtualų diską tiesiai iš IPSW: UDIF → GPT → APFS konteineris, Preboot/xART/Data tomai, pritaikytas `fstab` | Veikia iOS 14 (iPhone 11): visi tomai prijungiami, `fsck_apfs` švarus |
-| 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | `data-protection` praeina; boot'as stoja ties `mount-phase-2` (`/private/var` turinys) |
-| 2 | Bendra DT valdoma mašina (`apple-generic`) mūsų QEMU fork'e | A13 bootina per bendrą kelią, kaip ir per Inferno T8030 | Planuojama |
+| 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | SEP boot, gigalocker ir raktų saugykla veikia; 11 launchd žingsnių praeina, stoja `keybag` (nėra sistemos keybag'o) |
+| 2 | Bendra DT valdoma mašina (`apple-generic`) mūsų QEMU fork'e | A13 bootina per bendrą kelią, kaip ir per Inferno T8030 | Pradėta: T8030 mašina praleidžia blokus, kurių DeviceTree neturi, ir XR (A12) mašina susirenka (patch'ai 0010, 0011) |
 | 3 | A14 (T8101) ir M1 (T8103) | iPhone 12 / iPad Air 4 / iPad Pro M1 iki launchd, vėliau SpringBoard | Planuojama |
 | 4 | Restore programoje | `idevicerestore` + libimobiledevice įkompiliuoti į programą, jungiasi prie VM per vidinį USB-over-TCP | Planuojama (1b daugeliu atvejų jį pakeičia) |
 | 5 | A15–A18, M2, M4 | Naujos CPU sistemos instrukcijos (SPRR, GXF, AMX…), AIC v3, nauji ANS/DCP | Planuojama |
@@ -37,9 +37,13 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 ### Artimiausi žingsniai
 
 1. Effaceable saugykla, kad pirmo boot'o „Erase All Content“ sukurtų sistemos keybag'ą.
-2. iOS 14 iki SpringBoard: pilnas `/private/var` Data tome. Tam reikia APFS skaitytuvo, kuris
+2. iPhone XR (A12): nustatyti, kuri instrukcija ar sistemos registras sukelia pirmą išimtį
+   (`-d int`), ir pridėti A12 CPU skirtumus; vėliau `usb-complex` USB modelis.
+3. iPhone 6s (A9) su iOS 15.8: kernelio „data abort“ po MIPI DSI valdiklio paleidimo (ekrano
+   kelias S8000 mašinoje).
+4. iOS 14 iki SpringBoard: pilnas `/private/var` Data tome. Tam reikia APFS skaitytuvo, kuris
    nukopijuoja System tomo `/private/var` su savininkais, xattr'ais ir suspaustais failais.
-3. Tas pats kelias iOS 13 ir 15–18 ant T8030; iOS 16+ dar reikia cryptex'ų Preboot tome.
+5. Tas pats kelias iOS 13 ir 15–18 ant T8030; iOS 16+ dar reikia cryptex'ų Preboot tome.
 
 Kiekvienas etapas push'inamas į GitHub atskirais commit'ais. Kiekvieną komponentą dengia testai, o CI
 jį kompiliuoja macOS runneryje.
