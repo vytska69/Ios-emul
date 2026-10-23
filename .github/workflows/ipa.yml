@@ -102,7 +102,7 @@ jobs:
       - name: SideStore source
         run: |
           python3 scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
-            --version "0.1.${{ github.run_number }}" --repo "${{ github.repository }}" \
+            --repo "${{ github.repository }}" \
             --tag Rolling --commit "${{ github.sha }}" --out out/sidestore.json \
             ${{ steps.core.outputs.included != 'true' && '--no-core' || '' }}
 

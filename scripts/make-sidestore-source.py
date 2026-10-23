@@ -1,31 +1,45 @@
 #!/usr/bin/env python3
 """Writes the SideStore / AltStore source (sidestore.json) for the rolling release.
 
-    scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa --version 0.1.42 \
+    scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
         --repo owner/name --tag Rolling --out out/sidestore.json
 
 The source lists one app with one version: the IPA attached to the rolling release. Both the
 current "versions" schema and the legacy top-level version fields are written so older SideStore
 and AltStore clients can read it as well.
+
+The version, build version, bundle identifier and minimum iOS are read from the IPA's Info.plist:
+SideStore and AltStore refuse an install whose IPA does not match the source (and take a missing
+buildVersion to be the same as version).
 """
 import argparse
 import datetime
 import json
 import os
+import plistlib
+import re
+import zipfile
 
-BUNDLE_ID = "com.iosemul.app"
+
+def bundle_info(ipa):
+    """The app's Info.plist from an IPA (Payload/<name>.app/Info.plist)."""
+    with zipfile.ZipFile(ipa) as z:
+        name = next(n for n in z.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n))
+        return plistlib.loads(z.read(name))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ipa", required=True)
-    ap.add_argument("--version", required=True)
     ap.add_argument("--repo", required=True, help="owner/name on GitHub")
     ap.add_argument("--tag", default="Rolling")
     ap.add_argument("--commit", default="")
     ap.add_argument("--out", required=True)
     ap.add_argument("--no-core", action="store_true", help="the IPA was built without QEMU")
     args = ap.parse_args()
+    info = bundle_info(args.ipa)
+    short_version = info["CFBundleShortVersionString"]
+    build_version = info["CFBundleVersion"]
 
     base = f"https://github.com/{args.repo}"
     raw = f"https://raw.githubusercontent.com/{args.repo}/HEAD"
@@ -39,16 +53,17 @@ def main():
                    "(QEMU), entirely on the device.")
 
     version = {
-        "version": args.version,
+        "version": short_version,
+        "buildVersion": build_version,
         "date": date,
         "localizedDescription": notes,
         "downloadURL": download,
         "size": size,
-        "minOSVersion": "16.0",
+        "minOSVersion": info.get("MinimumOSVersion", "16.0"),
     }
     app = {
         "name": "iOS Emul",
-        "bundleIdentifier": BUNDLE_ID,
+        "bundleIdentifier": info["CFBundleIdentifier"],
         "developerName": args.repo.split("/")[0],
         "subtitle": "Run IPSW firmware in an emulator",
         "localizedDescription": description,
@@ -77,7 +92,7 @@ def main():
     with open(args.out, "w") as f:
         json.dump(source, f, indent=2)
         f.write("\n")
-    print(f"wrote {args.out}: {args.version}, {size} bytes")
+    print(f"wrote {args.out}: {short_version} ({build_version}), {size} bytes")
 
 
 if __name__ == "__main__":
