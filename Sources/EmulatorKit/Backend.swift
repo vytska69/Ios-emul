@@ -147,7 +147,17 @@ extension EmulatorBackend {
     /// Creates a sparse zero-filled raw disk image if it does not already exist.
     func ensureDisk(_ url: URL, sizeBytes: UInt64) throws {
         let fm = FileManager.default
-        if fm.fileExists(atPath: url.path) { return }
+        if fm.fileExists(atPath: url.path) {
+            // A machine made by an older version keeps its contents; only grow a disk that is now
+            // specified larger (the new space reads as zeros, like an unwritten namespace).
+            let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? sizeBytes
+            if size < sizeBytes {
+                let h = try FileHandle(forWritingTo: url)
+                defer { try? h.close() }
+                try h.truncate(atOffset: sizeBytes)
+            }
+            return
+        }
         guard fm.createFile(atPath: url.path, contents: nil) else { throw BackendError.diskCreation(url.path) }
         let h = try FileHandle(forWritingTo: url)
         defer { try? h.close() }

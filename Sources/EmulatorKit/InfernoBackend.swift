@@ -97,7 +97,7 @@ public struct InfernoBackend: EmulatorBackend {
             ("nvme.3", 3, 3, 128 << 10, "nvme-ns"),    // syscfg
             ("nvme.4", 4, 4, 8 << 10, "nvme-ns"),      // control bits
             ("nvram", 5, 5, 8 << 10, "apple-nvram"),   // NVRAM (holds auto-boot)
-            ("nvme.6", 6, 6, 4 << 10, "nvme-ns"),      // effaceable storage
+            ("nvme.6", 6, 6, 256 << 10, "nvme-ns"),    // effaceable storage (one 4 KiB block is too small to write)
             ("nvme.7", 7, 8, 1 << 20, "nvme-ns"),      // panic log
         ]
         var rootDevice: String?
