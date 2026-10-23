@@ -1,0 +1,35 @@
+diff --git a/hw/nvme/ctrl.c b/hw/nvme/ctrl.c
+index 9843e2c..a9abdf2 100644
+--- a/hw/nvme/ctrl.c
++++ b/hw/nvme/ctrl.c
+@@ -7199,6 +7199,30 @@ out:
+ 
+ static uint16_t nvme_tunnel(NvmeCtrl *n, NvmeRequest *req)
+ {
++    /*
++     * Apple ANS vendor command (the kernel's effaceable storage goes through it). Not emulated;
++     * log what the guest sends (-d unimp) so the protocol can be worked out.
++     */
++    NvmeCmd *cmd = &req->cmd;
++    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
++    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
++    uint8_t data[64] = { 0 };
++    char hex[sizeof(data) * 2 + 1] = { 0 };
++
++    if (prp1 && nvme_addr_read(n, prp1, data, sizeof(data)) == 0) {
++        for (size_t i = 0; i < sizeof(data); i++) {
++            snprintf(hex + i * 2, 3, "%02x", data[i]);
++        }
++    }
++    qemu_log_mask(LOG_UNIMP,
++                  "nvme tunnel: nsid 0x%x res1 0x%" PRIx64 " cdw10 0x%x cdw11 0x%x "
++                  "cdw12 0x%x cdw13 0x%x cdw14 0x%x cdw15 0x%x prp1 0x%" PRIx64
++                  " prp2 0x%" PRIx64 " data %s\n",
++                  le32_to_cpu(cmd->nsid), le64_to_cpu(cmd->res1),
++                  le32_to_cpu(cmd->cdw10),
++                  le32_to_cpu(cmd->cdw11), le32_to_cpu(cmd->cdw12),
++                  le32_to_cpu(cmd->cdw13), le32_to_cpu(cmd->cdw14),
++                  le32_to_cpu(cmd->cdw15), prp1, prp2, hex);
+     return NVME_SUCCESS;
+ }
+ 
