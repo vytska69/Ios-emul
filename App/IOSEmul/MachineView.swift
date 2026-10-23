@@ -13,7 +13,8 @@ final class DisplayModel: ObservableObject {
 
     let runner: QEMURunner
     private var vnc: VNCClient?
-    private var attempts = 0
+    private var connected = false
+    private let started = Date()
 
     init(runner: QEMURunner) {
         self.runner = runner
@@ -35,21 +36,25 @@ final class DisplayModel: ObservableObject {
         }
     }
 
-    /// QEMU needs a moment before its VNC server listens, so retry for ~15 s.
+    /// QEMU opens its VNC server only once the machine is built (kernel loaded and patched), which
+    /// on a phone can take well over a minute, so keep retrying while the machine runs.
     private func connect() {
         let client = VNCClient(port: runner.configuration.vncPort)
         client.onEvent = { [weak self] event in
             guard let self else { return }
             switch event {
             case .connected(let w, let h, _):
+                self.connected = true
                 self.status = "\(w)×\(h)"
             case .frame(let image):
                 self.frame = image
                 self.framesThisSecond += 1
             case .disconnected:
-                guard case .running = self.vmState, self.attempts < 30 else { return }
-                self.attempts += 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.connect() }
+                guard case .running = self.vmState else { return }
+                if !self.connected {
+                    self.status = "Waiting for the display · \(Int(Date().timeIntervalSince(self.started))) s"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.connect() }
             }
         }
         client.connect()
@@ -112,8 +117,11 @@ struct MachineView: View {
                         ProgressView().tint(theme.accent).scaleEffect(1.4)
                     }
                     Text(display.status).font(.headline).foregroundStyle(.white)
-                    Text("Kernel output goes to serial.log in the machine folder (Files app).")
+                    Text("The screen appears once QEMU has built the machine; until then this is the kernel's serial output.")
                         .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
+                    if !consoleVisible {
+                        SerialConsole(log: display.runner.configuration.workingDirectory.appendingPathComponent("serial.log"))
+                    }
                 }
                 .padding(32)
             }
