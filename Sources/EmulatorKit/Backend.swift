@@ -102,6 +102,8 @@ public protocol EmulatorBackend {
     var upstream: String { get }
     var externalAssets: [ExternalAsset] { get }
     var defaultMemoryMB: Int { get }
+    /// RAM the machine model accepts; QEMU exits on anything else, which on iOS ends the app.
+    var memoryRangeMB: ClosedRange<Int> { get }
     var defaultCPUCount: Int { get }
 
     /// Judged from the release alone, so firmwares can be ranked before they are downloaded.
@@ -110,6 +112,8 @@ public protocol EmulatorBackend {
 }
 
 extension EmulatorBackend {
+    public var memoryRangeMB: ClosedRange<Int> { 512...8192 }
+
     public func compatibility(device: DeviceInfo, ipsw: IPSW) -> Compatibility {
         compatibility(device: device, version: ipsw.version, build: ipsw.build)
     }

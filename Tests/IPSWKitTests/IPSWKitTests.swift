@@ -314,6 +314,14 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(FirmwareCatalog.compatibility(of: firmwares[0]), .supported)
     }
 
+    func testMachineMemoryLimits() {
+        // QEMU's S8000 model only builds with 2 GiB; anything else exits QEMU (and the iOS app).
+        let s8000 = InfernoBackend(machine: .s8000)
+        XCTAssertEqual(s8000.memoryRangeMB, 2048...2048)
+        XCTAssertEqual(s8000.defaultMemoryMB, 2048)
+        XCTAssertEqual(InfernoBackend(machine: .t8030).defaultMemoryMB, 4096)
+    }
+
     // MARK: Manifest + compatibility
 
     func testManifestAndCompatibility() throws {

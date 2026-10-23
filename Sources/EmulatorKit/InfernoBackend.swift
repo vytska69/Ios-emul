@@ -17,6 +17,8 @@ public struct InfernoBackend: EmulatorBackend {
         let extraMajors: Set<Int>         // major versions the machine accepts outside the range
         let wellTestedMajor: Int?
         let maxCPUs: Int
+        /// The S8000 model only builds with exactly 2 GiB of RAM ("Specified RAM size must be 2 GiB").
+        var memoryRangeMB: ClosedRange<Int> = 1024...8192
     }
 
     public let machine: Machine
@@ -26,7 +28,8 @@ public struct InfernoBackend: EmulatorBackend {
     public var id: String { "inferno-\(machine.name)" }
     public var displayName: String { "Apple \(machine.name.uppercased()) machine" }
     public let upstream = "https://github.com/ChefKissInc/QEMUAppleSilicon"
-    public let defaultMemoryMB = 4096
+    public var defaultMemoryMB: Int { min(max(4096, machine.memoryRangeMB.lowerBound), machine.memoryRangeMB.upperBound) }
+    public var memoryRangeMB: ClosedRange<Int> { machine.memoryRangeMB }
     public var defaultCPUCount: Int { min(4, machine.maxCPUs) }
 
     public let externalAssets: [ExternalAsset] = [
@@ -132,7 +135,7 @@ public struct InfernoBackend: EmulatorBackend {
         let monitorPort: UInt16 = 1235
         var args = [
             "-M", props.joined(separator: ","),
-            "-cpu", "max", "-smp", "\(cpus)", "-m", "\(ctx.memoryMB)M",
+            "-cpu", "max", "-smp", "\(cpus)", "-m", "\(min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound))M",
             "-kernel", kernel.path,
             "-dtb", deviceTree.path,
             "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1" + (rootDevice.map { " rd=\($0)" } ?? ""),
@@ -310,5 +313,6 @@ extension InfernoBackend.Machine {
     /// shipped with is offered as experimental.
     public static let s8000 = Self(name: "s8000", soc: "S8000",
                                       productTypes: ["iPhone8,1", "iPhone8,2"], referenceProduct: "iPhone8,2",
-                                      supportedMajors: 9...15, extraMajors: [], wellTestedMajor: nil, maxCPUs: 2)
+                                      supportedMajors: 9...15, extraMajors: [], wellTestedMajor: nil, maxCPUs: 2,
+                                      memoryRangeMB: 2048...2048)
 }

@@ -179,7 +179,11 @@ struct FirmwareDetailView: View {
                             Text("Force restore ramdisk").tag(BootMode.enterRecovery)
                             Text("Force installed OS").tag(BootMode.exitRecovery)
                         }
-                        Stepper("Memory: \(memoryMB) MB", value: $memoryMB, in: 512...8192, step: 512)
+                        if backend.memoryRangeMB.count == 1 {
+                            LabeledContent("Memory", value: "\(backend.memoryRangeMB.lowerBound) MB (fixed by the machine)")
+                        } else {
+                            Stepper("Memory: \(memoryMB) MB", value: $memoryMB, in: backend.memoryRangeMB, step: 512)
+                        }
                         Stepper("CPUs: \(cpus)", value: $cpus, in: 1...8)
                         Link("Machine model source", destination: URL(string: backend.upstream)!)
                     }
