@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import IPSWKit
 import EmulatorKit
 
@@ -49,6 +50,18 @@ final class FirmwareModel: ObservableObject {
         guard let ipsw, let backend = row.backend else { return }
         guard let identity = ipsw.manifest.identity(for: Self.boardConfig(for: row.device, in: ipsw)) else {
             runError = "\(IPSWError.noIdentity)"
+            return
+        }
+        // iOS ends an app that goes over its memory limit without a message, so refuse up front
+        // when the VM cannot fit (os_proc_available_memory is what is left before that limit).
+        let guestMB = min(max(memoryMB, backend.memoryRangeMB.lowerBound), backend.memoryRangeMB.upperBound)
+        let neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB)
+        let availableMB = Int(os_proc_available_memory() / 1_048_576)
+        if availableMB > 0 && availableMB < neededMB {
+            runError = "This VM needs about \(neededMB) MB (\(guestMB) MB guest RAM plus the emulator), "
+                + "but iOS lets this app use only \(availableMB) MB more right now. "
+                + (backend.memoryRangeMB.count == 1 ? "This machine's RAM size is fixed; close other apps and try again."
+                    : "Lower the memory, or close other apps and try again.")
             return
         }
         assetScopes = item.assets.compactMapValues { ScopedURL(bookmark: $0) }

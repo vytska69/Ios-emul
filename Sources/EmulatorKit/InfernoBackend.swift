@@ -143,6 +143,11 @@ public struct InfernoBackend: EmulatorBackend {
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
             "-vnc", "127.0.0.1:\(vncPort - 5900)",
         ]
+        #if os(iOS)
+        // In-process on iOS the translation cache counts against the app's memory limit, next to
+        // guest RAM; QEMU's 1 GiB default can get the app killed. See QEMURunner.translationCacheMB.
+        args += ["-accel", "tcg,tb-size=\(QEMURunner.translationCacheMB)"]
+        #endif
         if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
         for ns in namespaces {
             let drive = "drive.\(ns.nsid)"
