@@ -290,6 +290,30 @@ final class IPSWKitTests: XCTestCase {
                                                                registry: .shared)))
     }
 
+    func testCatalogListsEmulatedDevicesFirst() throws {
+        let json = """
+        [{"name":"iPhone 2G","identifier":"iPhone1,1","boardconfig":"m68ap","platform":"s5l8900x","cpid":35072,"bdid":0},
+         {"name":"iPad Air","identifier":"iPad4,1"},
+         {"name":"Apple Watch Series 4","identifier":"Watch4,1"},
+         {"name":"iPod touch","identifier":"iPod1,1"},
+         {"name":"iPhone 11","identifier":"iPhone12,1"},
+         {"name":"iPhone 15","identifier":"iPhone15,4"}]
+        """
+        let devices = try FirmwareCatalog.decodeDevices(Data(json.utf8))
+        XCTAssertEqual(devices.map(\.identifier), ["iPhone12,1", "iPod1,1", "iPhone15,4", "iPhone1,1", "iPad4,1"],
+                       "emulated first, Watch dropped, then iPhone/iPad newest first")
+
+        let firmwares = try FirmwareCatalog.decodeFirmwares(Data("""
+        {"name":"iPhone 11","identifier":"iPhone12,1","firmwares":[
+         {"identifier":"iPhone12,1","version":"14.0","buildid":"18A373",
+          "url":"https://updates.cdn-apple.com/x/iPhone11,8,iPhone12,1_14.0_18A373_Restore.ipsw",
+          "filesize":5574477658,"signed":false,"releasedate":"2020-09-16T17:01:21Z","sha1sum":"abc"}]}
+        """.utf8))
+        XCTAssertEqual(firmwares.first?.fileName, "iPhone11,8,iPhone12,1_14.0_18A373_Restore.ipsw")
+        XCTAssertEqual(firmwares.first?.filesize, 5_574_477_658)
+        XCTAssertEqual(FirmwareCatalog.compatibility(of: firmwares[0]), .supported)
+    }
+
     // MARK: Manifest + compatibility
 
     func testManifestAndCompatibility() throws {

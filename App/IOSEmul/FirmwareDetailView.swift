@@ -14,7 +14,6 @@ final class FirmwareModel: ObservableObject {
     @Published var runError: String?
     @Published var suggestion: FirmwareCatalog.Suggestion?
     @Published var suggestionState: String?
-    @Published var downloadProgress: Double?
 
     private var scope: ScopedURL?
     /// Asset scopes stay open for the whole VM lifetime: QEMU opens the files lazily.
@@ -78,22 +77,6 @@ final class FirmwareModel: ObservableObject {
         }
     }
 
-    func download(_ s: FirmwareCatalog.Suggestion, into library: Library) async {
-        let name = s.firmware.url.lastPathComponent
-        let dest = Library.documents.appendingPathComponent("Firmware", isDirectory: true).appendingPathComponent(name)
-        let download = FirmwareDownload(destination: dest)
-        download.onProgress = { p in Task { @MainActor in self.downloadProgress = p } }
-        downloadProgress = 0
-        do {
-            let file = try await download.start(s.firmware.url)
-            library.importIPSW(at: file)
-            suggestionState = "Downloaded and imported \(name)."
-        } catch {
-            suggestionState = "Download failed: \(error.localizedDescription)"
-        }
-        downloadProgress = nil
-    }
-
     /// Board configs are listed per identity; pick the one whose device tree names this product's board.
     static func boardConfig(for device: DeviceInfo, in ipsw: IPSW) -> String? {
         let classes = ipsw.manifest.deviceClasses
@@ -107,6 +90,7 @@ final class FirmwareModel: ObservableObject {
 struct FirmwareDetailView: View {
     let itemID: UUID
     @EnvironmentObject private var library: Library
+    @EnvironmentObject private var downloads: DownloadManager
     @StateObject private var model = FirmwareModel()
     @State private var bootMode: BootMode = .direct
     @State private var memoryMB = 2048
@@ -162,10 +146,12 @@ struct FirmwareDetailView: View {
                                     Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption)
                                 }
                             }
-                            if let p = model.downloadProgress {
-                                ProgressView("Downloading…", value: p)
+                            if let item = downloads.items.first(where: { $0.url == s.firmware.url }) {
+                                DownloadProgressRow(item: item)
                             } else {
-                                Button("Download and import") { Task { await model.download(s, into: library) } }
+                                Button("Download and import") {
+                                    downloads.start(s.firmware, title: "\(s.device.name) — iOS \(s.firmware.version) (\(s.firmware.buildid))")
+                                }
                             }
                         } else {
                             Button("Find bootable firmware for iOS \(item.version)") {

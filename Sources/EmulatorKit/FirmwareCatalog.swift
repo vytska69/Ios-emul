@@ -1,7 +1,8 @@
 import Foundation
 import IPSWKit
 
-/// Finds a firmware the emulator *can* boot for a requested iOS version.
+/// The IPSW listings of ipsw.me: every device and its firmware, for browsing and downloading, and a
+/// firmware the emulator *can* boot for a requested iOS version.
 ///
 /// Most iPhone/iPad models have no machine model, but the same iOS release usually exists for one
 /// that does. Booting that IPSW gives the user the iOS version they asked for, which is what
@@ -14,7 +15,24 @@ public struct FirmwareCatalog {
         public let buildid: String
         public let url: URL
         public let filesize: Int64?
+        /// Whether Apple still signs it; irrelevant to the emulator, shown for orientation.
         public let signed: Bool?
+        /// ISO 8601 release date, as ipsw.me lists it.
+        public let releasedate: String?
+        public let sha1sum: String?
+
+        public var fileName: String { url.lastPathComponent }
+    }
+
+    /// A product listed by ipsw.me.
+    public struct Device: Decodable, Hashable, Identifiable {
+        public let name: String
+        public let identifier: String
+        public var id: String { identifier }
+        /// "iPhone", "iPad" or "iPod"; nil for products the emulator never targets (Watch, TV, Mac…).
+        public var family: String? {
+            ["iPhone", "iPad", "iPod"].first { identifier.hasPrefix($0) }
+        }
     }
 
     public struct Suggestion: Hashable {
@@ -39,13 +57,50 @@ public struct FirmwareCatalog {
                                           "iPod2,1", "iPod1,1"]
 
     public func firmwares(for productType: String) async throws -> [Firmware] {
-        struct Device: Decodable { let firmwares: [Firmware] }
         let url = api.appendingPathComponent("device/\(productType)").appending(queryItems: [.init(name: "type", value: "ipsw")])
+        return try Self.decodeFirmwares(try await get(url))
+    }
+
+    /// Every iPhone, iPad and iPod touch ipsw.me knows, emulated models first, then by family and
+    /// newest first within it (ipsw.me lists oldest first).
+    public func devices() async throws -> [Device] {
+        try Self.decodeDevices(try await get(api.appendingPathComponent("devices")))
+    }
+
+    static func decodeFirmwares(_ data: Data) throws -> [Firmware] {
+        struct Listing: Decodable { let firmwares: [Firmware] }
+        return try JSONDecoder().decode(Listing.self, from: data).firmwares
+    }
+
+    static func decodeDevices(_ data: Data) throws -> [Device] {
+        let all = try JSONDecoder().decode([Device].self, from: data).filter { $0.family != nil }
+        let families = ["iPhone", "iPad", "iPod"]
+        return all.enumerated().sorted { a, b in
+            let ea = emulatedProducts.firstIndex(of: a.element.identifier) ?? .max
+            let eb = emulatedProducts.firstIndex(of: b.element.identifier) ?? .max
+            if ea != eb { return ea < eb }
+            let fa = families.firstIndex(of: a.element.family!)!, fb = families.firstIndex(of: b.element.family!)!
+            if fa != fb { return fa < fb }
+            return a.offset > b.offset
+        }.map(\.element)
+    }
+
+    /// The backend that would run `firmware` on its own device, if any.
+    public static func compatibility(of firmware: Firmware, registry: BackendRegistry = .shared,
+                                     database: DeviceDatabase = .shared) -> Compatibility {
+        let device = database.device(firmware.identifier)
+        if let (_, compat) = registry.evaluate(device: device, version: firmware.version, build: firmware.buildid) {
+            return compat
+        }
+        return .unsupported(BackendRegistry.reason(for: device))
+    }
+
+    private func get(_ url: URL) async throws -> Data {
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode(Device.self, from: data).firmwares
+        return data
     }
 
     /// Picks the closest bootable firmware for `version`: exact version first, otherwise the newest
@@ -81,47 +136,5 @@ public struct FirmwareCatalog {
         return candidates.enumerated().max { a, b in
             score(a.element) != score(b.element) ? score(a.element) < score(b.element) : a.offset > b.offset
         }?.element
-    }
-}
-
-/// Downloads an IPSW to disk with progress, resuming nothing fancy: IPSWs are fetched once.
-public final class FirmwareDownload: NSObject, URLSessionDownloadDelegate {
-    public var onProgress: ((Double) -> Void)?
-    private var continuation: CheckedContinuation<URL, Error>?
-    private let destination: URL
-
-    public init(destination: URL) { self.destination = destination }
-
-    public func start(_ url: URL) async throws -> URL {
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        return try await withCheckedThrowingContinuation { cont in
-            continuation = cont
-            session.downloadTask(with: url).resume()
-        }
-    }
-
-    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64,
-                           totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        onProgress?(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
-    }
-
-    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                           didFinishDownloadingTo location: URL) {
-        do {
-            let fm = FileManager.default
-            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? fm.removeItem(at: destination)
-            try fm.moveItem(at: location, to: destination)
-            continuation?.resume(returning: destination)
-        } catch {
-            continuation?.resume(throwing: error)
-        }
-        continuation = nil
-    }
-
-    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error { continuation?.resume(throwing: error); continuation = nil }
     }
 }

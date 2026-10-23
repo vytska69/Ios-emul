@@ -93,6 +93,12 @@ Kiekvienas IPA build'as atnaujina [rolling release](https://github.com/vytska69/
 - **TrollStore:** atidaryk
   `https://github.com/vytska69/Ios-emul/releases/download/Rolling/IOSEmul.ipa`.
 
+**IPSW gavimas.** Programoje „+“ → *Download from ipsw.me* parodo visus iPhone, iPad ir iPod touch
+įrenginius (emuliuojami viršuje) ir jų IPSW su dydžiu, data ir tuo, ar emuliatorius gali juos
+paleisti. Failas siunčiamas iš Apple CDN fone (tęsiasi ir uždarius programą, nutrūkęs siuntimas
+pratęsiamas nuo tos vietos), įrašomas į `Firmware` aplanką (matomas Files programoje) ir
+importuojamas automatiškai. Turimą `.ipsw` galima ir tiesiog importuoti iš Files.
+
 Dabartinė versija dar neturi emuliatoriaus branduolio: IPSW analizuoja, bet paleisti negali.
 Release aprašymas tai nurodo, o pirmas build'as su branduoliu šią versiją pakeis.
 

@@ -3,12 +3,16 @@ import UniformTypeIdentifiers
 
 @main
 struct IOSEmulApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var library = Library()
+    @StateObject private var downloads = DownloadManager()
 
     var body: some Scene {
         WindowGroup {
             LibraryView()
                 .environmentObject(library)
+                .environmentObject(downloads)
+                .onAppear { downloads.onFinished = { [library] in library.importIPSW(at: $0) } }
         }
     }
 }
@@ -20,13 +24,25 @@ extension UTType {
 
 struct LibraryView: View {
     @EnvironmentObject private var library: Library
+    @EnvironmentObject private var downloads: DownloadManager
     @State private var importing = false
+    @State private var browsing = false
 
     var body: some View {
         NavigationStack {
             List {
-                if library.items.isEmpty {
-                    ContentUnavailableHint()
+                if !downloads.items.isEmpty {
+                    Section("Downloading") {
+                        ForEach(downloads.items) { item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title).font(.subheadline)
+                                DownloadProgressRow(item: item)
+                            }
+                        }
+                    }
+                }
+                if library.items.isEmpty && downloads.items.isEmpty {
+                    ContentUnavailableHint(download: { browsing = true })
                 }
                 ForEach(library.items) { item in
                     NavigationLink(value: item.id) {
@@ -45,7 +61,17 @@ struct LibraryView: View {
                 FirmwareDetailView(itemID: id)
             }
             .toolbar {
-                Button { importing = true } label: { Label("Import IPSW", systemImage: "plus") }
+                Menu {
+                    Button { browsing = true } label: { Label("Download from ipsw.me", systemImage: "arrow.down.circle") }
+                    Button { importing = true } label: { Label("Import from Files", systemImage: "folder") }
+                } label: {
+                    Label("Add IPSW", systemImage: "plus")
+                }
+            }
+            .sheet(isPresented: $browsing) {
+                CatalogView()
+                    .environmentObject(library)
+                    .environmentObject(downloads)
             }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.ipsw, .zip, .data],
                           allowsMultipleSelection: true) { result in
@@ -57,17 +83,26 @@ struct LibraryView: View {
             } message: {
                 Text(library.lastError ?? "")
             }
+            .alert("Download not started", isPresented: Binding(get: { downloads.lastError != nil },
+                                                                set: { if !$0 { downloads.lastError = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(downloads.lastError ?? "")
+            }
         }
     }
 }
 
 private struct ContentUnavailableHint: View {
+    let download: () -> Void
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "iphone.gen3").font(.largeTitle)
             Text("No firmware yet").font(.headline)
-            Text("Import an iPhone or iPad .ipsw file. It is read in place, not copied.")
+            Text("Download an IPSW from ipsw.me, or import an .ipsw file you already have (it is read in place, not copied).")
                 .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("Download from ipsw.me", action: download).buttonStyle(.borderedProminent).padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
