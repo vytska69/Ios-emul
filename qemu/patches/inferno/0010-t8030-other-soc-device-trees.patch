@@ -1,0 +1,171 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index 8c87630..e439c65 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -1244,7 +1244,10 @@ static void t8030_create_dart(AppleT8030MachineState *t8030, const char *name,
+     assert_nonnull(child);
+ 
+     child = apple_dt_get_node(child, name);
+-    assert_nonnull(child);
++    if (child == NULL) {
++        warn_report("%s is not in this device tree; skipped", name);
++        return;
++    }
+ 
+     prop = apple_dt_get_prop(child, "vm-base");
+     if (prop != NULL && ldl_le_p(prop->data) == 0) {
+@@ -1567,6 +1570,12 @@ static void t8030_create_usb(AppleT8030MachineState *t8030)
+     IOMMUMemoryRegion *iommu = NULL;
+     uint32_t *ints;
+ 
++    if (drd == NULL || phy == NULL || dart_mapper == NULL ||
++        dart_dwc2_mapper == NULL) {
++        warn_report("No usb-drd/atc-phy in this device tree; USB skipped");
++        return;
++    }
++
+     dart = APPLE_DART(
+         object_property_get_link(OBJECT(t8030), "dart-usb", &error_fatal));
+ 
+@@ -1677,7 +1686,6 @@ static void t8030_create_aes(AppleT8030MachineState *t8030)
+     child = apple_dt_get_node(child, "aes");
+     assert_nonnull(child);
+     assert_nonnull(dart_sio);
+-    assert_nonnull(dart_aes_mapper);
+ 
+     aes = apple_aes_create(child, t8030->board_id);
+     assert_nonnull(aes);
+@@ -1697,6 +1705,13 @@ static void t8030_create_aes(AppleT8030MachineState *t8030)
+ 
+     sysbus_connect_irq(aes, 0, qdev_get_gpio_in(DEVICE(t8030->aic), *ints));
+ 
++    if (dart_aes_mapper == NULL) {
++        object_property_add_const_link(OBJECT(aes), "dma-mr",
++                                       OBJECT(get_system_memory()));
++        sysbus_realize_and_unref(aes, &error_fatal);
++        return;
++    }
++
+     dart = APPLE_DART(
+         object_property_get_link(OBJECT(t8030), "dart-sio", &error_fatal));
+     assert_nonnull(dart);
+@@ -1720,7 +1735,9 @@ static void t8030_create_spmi(AppleT8030MachineState *t8030, const char *name)
+ 
+     assert_nonnull(child);
+     child = apple_dt_get_node(child, name);
+-    assert_nonnull(child);
++    if (child == NULL) {
++        return;
++    }
+ 
+     spmi = apple_spmi_from_node(child);
+     assert_nonnull(spmi);
+@@ -1922,7 +1939,9 @@ static void t8030_create_roswell(AppleT8030MachineState *t8030)
+     AppleI2CState *i2c;
+ 
+     child = apple_dt_get_node(t8030->device_tree, "arm-io/i2c3/roswell");
+-    assert_nonnull(child);
++    if (child == NULL) {
++        return;
++    }
+ 
+     prop = apple_dt_get_prop(child, "reg");
+     assert_nonnull(prop);
+@@ -2074,13 +2093,20 @@ static void t8030_create_accbuck(AppleT8030MachineState *t8030)
+     AppleDTProp *prop;
+     AppleI2CState *i2c;
+ 
++    const char *bus = "smc-i2c1";
++
+     child = apple_dt_get_node(t8030->device_tree, "arm-io/smc-i2c1/accbuck");
+-    assert_nonnull(child);
++    if (child == NULL) {
++        bus = "i2c0";
++        child = apple_dt_get_node(t8030->device_tree, "arm-io/i2c0/accbuck");
++    }
++    if (child == NULL) {
++        return;
++    }
+ 
+     prop = apple_dt_get_prop(child, "reg");
+     assert_nonnull(prop);
+-    i2c = APPLE_I2C(
+-        object_property_get_link(OBJECT(t8030), "smc-i2c1", &error_fatal));
++    i2c = APPLE_I2C(object_property_get_link(OBJECT(t8030), bus, &error_fatal));
+     i2c_slave_create_simple(i2c->bus, TYPE_FAN53740, *(uint8_t *)prop->data);
+ }
+ 
+@@ -2096,21 +2122,24 @@ static void t8030_create_misc(AppleT8030MachineState *t8030)
+     assert_nonnull(chosen);
+ 
+     child = apple_dt_get_node(armio, "bluetooth");
+-    assert_nonnull(child);
+-
+-    apple_dt_set_prop(child, "local-mac-address", 6,
+-                      (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x42, 0x42 });
++    if (child != NULL) {
++        apple_dt_set_prop(
++            child, "local-mac-address", 6,
++            (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x42, 0x42 });
++    }
+ 
+     apple_dt_set_prop(chosen, "mac-address-bluetooth0", 6,
+                       (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x42, 0x42 });
+ 
+     child = apple_dt_get_node(armio, "usb-drd");
+-    assert_nonnull(child);
+-
+-    apple_dt_set_prop(child, "device-mac-address", 6,
+-                      (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x22 });
+-    apple_dt_set_prop(child, "host-mac-address", 6,
+-                      (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x22, 0x12 });
++    if (child != NULL) {
++        apple_dt_set_prop(
++            child, "device-mac-address", 6,
++            (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x22 });
++        apple_dt_set_prop(
++            child, "host-mac-address", 6,
++            (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x22, 0x12 });
++    }
+ 
+     apple_dt_set_prop(chosen, "mac-address-ethernet0", 6,
+                       (const uint8_t[]){ 0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x22 });
+@@ -2591,7 +2620,9 @@ static void t8030_create_tempsensor(AppleT8030MachineState *t8030,
+     child = apple_dt_get_node(t8030->device_tree, "arm-io");
+     assert_nonnull(child);
+     child = apple_dt_get_node(child, name);
+-    assert_nonnull(child);
++    if (child == NULL) {
++        return;
++    }
+ 
+     apple_dt_set_prop_u32(child, "invokes-sochot", 0);
+ 
+@@ -2627,7 +2658,9 @@ static void t8030_create_mtr_tempsensor(AppleT8030MachineState *t8030,
+     child = apple_dt_get_node(t8030->device_tree, "arm-io");
+     assert_nonnull(child);
+     child = apple_dt_get_node(child, name);
+-    assert_nonnull(child);
++    if (child == NULL) {
++        return;
++    }
+ 
+     apple_dt_set_prop_u32(child, "invokes-sochot", 0);
+ 
+@@ -2971,10 +3004,15 @@ static void t8030_init(MachineState *machine)
+     t8030_create_usb(t8030);
+     t8030_create_wdt(t8030);
+     t8030_create_aes(t8030);
++    t8030_create_spmi(t8030, "spmi");
+     t8030_create_spmi(t8030, "spmi0");
+     t8030_create_spmi(t8030, "spmi1");
+     t8030_create_spmi(t8030, "spmi2");
+-    t8030_create_pmu(t8030, "spmi0", "spmi-pmu");
++    t8030_create_pmu(t8030,
++                     apple_dt_get_node(t8030->device_tree, "arm-io/spmi0") ?
++                         "spmi0" :
++                         "spmi",
++                     "spmi-pmu");
+     t8030_create_smc(t8030);
+ #ifdef ENABLE_BASEBAND
+     t8030_create_baseband_spmi(t8030, "spmi1", "baseband-spmi");
