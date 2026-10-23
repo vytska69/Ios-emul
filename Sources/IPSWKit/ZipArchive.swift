@@ -30,7 +30,8 @@ public final class ZipArchive {
             case .truncated(let what): return "Archive is truncated (\(what))"
             case .unsupportedMethod(let m): return "Unsupported ZIP compression method \(m)"
             case .entryNotFound(let p): return "Entry not found in archive: \(p)"
-            case .crcMismatch(let p): return "CRC mismatch while extracting \(p)"
+            case .crcMismatch(let p):
+                return "CRC mismatch while extracting \(p): the IPSW file is damaged. Download or copy it again."
             }
         }
     }

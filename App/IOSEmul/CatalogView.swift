@@ -187,6 +187,11 @@ struct DownloadProgressRow: View {
                     Button("Cancel", role: .destructive) { downloads.cancel(item) }
                         .buttonStyle(.borderless).font(.caption)
                 }
+            case .verifying:
+                HStack(spacing: 6) {
+                    ProgressView()
+                    Text("Checking the file…").font(.caption).foregroundStyle(.secondary)
+                }
             case .failed(let message):
                 Text(message).font(.caption).foregroundStyle(.red)
                 HStack {

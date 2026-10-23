@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import UIKit
 import EmulatorKit
@@ -6,6 +7,8 @@ import EmulatorKit
 struct FirmwareDownloadItem: Identifiable, Hashable {
     enum State: Hashable {
         case running
+        /// Downloaded; checking the file against the SHA-1 ipsw.me lists before importing it.
+        case verifying
         case failed(String)
     }
 
@@ -39,6 +42,13 @@ final class DownloadManager: ObservableObject {
     private var session: URLSession!
     private let relay = SessionRelay()
     private var resumeData: [URL: Data] = [:]
+
+    /// SHA-1 of each IPSW being downloaded, by URL; kept across launches like the transfers.
+    private static let checksumsKey = "firmwareChecksums"
+    private var checksums: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.checksumsKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.checksumsKey) }
+    }
 
     init() {
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
@@ -74,6 +84,7 @@ final class DownloadManager: ObservableObject {
             return
         }
         items.removeAll { $0.url == firmware.url }
+        if let sha1 = firmware.sha1sum, !sha1.isEmpty { checksums[firmware.url.absoluteString] = sha1.lowercased() }
         let task = resumeData.removeValue(forKey: firmware.url).map { session.downloadTask(withResumeData: $0) }
             ?? session.downloadTask(with: firmware.url)
         task.taskDescription = title
@@ -112,9 +123,40 @@ final class DownloadManager: ObservableObject {
         if expected > 0 { items[i].expected = expected }
     }
 
-    fileprivate func finished(task: Int, file: URL) {
-        items.removeAll { $0.id == task }
-        onFinished?(file)
+    fileprivate func finished(task: Int, url: URL, file: URL) {
+        guard let expected = checksums[url.absoluteString] else {
+            items.removeAll { $0.id == task }
+            onFinished?(file)
+            return
+        }
+        if let i = items.firstIndex(where: { $0.id == task }) { items[i].state = .verifying }
+        Task {
+            let actual = await Task.detached(priority: .utility) { Self.sha1(of: file) }.value
+            checksums[url.absoluteString] = nil
+            if actual == expected {
+                items.removeAll { $0.id == task }
+                onFinished?(file)
+            } else {
+                // A damaged IPSW fails later with CRC errors deep inside a component; drop it now.
+                try? FileManager.default.removeItem(at: file)
+                checksums[url.absoluteString] = expected
+                resumeData[url] = nil
+                if let i = items.firstIndex(where: { $0.id == task }) {
+                    items[i].state = .failed("The downloaded file is damaged (SHA-1 mismatch). Retry downloads it again.")
+                }
+            }
+        }
+    }
+
+    /// Lowercase hex SHA-1 of a file, read in chunks (IPSWs are several GiB).
+    nonisolated static func sha1(of file: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        var hasher = Insecure.SHA1()
+        while let chunk = try? handle.read(upToCount: 8 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     fileprivate func failed(task: Int, url: URL?, error: Error) {
@@ -165,7 +207,7 @@ private final class SessionRelay: NSObject, URLSessionDownloadDelegate {
             try fm.createDirectory(at: DownloadManager.directory, withIntermediateDirectories: true)
             try? fm.removeItem(at: destination)
             try fm.moveItem(at: location, to: destination)
-            Task { @MainActor in self.manager?.finished(task: id, file: destination) }
+            Task { @MainActor in self.manager?.finished(task: id, url: url, file: destination) }
         } catch {
             Task { @MainActor in self.manager?.failedToSave(task: id, error: error) }
         }
