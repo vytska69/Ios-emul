@@ -403,6 +403,8 @@ final class IPSWKitTests: XCTestCase {
         let machine = args[args.firstIndex(of: "-M")! + 1]
         XCTAssertTrue(machine.contains("boot-mode=exit_recovery"), machine)
         XCTAssertTrue(machine.contains("038-44087-125.dmg.trustcache"), "OS trust cache, not the restore one")
+        XCTAssertTrue(machine.contains("nvram-vars=oblit-inprogress=1"),
+                      "the first boot after an install finishes an obliteration to create the keybag")
         let dtb = try DeviceTree.parse(Data(contentsOf: URL(fileURLWithPath: args[args.firstIndex(of: "-dtb")! + 1])))
         XCTAssertEqual(dtb.node(at: "filesystems/fstab")?.children.map(\.name), ["system-vol", "data-vol", "preboot-vol", "xart-vol"],
                        "volumes a direct install lacks are dropped from the fstab")
@@ -417,8 +419,9 @@ final class IPSWKitTests: XCTestCase {
         // A second prepare keeps the installed disk (and anything the guest wrote to it).
         let handle = try FileHandle(forWritingTo: disk)
         try handle.seek(toOffset: 0); handle.write(Data("USER".utf8)); try handle.close()
-        _ = try InfernoBackend(machine: .t8030).prepare(ctx)
+        let again = try InfernoBackend(machine: .t8030).prepare(ctx).arguments
         XCTAssertEqual(try FileHandle(forReadingFrom: disk).read(upToCount: 4), Data("USER".utf8))
+        XCTAssertFalse(again[again.firstIndex(of: "-M")! + 1].contains("oblit-inprogress"), "only the first boot")
     }
 
     private func fullIPSW() throws -> URL {

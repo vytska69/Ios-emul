@@ -99,9 +99,13 @@ public struct InfernoBackend: EmulatorBackend {
         ]
         var rootDevice: String?
         var deviceTree = files["DeviceTree"]!
+        var firstBoot = false
         if direct {
             rootDevice = try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
             deviceTree = try directDeviceTree(from: deviceTree)
+            let marker = dir.appendingPathComponent(Self.firstBootMarker)
+            firstBoot = fm.fileExists(atPath: marker.path)
+            try? fm.removeItem(at: marker)
         }
         for ns in namespaces { try ensureDisk(dir.appendingPathComponent(ns.file), sizeBytes: ns.size) }
 
@@ -109,6 +113,12 @@ public struct InfernoBackend: EmulatorBackend {
                      "boot-mode=\(ctx.bootMode.machineBootMode)"]
         if let ticket { props.append("ticket=\(ticket.path)") }
         if let seprom, let sepfw { props += ["sep-rom=\(seprom.path)", "sep-fw=\(sepfw.path)"] }
+        // A restore leaves the system keybag (and the effaceable key that encrypts it) behind; a
+        // direct install has neither, and the keybag boot task then reboots into recovery. The first
+        // boot instead resumes an "Erase All Content": with oblit-inprogress set, finish-obliteration
+        // (mobile_obliterator --init) reformats Data, creates the system keybag and clears the flag.
+        // Needs qemu/patches/inferno/0009 (nvram-vars).
+        if firstBoot { props.append("nvram-vars=oblit-inprogress=1") }
         // The simulated SEP starts in its ROM's bootstrap state; with sepfw-loaded set in the
         // DeviceTree (directDeviceTree) the kernel boots the firmware iBoot would have preloaded.
         // (qemu/patches/inferno/0006 also offers sep-preloaded=true, starting SEPOS directly, but
@@ -147,6 +157,9 @@ public struct InfernoBackend: EmulatorBackend {
     /// Baseband volumes; their fstab entries are dropped so launchd's mount phases do not fail
     /// looking for them.
     static let directInstallVolumes: Set<String> = ["system-vol", "preboot-vol", "xart-vol", "data-vol"]
+
+    /// Written by a direct install; the next boot asks iOS to finish an obliteration (see prepare).
+    static let firstBootMarker = "first-boot"
 
     /// The gigalocker init_data_protection looks for on the emulated iPhone 11 (from its boot log).
     static let gigalockerName = "81879F33-B0F2-573A-AE12-6B517C322E33.gl"
@@ -204,7 +217,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data2+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data2+oblit+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -280,6 +293,9 @@ public struct InfernoBackend: EmulatorBackend {
         defer { try? handle.close() }
         if try handle.seekToEnd() < size { try handle.truncate(atOffset: size) }
         try "\(build) \(root)".write(to: marker, atomically: true, encoding: .utf8)
+        if root == "disk0s1s1" {
+            FileManager.default.createFile(atPath: dir.appendingPathComponent(Self.firstBootMarker).path, contents: nil)
+        }
         return root
     }
 }
