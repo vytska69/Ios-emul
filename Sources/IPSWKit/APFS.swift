@@ -669,14 +669,14 @@ enum BTree {
         return out
     }
 
-    /// Table of contents size: variable nodes list what they hold (in 64-byte steps); fixed nodes
-    /// are sized for as many entries as the node can take, as newfs_apfs does.
+    /// Table of contents size, grown in steps of 8 entries: variable nodes list what they hold;
+    /// fixed nodes are sized for as many entries as the node can take, as newfs_apfs does.
     static func tocLength(_ count: Int, blockSize: Int, root: Bool, leaf: Bool, fixed: (key: Int, value: Int)?) -> Int {
         guard let fixed else { return max(64, ((count * 8 + 63) / 64) * 64) }
         let end = blockSize - (root ? FixedNode.infoSize : 0)
         let entry = 4 + fixed.key + (leaf ? fixed.value : 8)
         let capacity = (end - 56) / entry
-        return max(count, capacity) * 4
+        return ((max(count, capacity) * 4 + 31) / 32) * 32
     }
 
     static func fits(_ records: [Record], blockSize: Int, root: Bool, leaf: Bool,

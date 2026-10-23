@@ -81,7 +81,7 @@ jobs:
             stat -f '%Su:%Sg %Lp %N' "$m/mobile" "$m/mobile/Library" "$m/tmp" || true
             [ "$dirs" = 3000 ] && [ "$nfiles" = 300 ] && [ "$(cat "$m/files/f150.txt")" = "file 150" ] \
               && [ "$(stat -f '%u:%g:%Lp' "$m/mobile/Library")" = "501:501:700" ] \
-              && [ "$(stat -f '%Lp' "$m/tmp")" = "1777" ] && big=1
+              && [ "$(stat -f '%Mp%Lp' "$m/tmp")" = "1777" ] && big=1
           done
           [ "$big" = 1 ] || fsck=1
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/attach.txt")" || true
