@@ -248,7 +248,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data2+oblit+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+preboot+xart6m+data2+oblit+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -288,10 +288,15 @@ public struct InfernoBackend: EmulatorBackend {
                 let layout = GPT.layout(diskSize: size, blockSize: Self.nvmeBlockSize)
                 try GPT.write(to: handle, layout: layout)
                 try image.expand(apfs, into: handle, at: layout.partitionOffset) { ctx.progress("OS", $0) }
+                let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
+                // mount-phase-2 mounts the Data volume (found by its role) on /private/var. It goes
+                // in the slot after System, as on a restored iPhone: the first-boot obliteration
+                // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the
+                // rootfs fstab says), which fails while another volume holds that slot.
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks))
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.
-                let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
                 // The firmware folder also holds the SEP firmware: at boot init_data_protection
                 // (seputil) loads /usr/standalone/firmware/sep-firmware.img4 into the SEP before it
                 // sets up the gigalocker. A restore writes it personalised; here it is the IPSW's
@@ -309,8 +314,6 @@ public struct InfernoBackend: EmulatorBackend {
                 // the SEP fills it in.
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
                     directories: [], files: [Self.gigalockerName: Data(count: Self.gigalockerSize)]))
-                // mount-phase-2 mounts the Data volume (found by its role) on /private/var.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }

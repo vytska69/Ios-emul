@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- iPhone 11 iOS 14: the first start can now erase and recreate the user data storage, as a real iPhone does. Existing iPhone 11 machines reinstall iOS once on their next start.
 - Experimental fix for the first start of iPhone 11 iOS 14 stopping at "Failed to write effaceable.": the emulated storage that holds iOS's encryption lockers is now accepted when blank.
 - Settings → Emulator → Engine is always shown, and says when a build has only one engine.
 - New Enable JIT with StikDebug button (Settings → Emulator, and on the firmware page when JIT is off): it opens StikDebug with the right script for this app, then prepares JIT memory once it has attached. No need to pick a script in StikDebug yourself.
