@@ -97,7 +97,7 @@ final class FirmwareModel: ObservableObject {
                                  translationCacheMB: cacheMB,
                                  extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "",
                                  firstBootErase: !Pref.experimentalBool(Pref.skipFirstBootErase),
-                                 guestVoiceOver: Pref.experimentalBool(Pref.guestVoiceOver)) { [weak self] name, fraction in
+                                 guestTweaks: Pref.guestTweaks) { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }

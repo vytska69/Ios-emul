@@ -338,14 +338,39 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(FirmwareCatalog.compatibility(of: firmwares[0]), .supported)
     }
 
-    func testGuestVoiceOverPreference() throws {
-        XCTAssertNil(InfernoBackend.dataVolumeTree(voiceOver: false).files["mobile/Library/Preferences/com.apple.Accessibility.plist"])
-        let tree = InfernoBackend.dataVolumeTree(voiceOver: true)
-        let path = "mobile/Library/Preferences/com.apple.Accessibility.plist"
-        let data = try XCTUnwrap(tree.files[path])
-        let prefs = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        XCTAssertEqual(prefs["VoiceOverTouchEnabled"] as? Bool, true)
-        XCTAssertEqual(tree.attributes[path], APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600))
+    func testGuestTweaksPreferences() throws {
+        XCTAssertTrue(InfernoBackend.dataVolumeTree(tweaks: GuestTweaks()).files.isEmpty)
+
+        var tweaks = GuestTweaks()
+        tweaks.voiceOver = true
+        tweaks.reduceMotion = true
+        tweaks.appearance = .dark
+        tweaks.language = "lt"
+        tweaks.region = "lt_LT"
+        tweaks.skipSetupAssistant = true
+        tweaks.deviceName = "Emulated iPhone"
+        let tree = InfernoBackend.dataVolumeTree(tweaks: tweaks)
+
+        func plist(_ path: String) throws -> [String: Any] {
+            let data = try XCTUnwrap(tree.files[path], path)
+            return try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        }
+        let prefs = "mobile/Library/Preferences/"
+        let ax = try plist(prefs + "com.apple.Accessibility.plist")
+        XCTAssertEqual(ax["VoiceOverTouchEnabled"] as? Bool, true)
+        XCTAssertEqual(ax["ReduceMotionEnabled"] as? Bool, true)
+        XCTAssertNil(ax["ZoomTouchEnabled"])
+        XCTAssertEqual(tree.attributes[prefs + "com.apple.Accessibility.plist"],
+                       APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600))
+        XCTAssertEqual(try plist(prefs + "com.apple.uikitservices.userInterfaceStyleMode.plist")["UserInterfaceStyleMode"] as? Int, 2)
+        let global = try plist(prefs + ".GlobalPreferences.plist")
+        XCTAssertEqual(global["AppleLanguages"] as? [String], ["lt"])
+        XCTAssertEqual(global["AppleLocale"] as? String, "lt_LT")
+        XCTAssertEqual(try plist(prefs + "com.apple.purplebuddy.plist")["SetupDone"] as? Bool, true)
+        let system = try plist("preferences/SystemConfiguration/preferences.plist")
+        let names = ((system["System"] as? [String: Any])?["System"] as? [String: Any])
+        XCTAssertEqual(names?["ComputerName"] as? String, "Emulated iPhone")
+        XCTAssertEqual(names?["HostName"] as? String, "EmulatediPhone")
     }
 
     func testMachineMemoryLimits() {

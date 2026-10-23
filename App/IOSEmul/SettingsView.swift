@@ -29,8 +29,50 @@ enum Pref {
     static let machineTools = "experimentalMachineTools"
     /// IPSW explorer, DeviceTree browser, logs and disk wipe on the firmware page.
     static let firmwareTools = "experimentalFirmwareTools"
-    /// VoiceOver on in the emulated iOS from its first start.
+    /// Settings written into the emulated iOS when it is installed (GuestTweaks).
     static let guestVoiceOver = "experimentalGuestVoiceOver"
+    static let guestZoom = "guestZoom"
+    static let guestAssistiveTouch = "guestAssistiveTouch"
+    static let guestBoldText = "guestBoldText"
+    static let guestReduceMotion = "guestReduceMotion"
+    static let guestReduceTransparency = "guestReduceTransparency"
+    static let guestIncreaseContrast = "guestIncreaseContrast"
+    static let guestInvertColors = "guestInvertColors"
+    static let guestGrayscale = "guestGrayscale"
+    static let guestTextSize = "guestTextSize"
+    static let guestAppearance = "guestAppearance"
+    static let guestLanguage = "guestLanguage"
+    static let guestRegion = "guestRegion"
+    static let guestDeviceName = "guestDeviceName"
+    static let guestSkipSetup = "guestSkipSetup"
+    static let guest24Hour = "guest24Hour"
+    static let guestKeys = [guestVoiceOver, guestZoom, guestAssistiveTouch, guestBoldText, guestReduceMotion,
+                            guestReduceTransparency, guestIncreaseContrast, guestInvertColors, guestGrayscale,
+                            guestTextSize, guestAppearance, guestLanguage, guestRegion, guestDeviceName,
+                            guestSkipSetup, guest24Hour]
+
+    /// The emulated-iOS settings for the next install; empty while experimental features are locked.
+    static var guestTweaks: GuestTweaks {
+        var t = GuestTweaks()
+        guard defaults.bool(forKey: experimental) else { return t }
+        t.voiceOver = defaults.bool(forKey: guestVoiceOver)
+        t.zoom = defaults.bool(forKey: guestZoom)
+        t.assistiveTouch = defaults.bool(forKey: guestAssistiveTouch)
+        t.boldText = defaults.bool(forKey: guestBoldText)
+        t.reduceMotion = defaults.bool(forKey: guestReduceMotion)
+        t.reduceTransparency = defaults.bool(forKey: guestReduceTransparency)
+        t.increaseContrast = defaults.bool(forKey: guestIncreaseContrast)
+        t.invertColors = defaults.bool(forKey: guestInvertColors)
+        t.grayscale = defaults.bool(forKey: guestGrayscale)
+        t.textSize = GuestTweaks.TextSize(rawValue: defaults.string(forKey: guestTextSize) ?? "") ?? .system
+        t.appearance = GuestTweaks.Appearance(rawValue: defaults.string(forKey: guestAppearance) ?? "") ?? .system
+        t.language = experimentalString(guestLanguage)
+        t.region = experimentalString(guestRegion)
+        t.deviceName = experimentalString(guestDeviceName)
+        t.skipSetupAssistant = defaults.bool(forKey: guestSkipSetup)
+        t.use24HourClock = defaults.bool(forKey: guest24Hour)
+        return t
+    }
 
     static func register() {
         UserDefaults.standard.register(defaults: [
@@ -75,7 +117,7 @@ enum Pref {
 
     /// Every experimental key, reset when the features are turned off.
     static let experimentalKeys = [forceBackend, qemuDebugFlags, extraBootArgs, serialConsole, skipFirstBootErase,
-                                   extraQEMUArgs, fpsCounter, machineTools, firmwareTools, guestVoiceOver]
+                                   extraQEMUArgs, fpsCounter, machineTools, firmwareTools] + guestKeys
 }
 
 extension BootMode {
@@ -629,9 +671,13 @@ private struct ExperimentalPage: View {
     @AppStorage(Pref.fpsCounter) private var fpsCounter = false
     @AppStorage(Pref.machineTools) private var machineTools = false
     @AppStorage(Pref.firmwareTools) private var firmwareTools = false
-    @AppStorage(Pref.guestVoiceOver) private var guestVoiceOver = false
 
     private let debugPresets = ["guest_errors", "guest_errors,unimp", "int", "in_asm", "exec,nochain,int"]
+
+    private var guestSummary: String {
+        let count = Pref.guestTweaks.files().count
+        return count == 0 ? "VoiceOver, appearance, language, setup assistant…" : "\(count) preference \(count == 1 ? "file" : "files") on install"
+    }
 
     var body: some View {
         SettingsPage(symbol: "flask.fill", title: "Experimental", subtitle: "For bringing up new devices. Things may break.") {
@@ -661,18 +707,10 @@ private struct ExperimentalPage: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "Emulated iOS", icon: "accessibility")
-                Card {
-                    ToggleRow(title: "VoiceOver at startup",
-                              detail: "The installed iOS starts with VoiceOver on, from the setup assistant onwards.",
-                              isOn: $guestVoiceOver)
-                    Hint(text: "Written into the Data volume when iOS is installed directly, so it applies to new machines (or after Wipe this machine). The first-boot erase recreates the Data volume, so turn on Skip first-boot erase too for it to stay.")
-                    if guestVoiceOver && !skipErase {
-                        Button { skipErase = true } label: {
-                            Label("Also skip the first-boot erase", systemImage: "checkmark.circle")
-                        }
-                        .buttonStyle(GhostButtonStyle())
-                    }
+                SectionLabel(text: "Emulated iOS", icon: "iphone.gen3")
+                Card(padding: 6) {
+                    SettingsLink(symbol: "gearshape.2", title: "Emulated iOS settings",
+                                 detail: guestSummary, tint: .orange) { GuestTweaksPage() }
                 }
             }
 
@@ -746,5 +784,125 @@ private struct MonoField: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .font(.callout.monospaced())
             .padding(10).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Emulated iOS settings
+
+private struct GuestTweaksPage: View {
+    @AppStorage(Pref.guestVoiceOver) private var voiceOver = false
+    @AppStorage(Pref.guestZoom) private var zoom = false
+    @AppStorage(Pref.guestAssistiveTouch) private var assistiveTouch = false
+    @AppStorage(Pref.guestBoldText) private var boldText = false
+    @AppStorage(Pref.guestReduceMotion) private var reduceMotion = false
+    @AppStorage(Pref.guestReduceTransparency) private var reduceTransparency = false
+    @AppStorage(Pref.guestIncreaseContrast) private var increaseContrast = false
+    @AppStorage(Pref.guestInvertColors) private var invertColors = false
+    @AppStorage(Pref.guestGrayscale) private var grayscale = false
+    @AppStorage(Pref.guestTextSize) private var textSize = GuestTweaks.TextSize.system.rawValue
+    @AppStorage(Pref.guestAppearance) private var appearance = GuestTweaks.Appearance.system.rawValue
+    @AppStorage(Pref.guestLanguage) private var language = ""
+    @AppStorage(Pref.guestRegion) private var region = ""
+    @AppStorage(Pref.guestDeviceName) private var deviceName = ""
+    @AppStorage(Pref.guestSkipSetup) private var skipSetup = false
+    @AppStorage(Pref.guest24Hour) private var clock24 = false
+    @AppStorage(Pref.skipFirstBootErase) private var skipErase = false
+
+    private let languages: [(String, String)] = [
+        ("", "IPSW default (English)"), ("en", "English"), ("lt", "Lietuvių"), ("de", "Deutsch"), ("fr", "Français"),
+        ("es", "Español"), ("it", "Italiano"), ("pl", "Polski"), ("ru", "Русский"), ("uk", "Українська"),
+        ("ja", "日本語"), ("zh-Hans", "简体中文"),
+    ]
+    private let regions: [(String, String)] = [
+        ("", "IPSW default"), ("lt_LT", "Lithuania"), ("en_US", "United States"), ("en_GB", "United Kingdom"),
+        ("de_DE", "Germany"), ("fr_FR", "France"), ("es_ES", "Spain"), ("it_IT", "Italy"), ("pl_PL", "Poland"),
+        ("uk_UA", "Ukraine"), ("ja_JP", "Japan"), ("zh_CN", "China"),
+    ]
+
+    var body: some View {
+        SettingsPage(symbol: "iphone.gen3", title: "Emulated iOS", subtitle: "How the installed iOS starts up") {
+            Card {
+                Label("Written into the installed iOS's own preference files on the Data volume when iOS is installed directly: they apply to new machines, or after Wipe this machine. The keys are the ones iOS keeps for these settings; no emulated iOS reaches its home screen yet, so they are untested there.",
+                      systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.white.opacity(0.65))
+                if !skipErase {
+                    Hint(text: "The first-boot erase recreates the Data volume and drops them.")
+                    Button { skipErase = true } label: { Label("Skip the first-boot erase", systemImage: "checkmark.circle") }
+                        .buttonStyle(GhostButtonStyle())
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Start-up", icon: "sunrise")
+                Card {
+                    ToggleRow(title: "Skip the setup assistant",
+                              detail: "Marks setup as done, straight to the home screen.", isOn: $skipSetup)
+                    Divider().overlay(.white.opacity(0.08))
+                    Text("Device name").font(.subheadline.weight(.semibold))
+                    TextField("iPhone", text: $deviceName)
+                        .font(.callout)
+                        .padding(10).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Language & region", icon: "globe")
+                Card {
+                    Picker("Language", selection: $language) {
+                        ForEach(languages, id: \.0) { Text($0.1).tag($0.0) }
+                    }
+                    Picker("Region", selection: $region) {
+                        ForEach(regions, id: \.0) { Text($0.1).tag($0.0) }
+                    }
+                    ToggleRow(title: "24-hour time", detail: "Whatever the region's default.", isOn: $clock24)
+                }
+                .pickerStyle(.menu)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Display", icon: "sun.max")
+                Card {
+                    Picker("Appearance", selection: $appearance) {
+                        Text("Default").tag(GuestTweaks.Appearance.system.rawValue)
+                        Text("Light").tag(GuestTweaks.Appearance.light.rawValue)
+                        Text("Dark").tag(GuestTweaks.Appearance.dark.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Text size").font(.subheadline.weight(.semibold))
+                    Picker("Text size", selection: $textSize) {
+                        Text("Default").tag(GuestTweaks.TextSize.system.rawValue)
+                        Text("Large").tag(GuestTweaks.TextSize.large.rawValue)
+                        Text("XL").tag(GuestTweaks.TextSize.extraLarge.rawValue)
+                        Text("Max").tag(GuestTweaks.TextSize.accessibility.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    ToggleRow(title: "Bold text", detail: "Heavier system font.", isOn: $boldText)
+                    ToggleRow(title: "Increase contrast", detail: "Darker colours and borders.", isOn: $increaseContrast)
+                    ToggleRow(title: "Reduce transparency", detail: "Solid backgrounds instead of blur.", isOn: $reduceTransparency)
+                    ToggleRow(title: "Classic invert", detail: "Inverted colours.", isOn: $invertColors)
+                    ToggleRow(title: "Greyscale", detail: "Colour filter: greyscale.", isOn: $grayscale)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Accessibility", icon: "accessibility")
+                Card {
+                    ToggleRow(title: "VoiceOver", detail: "Spoken screen reader from the first start.", isOn: $voiceOver)
+                    ToggleRow(title: "Zoom", detail: "Screen magnifier.", isOn: $zoom)
+                    ToggleRow(title: "AssistiveTouch", detail: "Floating on-screen button for gestures and buttons.",
+                              isOn: $assistiveTouch)
+                    ToggleRow(title: "Reduce motion", detail: "Fewer animations; faster in the emulator too.",
+                              isOn: $reduceMotion)
+                }
+            }
+
+            Button(role: .destructive) {
+                Pref.guestKeys.forEach { Pref.defaults.removeObject(forKey: $0) }
+            } label: {
+                Label("Reset emulated iOS settings", systemImage: "arrow.uturn.backward")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(GhostButtonStyle())
+        }
     }
 }

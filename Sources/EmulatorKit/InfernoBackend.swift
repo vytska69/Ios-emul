@@ -204,16 +204,13 @@ public struct InfernoBackend: EmulatorBackend {
                          "root": APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o750)])
     }()
 
-    /// The Data volume, optionally with VoiceOver turned on: the accessibility preferences domain
-    /// (com.apple.Accessibility, read by SpringBoard and the setup assistant) owned by mobile.
-    static func dataVolumeTree(voiceOver: Bool) -> APFSContainer.Tree {
+    /// The Data volume with the preference files for `tweaks` (see GuestTweaks).
+    static func dataVolumeTree(tweaks: GuestTweaks) -> APFSContainer.Tree {
         var tree = dataVolumeTree
-        guard voiceOver,
-              let plist = try? PropertyListSerialization.data(fromPropertyList: ["VoiceOverTouchEnabled": true],
-                                                              format: .binary, options: 0) else { return tree }
-        let path = "mobile/Library/Preferences/com.apple.Accessibility.plist"
-        tree.files[path] = plist
-        tree.attributes[path] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
+        for (path, file) in tweaks.files() {
+            tree.files[path] = file.data
+            tree.attributes[path] = file.attributes
+        }
         return tree
     }
 
@@ -311,7 +308,7 @@ public struct InfernoBackend: EmulatorBackend {
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
                     directories: [], files: [Self.gigalockerName: Data(count: Self.gigalockerSize)]))
                 // mount-phase-2 mounts the Data volume (found by its role) on /private/var.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(voiceOver: ctx.guestVoiceOver))
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks))
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }
