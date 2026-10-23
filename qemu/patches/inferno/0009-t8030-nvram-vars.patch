@@ -1,8 +1,8 @@
 diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
-index 3ad7517..9670a9c 100644
+index 3ad7517..8c87630 100644
 --- a/hw/arm/apple-silicon/t8030.c
 +++ b/hw/arm/apple-silicon/t8030.c
-@@ -531,6 +531,18 @@ static void t8030_memory_setup(AppleT8030MachineState *t8030)
+@@ -531,6 +531,21 @@ static void t8030_memory_setup(AppleT8030MachineState *t8030)
      }
      apple_nvram_load(nvram);
  
@@ -16,12 +16,15 @@ index 3ad7517..9670a9c 100644
 +            info_report("NVRAM: %s=%s", kv[0], kv[1] ? kv[1] : "");
 +            env_set(nvram, kv[0], kv[1] ? kv[1] : "", 0);
 +        }
++        /* Only for the first boot: guest reboots run this again and must keep what it changed. */
++        g_free(t8030->nvram_vars);
++        t8030->nvram_vars = NULL;
 +    }
 +
      info_report("Boot Mode: %u", t8030->boot_info.boot_mode);
      switch (t8030->boot_info.boot_mode) {
      case kAppleBootModeEnterRecovery:
-@@ -3066,6 +3078,7 @@ PROP_STR_GETTER_SETTER(trustcache_filename);
+@@ -3066,6 +3081,7 @@ PROP_STR_GETTER_SETTER(trustcache_filename);
  PROP_STR_GETTER_SETTER(ticket_filename);
  PROP_STR_GETTER_SETTER(sep_rom_filename);
  PROP_STR_GETTER_SETTER(sep_fw_filename);
@@ -29,7 +32,7 @@ index 3ad7517..9670a9c 100644
  PROP_STR_GETTER_SETTER(securerom_filename);
  PROP_STR_GETTER_SETTER(usb_conn_addr);
  PROP_VISIT_GETTER_SETTER(uint16, usb_conn_port);
-@@ -3110,6 +3123,10 @@ static void t8030_class_init(ObjectClass *klass, const void *data)
+@@ -3110,6 +3126,10 @@ static void t8030_class_init(ObjectClass *klass, const void *data)
      object_class_property_add_str(klass, "sep-fw", t8030_get_sep_fw_filename,
                                    t8030_set_sep_fw_filename);
      object_class_property_set_description(klass, "sep-fw", "SEP Firmware");
