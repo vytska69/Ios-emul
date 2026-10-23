@@ -1,0 +1,16 @@
+diff --git a/hw/pci-host/apcie.c b/hw/pci-host/apcie.c
+index 11b7b27..e453847 100644
+--- a/hw/pci-host/apcie.c
++++ b/hw/pci-host/apcie.c
+@@ -1547,6 +1547,11 @@ static ApplePCIEPort *apple_pcie_create_port(AppleDTNode *node, uint32_t bus_nr,
+         } else {
+             dma_mr = apple_dart_iommu_mr(dart, 1);
+         }
++        // Other SoCs' device trees give this DART a different SID set; take
++        // the first stream it has.
++        for (uint32_t sid = 0; dma_mr == NULL && sid < 64; sid++) {
++            dma_mr = apple_dart_iommu_mr(dart, sid);
++        }
+         assert_nonnull(dma_mr);
+         assert_nonnull(object_property_add_const_link(OBJECT(port), "dma-mr",
+                                                         OBJECT(dma_mr)));
