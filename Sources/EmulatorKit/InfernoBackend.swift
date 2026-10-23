@@ -137,6 +137,8 @@ public struct InfernoBackend: EmulatorBackend {
         if ctx.verboseBoot { bootArgs += " -v" }
         bootArgs += " wdt=-1"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
+        let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
+        if !extra.isEmpty { bootArgs += " " + extra }
         let memory = min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound)
         var args: [String] = [
             "-M", props.joined(separator: ","),

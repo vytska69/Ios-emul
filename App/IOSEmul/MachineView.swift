@@ -63,6 +63,7 @@ struct MachineView: View {
     @AppStorage(Pref.keepAwake) private var keepAwake = true
     @State private var controlsVisible = true
     @State private var confirmStop = false
+    @State private var consoleVisible = Pref.experimentalSerialConsole
 
     init(runner: QEMURunner) {
         _display = StateObject(wrappedValue: DisplayModel(runner: runner))
@@ -102,6 +103,10 @@ struct MachineView: View {
             VStack {
                 statusPill
                 Spacer()
+                if consoleVisible {
+                    SerialConsole(log: display.runner.configuration.workingDirectory.appendingPathComponent("serial.log"))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if controlsVisible {
                     controls.transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
@@ -144,6 +149,11 @@ struct MachineView: View {
         HStack(spacing: 10) {
             ControlButton(symbol: "circle.circle", title: "Home") { display.key(0xFF50) }
             ControlButton(symbol: "lock.fill", title: "Lock") { display.key(0xFF1B) }
+            if Pref.experimentalSerialConsole {
+                ControlButton(symbol: "terminal", title: "Serial") {
+                    withAnimation(.spring(response: 0.3)) { consoleVisible.toggle() }
+                }
+            }
             ControlButton(symbol: "eye.slash", title: "Hide") {
                 withAnimation(.spring(response: 0.3)) { controlsVisible = false }
             }
@@ -176,6 +186,45 @@ private struct ControlButton: View {
             .background((tint ?? theme.accent).opacity(0.12), in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Last lines of the guest's serial output, refreshed every second (experimental).
+private struct SerialConsole: View {
+    let log: URL
+    @State private var text = ""
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                Text(text.isEmpty ? "(no serial output yet)" : text)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.green.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .id("end")
+            }
+            .onChange(of: text) { _ in proxy.scrollTo("end", anchor: .bottom) }
+        }
+        .frame(height: 180)
+        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.1)))
+        .onReceive(timer) { _ in text = Self.tail(of: log) }
+        .onAppear { text = Self.tail(of: log) }
+    }
+
+    /// The last 6 KB of the log, starting at a line boundary.
+    static func tail(of url: URL) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let start = size > 6144 ? size - 6144 : 0
+        try? handle.seek(toOffset: start)
+        let data = (try? handle.readToEnd()) ?? Data()
+        var text = String(decoding: data, as: UTF8.self)
+        if start > 0, let newline = text.firstIndex(of: "\n") { text = String(text[text.index(after: newline)...]) }
+        return text
     }
 }
 

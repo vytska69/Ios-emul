@@ -18,6 +18,18 @@ final class FirmwareModel: ObservableObject {
     @Published var suggestion: FirmwareCatalog.Suggestion?
     @Published var suggestionState: String?
 
+    /// The row to boot: the best supported device, or (experimental) the first device forced onto
+    /// the machine chosen in Settings → Experimental.
+    var bootRow: CompatibilityReport.Row? {
+        guard let report else { return nil }
+        if let best = report.best { return best }
+        guard let id = Pref.experimentalString(Pref.forceBackend),
+              let backend = BackendRegistry.shared.backend(id: id),
+              let device = report.rows.first?.device else { return nil }
+        return CompatibilityReport.Row(device: device, backend: backend,
+                                       compatibility: .experimental("forced onto \(backend.displayName)"))
+    }
+
     private var scope: ScopedURL?
     /// Asset scopes stay open for the whole VM lifetime: QEMU opens the files lazily.
     private var assetScopes: [String: ScopedURL] = [:]
@@ -33,7 +45,7 @@ final class FirmwareModel: ObservableObject {
             let parsed = try await Task.detached { try IPSW(url: scope.url) }.value
             ipsw = parsed
             report = BackendRegistry.shared.report(for: parsed)
-            if let backend = report?.best?.backend {
+            if let backend = bootRow?.backend {
                 lastExit = QEMURunner.unexpectedExit(in: item.workDirectory.appendingPathComponent(backend.id))
             }
             if let identity = parsed.manifest.identity() {
@@ -80,14 +92,19 @@ final class FirmwareModel: ObservableObject {
                                  externalAssets: assetScopes.mapValues(\.url), bootMode: mode,
                                  memoryMB: memoryMB, cpuCount: cpus,
                                  verboseBoot: Pref.defaults.bool(forKey: Pref.verboseBoot),
-                                 translationCacheMB: cacheMB) { [weak self] name, fraction in
+                                 translationCacheMB: cacheMB,
+                                 extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "") { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
         Task {
             do {
                 // Below the UI's priority, so scrolling and taps stay responsive during the install.
-                let config = try await Task.detached(priority: .utility) { try backend.prepare(ctx) }.value
+                var config = try await Task.detached(priority: .utility) { try backend.prepare(ctx) }.value
+                if let flags = Pref.experimentalString(Pref.qemuDebugFlags) {
+                    config.arguments += ["-d", flags, "-D",
+                                         config.workingDirectory.appendingPathComponent("qemu-debug.log").path]
+                }
                 let runner = QEMURunner(configuration: config)
                 try runner.start()
                 self.progress = nil
@@ -158,7 +175,7 @@ struct FirmwareDetailView: View {
                 }
 
                 if let report = model.report {
-                    if let best = report.best, let backend = best.backend {
+                    if let best = model.bootRow, let backend = best.backend {
                         bootCard(item: item, best: best, backend: backend)
                         if !backend.externalAssets.isEmpty { assetsCard(item: item, backend: backend) }
                     } else {
@@ -193,7 +210,7 @@ struct FirmwareDetailView: View {
     // MARK: Cards
 
     private func hero(_ item: FirmwareItem) -> some View {
-        let best = model.report?.best
+        let best = model.bootRow
         return ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
