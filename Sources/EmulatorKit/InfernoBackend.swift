@@ -146,7 +146,10 @@ public struct InfernoBackend: EmulatorBackend {
         #if os(iOS)
         // In-process on iOS the translation cache counts against the app's memory limit, next to
         // guest RAM; QEMU's 1 GiB default can get the app killed. See QEMURunner.translationCacheMB.
-        args += ["-accel", "tcg,tb-size=\(QEMURunner.translationCacheMB)"]
+        // split-wx: QEMU's default code buffer is a MAP_JIT mapping, which iOS refuses (EPERM) to
+        // apps without Apple's dynamic-codesigning entitlement, even with a debugger attached. JIT
+        // enablers instead allow a writable mapping plus an executable alias of it (mach_vm_remap).
+        args += ["-accel", "tcg,tb-size=\(QEMURunner.translationCacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
         #endif
         if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
         for ns in namespaces {
