@@ -134,6 +134,13 @@ jobs:
         run: |
           # The 'Rolling' tag is created once by hand and then left alone: GITHUB_TOKEN may not create
           # refs that contain .github/workflows, and the download URLs only need the tag name.
+          # An interpreter (TCI) build, for devices where JIT does not work, is attached next to the JIT
+          # build as IOSEmul-TCI.ipa; it leaves the release notes and the SideStore source alone.
+          if [ "${{ inputs.tci }}" = "true" ]; then
+            cp out/IOSEmul.ipa out/IOSEmul-TCI.ipa
+            gh release upload Rolling out/IOSEmul-TCI.ipa --clobber
+            exit 0
+          fi
           if [ "${{ steps.core.outputs.included }}" = "true" ]; then
             core="Includes the QEMU emulator core."
           else
