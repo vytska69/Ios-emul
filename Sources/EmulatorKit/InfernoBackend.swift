@@ -142,10 +142,10 @@ public struct InfernoBackend: EmulatorBackend {
                                     workingDirectory: dir, vncPort: vncPort, monitorPort: monitorPort)
     }
 
-    /// Volumes a direct install provides: the IPSW's System volume and the Preboot volume it adds
-    /// (`APFSContainer.addVolume`). A restore also creates xART, Hardware, Update, Baseband and Data
-    /// volumes; their fstab entries are dropped so launchd's mount phase does not fail looking for
-    /// them, except Data, which is swapped for an ephemeral one (below).
+    /// Volumes a direct install provides: the IPSW's System volume and the Preboot, xART and Data
+    /// volumes it adds (`APFSContainer.addVolume`). A restore also creates Hardware, Update and
+    /// Baseband volumes; their fstab entries are dropped so launchd's mount phases do not fail
+    /// looking for them.
     static let directInstallVolumes: Set<String> = ["system-vol", "preboot-vol", "xart-vol", "data-vol"]
 
     /// The gigalocker init_data_protection looks for on the emulated iPhone 11 (from its boot log).
@@ -154,17 +154,24 @@ public struct InfernoBackend: EmulatorBackend {
     /// refuses (EEXIST) an existing one smaller than 6 MiB.
     static let gigalockerSize = 0x600000
 
+    /// The Data volume a direct install starts with: the directories that must exist, with the
+    /// owners and permissions iOS expects, before the daemons that populate /private/var run.
+    static let dataVolumeTree: APFSContainer.Tree = {
+        let mobile = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
+        let sticky = APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o1777)
+        return APFSContainer.Tree(
+            directories: ["mobile/Library/Preferences", "mobile/Media", "mobile/Documents", "root/Library/Preferences",
+                          "db", "logs", "log", "tmp", "run", "empty", "preferences", "containers", "keybags",
+                          "hardware", "networkd", "wireless", "folders", "MobileSoftwareUpdate", "MobileAsset",
+                          "installd", "staged_system_apps", "vm"],
+            attributes: ["mobile": mobile, "mobile/Library": mobile, "mobile/Library/Preferences": mobile,
+                         "mobile/Media": mobile, "mobile/Documents": mobile, "tmp": sticky,
+                         "root": APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o750)])
+    }()
+
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
-    ///
-    /// The tree already carries fstab variants for diagnostic/recovery environments in which
-    /// /private/var is an ephemeral volume created at boot from the system volume's template.
-    /// Using that definition for the normal environment gives the OS a writable /private/var
-    /// without a restore having created a Data volume.
     func directDeviceTree(from file: URL) throws -> URL {
         let tree = try DeviceTree.parse(Data(contentsOf: file))
-        let ephemeral = tree.child("filesystems")?.children
-            .first { $0.name.hasPrefix("fstab-ephemeral-diag") }?
-            .children.first { $0.properties["vol.fs_ephemeral"] != nil }
         let pruned = DeviceTree.serialize(tree) { node in
             // iBoot records that it loaded the SEP firmware; the kernel then asks the SEP ROM to
             // boot it, and seputil skips loading it again.
@@ -175,14 +182,7 @@ public struct InfernoBackend: EmulatorBackend {
                                       children: node.children)
             }
             guard node.parent?.name == "fstab", node.parent?.parent?.name == "filesystems" else { return node }
-            guard Self.directInstallVolumes.contains(node.name) else { return nil }
-            if node.name == "data-vol", let ephemeral {
-                var props = ephemeral.properties
-                props["name"] = Data("data-vol".utf8) + Data([0])
-                props["AAPL,phandle"] = node.properties["AAPL,phandle"]   // keep phandles unique
-                return DeviceTreeNode(properties: props, placeholders: ephemeral.placeholders)
-            }
-            return node
+            return Self.directInstallVolumes.contains(node.name) ? node : nil
         }
         let out = file.deletingLastPathComponent().appendingPathComponent("DeviceTree.direct.raw")
         try pruned.write(to: out)
@@ -201,7 +201,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -262,6 +262,8 @@ public struct InfernoBackend: EmulatorBackend {
                 // the SEP fills it in.
                 try container.addVolume(name: "xART", role: .xart, tree: APFSContainer.Tree(
                     directories: [], files: [Self.gigalockerName: Data(count: Self.gigalockerSize)]))
+                // mount-phase-2 mounts the Data volume (found by its role) on /private/var.
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree)
                 root = "disk0s1s1"
             } else {
                 try image.expand(to: disk) { ctx.progress("OS", $0) }

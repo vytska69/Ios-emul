@@ -382,8 +382,8 @@ final class IPSWKitTests: XCTestCase {
         let dtb = try DeviceTree.parse(Data(contentsOf: URL(fileURLWithPath: args[args.firstIndex(of: "-dtb")! + 1])))
         XCTAssertEqual(dtb.node(at: "filesystems/fstab")?.children.map(\.name), ["system-vol", "data-vol", "preboot-vol", "xart-vol"],
                        "volumes a direct install lacks are dropped from the fstab")
-        XCTAssertNotNil(dtb.node(at: "filesystems/fstab/data-vol")?.properties["vol.fs_ephemeral"],
-                        "Data becomes the ephemeral volume from the diagnostics fstab")
+        XCTAssertNil(dtb.node(at: "filesystems/fstab/data-vol")?.properties["vol.fs_ephemeral"],
+                     "Data stays the real volume the install writes")
 
         let disk = vm.appendingPathComponent("nvme.1")
         let head = try FileHandle(forReadingFrom: disk).read(upToCount: 4)
