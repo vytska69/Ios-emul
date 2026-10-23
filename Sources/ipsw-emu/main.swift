@@ -172,7 +172,8 @@ case "boot":
         let qemuLog = (try? String(contentsOf: work.appendingPathComponent("qemu.log"), encoding: .utf8)) ?? ""
         if let line = qemuLog.split(separator: "\n").first(where: { $0.contains("Kernel Entry Point:") }),
            let entry = line.split(separator: " ").last {
-            for command in ["xp /16wx \(entry)", "xp /16i \(entry)"] {
+            // (xp /i is not supported for physical addresses and trips an assertion in QEMU.)
+            for command in ["xp /16wx \(entry)"] {
                 if let out = monitor.query(command) {
                     print("==> \(command):")
                     out.split(separator: "\n").prefix(40).forEach { print("  | \($0)") }
