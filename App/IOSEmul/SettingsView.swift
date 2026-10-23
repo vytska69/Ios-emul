@@ -21,6 +21,14 @@ enum Pref {
     static let qemuDebugFlags = "experimentalQEMUDebugFlags"
     static let extraBootArgs = "experimentalExtraBootArgs"
     static let serialConsole = "experimentalSerialConsole"
+    static let skipFirstBootErase = "experimentalSkipFirstBootErase"
+    /// Raw arguments appended to the QEMU command line.
+    static let extraQEMUArgs = "experimentalExtraQEMUArgs"
+    static let fpsCounter = "experimentalFPSCounter"
+    /// Monitor console, pause/resume, reset and screenshots on the running machine.
+    static let machineTools = "experimentalMachineTools"
+    /// IPSW explorer, DeviceTree browser, logs and disk wipe on the firmware page.
+    static let firmwareTools = "experimentalFirmwareTools"
 
     static func register() {
         UserDefaults.standard.register(defaults: [
@@ -38,6 +46,11 @@ enum Pref {
             qemuDebugFlags: "",
             extraBootArgs: "",
             serialConsole: false,
+            skipFirstBootErase: false,
+            extraQEMUArgs: "",
+            fpsCounter: false,
+            machineTools: false,
+            firmwareTools: false,
         ])
     }
 
@@ -50,9 +63,16 @@ enum Pref {
         return value.isEmpty ? nil : value
     }
 
-    static var experimentalSerialConsole: Bool {
-        defaults.bool(forKey: experimental) && defaults.bool(forKey: serialConsole)
+    /// An experimental toggle, false while experimental features are locked.
+    static func experimentalBool(_ key: String) -> Bool {
+        defaults.bool(forKey: experimental) && defaults.bool(forKey: key)
     }
+
+    static var experimentalSerialConsole: Bool { experimentalBool(serialConsole) }
+
+    /// Every experimental key, reset when the features are turned off.
+    static let experimentalKeys = [forceBackend, qemuDebugFlags, extraBootArgs, serialConsole, skipFirstBootErase,
+                                   extraQEMUArgs, fpsCounter, machineTools, firmwareTools]
 }
 
 extension BootMode {
@@ -600,7 +620,14 @@ private struct ExperimentalPage: View {
     @AppStorage(Pref.forceBackend) private var forceBackend = ""
     @AppStorage(Pref.qemuDebugFlags) private var debugFlags = ""
     @AppStorage(Pref.extraBootArgs) private var bootArgs = ""
+    @AppStorage(Pref.extraQEMUArgs) private var qemuArgs = ""
     @AppStorage(Pref.serialConsole) private var serialConsole = false
+    @AppStorage(Pref.skipFirstBootErase) private var skipErase = false
+    @AppStorage(Pref.fpsCounter) private var fpsCounter = false
+    @AppStorage(Pref.machineTools) private var machineTools = false
+    @AppStorage(Pref.firmwareTools) private var firmwareTools = false
+
+    private let debugPresets = ["guest_errors", "guest_errors,unimp", "int", "in_asm", "exec,nochain,int"]
 
     var body: some View {
         SettingsPage(symbol: "flask.fill", title: "Experimental", subtitle: "For bringing up new devices. Things may break.") {
@@ -611,9 +638,9 @@ private struct ExperimentalPage: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "Unsupported firmware", icon: "wand.and.stars")
+                SectionLabel(text: "Machines", icon: "cpu")
                 Card {
-                    Text("Boot on another machine").font(.subheadline.weight(.semibold))
+                    Text("Boot unsupported firmware on").font(.subheadline.weight(.semibold))
                     Picker("Machine", selection: $forceBackend) {
                         Text("Off").tag("")
                         ForEach(BackendRegistry.shared.backends, id: \.id) { backend in
@@ -622,6 +649,23 @@ private struct ExperimentalPage: View {
                     }
                     .pickerStyle(.menu)
                     Hint(text: "Firmware without a machine model (e.g. iPhone XR) gets a Boot button on this machine, like the boot tests' force_backend.")
+                    Divider().overlay(.white.opacity(0.08))
+                    ToggleRow(title: "Skip first-boot erase",
+                              detail: "Boot a direct install as written instead of resuming Erase All Content (no system keybag).",
+                              isOn: $skipErase)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Command line", icon: "terminal")
+                Card {
+                    Text("Extra boot-args").font(.subheadline.weight(.semibold))
+                    MonoField(placeholder: "e.g. cs_enforcement_disable=1", text: $bootArgs)
+                    Hint(text: "Appended to the kernel command line of every boot.")
+                    Divider().overlay(.white.opacity(0.08))
+                    Text("Extra QEMU arguments").font(.subheadline.weight(.semibold))
+                    MonoField(placeholder: "e.g. -icount shift=auto", text: $qemuArgs)
+                    Hint(text: "Split on spaces and appended to QEMU's arguments.")
                 }
             }
 
@@ -629,31 +673,39 @@ private struct ExperimentalPage: View {
                 SectionLabel(text: "Diagnostics", icon: "stethoscope")
                 Card {
                     Text("QEMU debug flags").font(.subheadline.weight(.semibold))
-                    TextField("guest_errors,unimp", text: $debugFlags)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .font(.callout.monospaced())
-                        .padding(10).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-                    Hint(text: "Passed as -d; written to qemu-debug.log in the machine folder. int and exec produce gigabytes.")
+                    MonoField(placeholder: "guest_errors,unimp", text: $debugFlags)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(debugPresets, id: \.self) { preset in
+                                Button { debugFlags = preset } label: {
+                                    Chip(text: preset, color: debugFlags == preset ? .orange : .white.opacity(0.7))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    Hint(text: "Passed as -d and written to qemu-debug.log in the machine folder. int and exec produce gigabytes.")
                     Divider().overlay(.white.opacity(0.08))
-                    ToggleRow(title: "Serial console", detail: "Show the kernel's serial output over the running machine.",
-                              isOn: $serialConsole)
+                    ToggleRow(title: "Serial console", detail: "Kernel serial output over the running machine.", isOn: $serialConsole)
+                    ToggleRow(title: "Frame counter", detail: "Display frames per second in the status pill.", isOn: $fpsCounter)
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(text: "Kernel", icon: "terminal")
+                SectionLabel(text: "Tools", icon: "wrench.and.screwdriver")
                 Card {
-                    Text("Extra boot-args").font(.subheadline.weight(.semibold))
-                    TextField("e.g. cs_enforcement_disable=1", text: $bootArgs)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .font(.callout.monospaced())
-                        .padding(10).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-                    Hint(text: "Appended to the kernel command line of every boot.")
+                    ToggleRow(title: "Machine tools",
+                              detail: "QEMU monitor console, pause and resume, reset and screenshots while a machine runs.",
+                              isOn: $machineTools)
+                    Divider().overlay(.white.opacity(0.08))
+                    ToggleRow(title: "Firmware tools",
+                              detail: "IPSW file explorer with export, DeviceTree browser, machine logs and disk wipe on each firmware page.",
+                              isOn: $firmwareTools)
                 }
             }
 
             Button(role: .destructive) {
-                forceBackend = ""; debugFlags = ""; bootArgs = ""; serialConsole = false
+                Pref.experimentalKeys.forEach { Pref.defaults.removeObject(forKey: $0) }
                 experimental = false
                 dismiss()
             } label: {
@@ -662,5 +714,17 @@ private struct ExperimentalPage: View {
             }
             .buttonStyle(GhostButtonStyle())
         }
+    }
+}
+
+private struct MonoField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
+            .font(.callout.monospaced())
+            .padding(10).background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
     }
 }

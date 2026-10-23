@@ -6,6 +6,10 @@ final class DisplayModel: ObservableObject {
     @Published var frame: CGImage?
     @Published var status = "Starting QEMU…"
     @Published var vmState: QEMURunner.State = .running
+    /// Display frames received in the last second (experimental frame counter).
+    @Published var fps = 0
+    private var framesThisSecond = 0
+    private var fpsTimer: Timer?
 
     let runner: QEMURunner
     private var vnc: VNCClient?
@@ -20,6 +24,15 @@ final class DisplayModel: ObservableObject {
             }
         }
         connect()
+        if Pref.experimentalBool(Pref.fpsCounter) {
+            fpsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.fps = self.framesThisSecond
+                    self.framesThisSecond = 0
+                }
+            }
+        }
     }
 
     /// QEMU needs a moment before its VNC server listens, so retry for ~15 s.
@@ -32,6 +45,7 @@ final class DisplayModel: ObservableObject {
                 self.status = "\(w)×\(h)"
             case .frame(let image):
                 self.frame = image
+                self.framesThisSecond += 1
             case .disconnected:
                 guard case .running = self.vmState, self.attempts < 30 else { return }
                 self.attempts += 1
@@ -51,6 +65,7 @@ final class DisplayModel: ObservableObject {
     func key(_ keysym: UInt32) { vnc?.key(keysym) }
 
     func shutdown() {
+        fpsTimer?.invalidate()
         vnc?.disconnect()
         runner.stop()
     }
@@ -64,6 +79,7 @@ struct MachineView: View {
     @State private var controlsVisible = true
     @State private var confirmStop = false
     @State private var consoleVisible = Pref.experimentalSerialConsole
+    @State private var toolsVisible = false
 
     init(runner: QEMURunner) {
         _display = StateObject(wrappedValue: DisplayModel(runner: runner))
@@ -103,6 +119,10 @@ struct MachineView: View {
             VStack {
                 statusPill
                 Spacer()
+                if toolsVisible {
+                    MachineToolsPanel(display: display)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if consoleVisible {
                     SerialConsole(log: display.runner.configuration.workingDirectory.appendingPathComponent("serial.log"))
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -139,6 +159,9 @@ struct MachineView: View {
             Circle().fill(running ? Color.green : Color.orange).frame(width: 8, height: 8)
                 .shadow(color: running ? .green : .orange, radius: 4)
             Text(display.status).font(.caption.weight(.semibold).monospacedDigit())
+            if Pref.experimentalBool(Pref.fpsCounter) {
+                Text("\(display.fps) fps").font(.caption.weight(.bold).monospacedDigit()).foregroundStyle(.orange)
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .background(.ultraThinMaterial, in: Capsule())
@@ -146,21 +169,29 @@ struct MachineView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 10) {
-            ControlButton(symbol: "circle.circle", title: "Home") { display.key(0xFF50) }
-            ControlButton(symbol: "lock.fill", title: "Lock") { display.key(0xFF1B) }
-            if Pref.experimentalSerialConsole {
-                ControlButton(symbol: "terminal", title: "Serial") {
-                    withAnimation(.spring(response: 0.3)) { consoleVisible.toggle() }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ControlButton(symbol: "circle.circle", title: "Home") { display.key(0xFF50) }
+                ControlButton(symbol: "lock.fill", title: "Lock") { display.key(0xFF1B) }
+                if Pref.experimentalBool(Pref.machineTools) {
+                    ControlButton(symbol: "wrench.and.screwdriver", title: "Tools") {
+                        withAnimation(.spring(response: 0.3)) { toolsVisible.toggle() }
+                    }
+                }
+                if Pref.experimentalSerialConsole {
+                    ControlButton(symbol: "terminal", title: "Serial") {
+                        withAnimation(.spring(response: 0.3)) { consoleVisible.toggle() }
+                    }
+                }
+                ControlButton(symbol: "eye.slash", title: "Hide") {
+                    withAnimation(.spring(response: 0.3)) { controlsVisible = false }
+                }
+                ControlButton(symbol: "power", title: "Stop", tint: .red) {
+                    if running { confirmStop = true } else { dismiss() }
                 }
             }
-            ControlButton(symbol: "eye.slash", title: "Hide") {
-                withAnimation(.spring(response: 0.3)) { controlsVisible = false }
-            }
-            ControlButton(symbol: "power", title: "Stop", tint: .red) {
-                if running { confirmStop = true } else { dismiss() }
-            }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(8)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
@@ -182,7 +213,7 @@ private struct ControlButton: View {
                 Text(title).font(.caption2.weight(.semibold))
             }
             .foregroundStyle(tint ?? theme.accent)
-            .frame(width: 62, height: 52)
+            .frame(width: 56, height: 52)
             .background((tint ?? theme.accent).opacity(0.12), in: Capsule())
         }
         .buttonStyle(.plain)

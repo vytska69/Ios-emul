@@ -9,6 +9,8 @@ final class FirmwareModel: ObservableObject {
     @Published var ipsw: IPSW?
     @Published var report: CompatibilityReport?
     @Published var coverage: [HardwareCoverage] = []
+    /// The DeviceTree of the first build identity (hardware coverage, experimental browser).
+    @Published var deviceTree: DeviceTreeNode?
     @Published var loadError: String?
     @Published var progress: (String, Double)?
     @Published var runner: QEMURunner?
@@ -48,10 +50,10 @@ final class FirmwareModel: ObservableObject {
             if let backend = bootRow?.backend {
                 lastExit = QEMURunner.unexpectedExit(in: item.workDirectory.appendingPathComponent(backend.id))
             }
-            if let identity = parsed.manifest.identity() {
-                coverage = (try? await Task.detached {
-                    HardwareCoverage.analyze(try parsed.deviceTree(identity: identity))
-                }.value) ?? []
+            if let identity = parsed.manifest.identity(),
+               let tree = try? await Task.detached(operation: { try parsed.deviceTree(identity: identity) }).value {
+                deviceTree = tree
+                coverage = await Task.detached { HardwareCoverage.analyze(tree) }.value
             }
         } catch {
             loadError = "\(error)"
@@ -93,7 +95,8 @@ final class FirmwareModel: ObservableObject {
                                  memoryMB: memoryMB, cpuCount: cpus,
                                  verboseBoot: Pref.defaults.bool(forKey: Pref.verboseBoot),
                                  translationCacheMB: cacheMB,
-                                 extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "") { [weak self] name, fraction in
+                                 extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "",
+                                 firstBootErase: !Pref.experimentalBool(Pref.skipFirstBootErase)) { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
@@ -101,6 +104,9 @@ final class FirmwareModel: ObservableObject {
             do {
                 // Below the UI's priority, so scrolling and taps stay responsive during the install.
                 var config = try await Task.detached(priority: .utility) { try backend.prepare(ctx) }.value
+                if let extra = Pref.experimentalString(Pref.extraQEMUArgs) {
+                    config.arguments += extra.split(separator: " ").map(String.init)
+                }
                 if let flags = Pref.experimentalString(Pref.qemuDebugFlags) {
                     config.arguments += ["-d", flags, "-D",
                                          config.workingDirectory.appendingPathComponent("qemu-debug.log").path]
@@ -183,6 +189,10 @@ struct FirmwareDetailView: View {
                     }
                     devicesCard(report)
                     if let best = model.coverage.first { CoverageCard(coverage: best) }
+                    if Pref.experimentalBool(Pref.firmwareTools), let ipsw = model.ipsw {
+                        FirmwareToolsCard(item: item, ipsw: ipsw, deviceTree: model.deviceTree,
+                                          backendID: model.bootRow?.backend?.id)
+                    }
                     componentsCard
                 } else if model.loadError == nil {
                     Card {

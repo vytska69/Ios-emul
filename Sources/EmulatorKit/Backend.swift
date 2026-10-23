@@ -75,17 +75,20 @@ public struct PrepareContext {
     public let translationCacheMB: Int
     /// Appended to the kernel command line (experimental settings).
     public let extraBootArgs: String
+    /// Resume an "Erase All Content" on the first boot of a direct install (creates the system
+    /// keybag); off boots the install as written.
+    public let firstBootErase: Bool
     public let progress: (String, Double) -> Void
 
     public init(ipsw: IPSW, identity: BuildManifest.Identity, device: DeviceInfo, workDirectory: URL,
                 externalAssets: [String: URL], bootMode: BootMode, memoryMB: Int, cpuCount: Int,
                 verboseBoot: Bool = true, translationCacheMB: Int = QEMURunner.defaultTranslationCacheMB,
-                extraBootArgs: String = "",
+                extraBootArgs: String = "", firstBootErase: Bool = true,
                 progress: @escaping (String, Double) -> Void = { _, _ in }) {
         self.ipsw = ipsw; self.identity = identity; self.device = device; self.workDirectory = workDirectory
         self.externalAssets = externalAssets; self.bootMode = bootMode; self.memoryMB = memoryMB
         self.cpuCount = cpuCount; self.verboseBoot = verboseBoot; self.translationCacheMB = translationCacheMB
-        self.extraBootArgs = extraBootArgs
+        self.extraBootArgs = extraBootArgs; self.firstBootErase = firstBootErase
         self.progress = progress
     }
 }
