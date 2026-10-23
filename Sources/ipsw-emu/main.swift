@@ -248,6 +248,27 @@ case "boot":
         print("==> SEP messages (\(sep.count)):")
         sep.prefix(300).forEach { print("  | \($0)") }
     }
+    // With -d exec / in_asm, what ran just before the first exception (streamed: the log can be huge).
+    if let file = try? FileHandle(forReadingFrom: debugLog) {
+        var window: [Substring] = []
+        var pending = Data()
+        var found = false
+        scan: while let chunk = try? file.read(upToCount: 8 << 20), !chunk.isEmpty {
+            pending.append(chunk)
+            guard let cut = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
+            let text = String(decoding: pending[..<cut], as: UTF8.self)
+            pending = Data(pending[pending.index(after: cut)...])
+            for line in text.split(separator: "\n") {
+                if line.hasPrefix("Taking exception") { found = true; break scan }
+                window.append(line)
+                if window.count > 120 { window.removeFirst(window.count - 120) }
+            }
+        }
+        if found, !window.isEmpty {
+            print("==> last debug log lines before the first exception:")
+            window.forEach { print("  | \($0)") }
+        }
+    }
 
 case "dt":
     guard let identity = ipsw.identity(forProduct: options["product"]) else { fail("no build identity") }
