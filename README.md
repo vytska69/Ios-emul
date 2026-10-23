@@ -1,191 +1,257 @@
 # iOS Emul
 
-**Tikslas: universalus iOS emuliatorius.** Bet kurį iPhone, iPad ar iPod touch `.ipsw` failą
-atsidarai telefone ir naudoji jo operacinę sistemą emuliuojamame Apple įrenginyje. Nuo iPhoneOS 1
-iki naujausios iOS, nuo A4 iki naujausių lustų. Be kompiuterio: nei programai įdiegti, nei iOS
-įdiegti į virtualų įrenginį.
+**Universalus iOS emuliatorius telefone.** Atsidarai bet kurio iPhone, iPad ar iPod touch `.ipsw`
+failą ir paleidi tą iOS emuliuojamame Apple įrenginyje, pačiame telefone. Be kompiuterio: nei
+programai įdiegti, nei iOS į virtualų įrenginį įrašyti.
 
-Viešai to dar niekas nedaro. Šis projektas eina ten etapais, ir kiekvienas etapas turi išmatuojamą
-rezultatą: kiek toli bootina tikras IPSW.
+[![CI](https://github.com/vytska69/Ios-emul/actions/workflows/ci.yml/badge.svg)](https://github.com/vytska69/Ios-emul/actions/workflows/ci.yml)
+[![IPA](https://github.com/vytska69/Ios-emul/actions/workflows/ipa.yml/badge.svg)](https://github.com/vytska69/Ios-emul/actions/workflows/ipa.yml)
+[![Rolling release](https://img.shields.io/badge/release-Rolling-3C78D8)](https://github.com/vytska69/Ios-emul/releases/tag/Rolling)
 
-> **Dabar:** iOS 14.0 ant emuliuojamo iPhone 11 įdiegiamas be restore ir praeina 11 launchd boot
-> žingsnių (`fsck` … `fips`, macOS CI). Simuliuotas SEP užkrauna SEP firmware, inicializuoja
-> gigalocker ir įjungia raktų saugyklą; System, Preboot, xART ir Data tomai prijungiami. Trūksta
-> sistemos keybag'o, kurį paprastai sukuria restore: pirmas boot'as todėl paleidžia iOS „Erase All
-> Content“ pabaigimą, kuris dabar stoja ties nesuformatuota effaceable saugykla.
-> iPhone 6s (A9) su iOS 15.8: kernelis praeina didžiąją dalį IOKit ir stoja ties ekrano
-> valdikliu. iPhone XR (A12) jau paleidžiamas ant iPhone 11 mašinos: mašina susirenka iš XR
-> DeviceTree ir kernelis gauna valdymą, bet stoja ties pirmomis instrukcijomis.
-> Telefone: Rolling release IPA (nuo 0.1.85) turi QEMU emuliatoriaus branduolį; programa
-> parsisiunčia IPSW iš ipsw.me, juos patikrina, analizuoja ir gali paleisti emuliuojamą mašiną.
-> Žr. [Būsena](#būsena).
+[Įdiegimas](#įdiegimas) · [JIT](#jit-ir-varikliai) · [Būsena](#būsena) · [Kaip tai veikia](#kaip-tai-veikia) ·
+[Programa](#programa) · [Kūrėjams](#kūrėjams) · [Ribos](#ribos) · [ROADMAP](ROADMAP.md) ·
+[Kas naujo](distribution/whats-new.md)
 
-## Kaip pasiekti universalumą
+> **Dabar.** macOS CI'e iPhone 11 su iOS 14.0 įsidiegia be restore ir pasiekia `launchd`, o
+> pirmame paleidime sustoja, nes effaceable saugykla nesuformatuota. iPhone 6s su iOS 15.8 pasiekia
+> IOKit. Telefone mašina susikuria. iOS 26+ įrenginiuose (TXM) JIT dabar prašomas per StikDebug,
+> o be JIT veikia interpretatorius; abiejų dar laukiama patvirtinimo telefone. Plačiau:
+> [Būsena](#būsena).
 
-Kiekvienas Apple lustas turi savo periferiją (pertraukimų valdiklis, laikmačiai, PMGR, DART, NVMe,
-SEP, ekranas, lietimas), ir jos dokumentacijos nėra. Todėl emuliatorius kuriamas ne po vieną
-įrenginį rankomis, o taip:
+---
 
-1. **IPSW pats aprašo savo hardware.** Kiekviename IPSW yra DeviceTree su visais įrenginiais, jų
-   `compatible` vardais, MMIO adresais ir pertraukimais. Programa jį perskaito ir parodo, kuri
-   hardware dalis jau emuliuojama ir kurios trūksta.
-2. **Viena mašina, kuri susirenka pati.** Vietoj atskiros mašinos kiekvienam įrenginiui kuriama
-   bendra mašina, kuri pasistato iš IPSW DeviceTree: žinomiems blokams prijungia modelius,
-   nežinomiems – stub'us. Kiekvienas naujas modelis (pvz., AIC2 ar naujas DART) iškart padeda visiems
-   lustams, kurie jį naudoja.
-3. **Įdiegimas be restore.** iOS į virtualų diską įrašoma tiesiai iš IPSW: išskleidžiamas UDIF
-   atvaizdas, parašomas GPT 4 KiB blokams, į APFS konteinerį įrašomi Preboot, xART ir Data tomai,
-   kuriuos paprastai sukuria restore, o DeviceTree `fstab` pritaikomas. Todėl `idevicerestore` ir
-   kompiuterio nereikia.
-4. **SEP be vartotojo failų.** Duomenų apsaugai iOS reikia Secure Enclave. Užuot reikalavus SEP ROM
-   dump'o, simuliuotas SEP pats atlieka boot'ą: kernelis jam paduoda IPSW SEP firmware (Preboot
-   tome), SEP paskelbia savo endpoint'us ir atsako į raktų saugyklos ir xART užklausas.
-5. **Matavimas, ne spėjimas.** `Boot test` workflow bootina tikrus IPSW ir užrašo toliausią etapą
-   (XNU → IOKit → root → launchd → SpringBoard) bei panic'ą. Taisoma tai, kas sustoja pirmiausia.
-6. **Viešos žinios.** Inferno (A9/A13), Asahi Linux (M1/M2: AIC2, DART, PMGR, DCP, SPMI) ir devos50
-   (S5L89xx) jau ištyrė didelę dalį hardware; jų darbas naudojamas kaip pagrindas.
+## Įdiegimas
 
-Visas planas su etapais: [ROADMAP.md](ROADMAP.md).
+Kiekvienas sėkmingas IPA build'as atnaujina [Rolling release](https://github.com/vytska69/Ios-emul/releases/tag/Rolling).
 
-## Kelias iki tikslo
+| Būdas | Ką daryti |
+|---|---|
+| **SideStore / AltStore Classic** | Pridėk šaltinį `https://github.com/vytska69/Ios-emul/releases/download/Rolling/sidestore.json`. Atnaujinimuose „What's New“ rodo, kas pasikeitė. |
+| **TrollStore** | Atidaryk `https://github.com/vytska69/Ios-emul/releases/download/Rolling/IOSEmul.ipa`. |
+| **AltStore PAL** | Netinka: diegia tik Apple notarizuotas programas, o šis build'as nenotarizuotas. |
+
+Reikia iOS 16 ar naujesnės.
+
+**IPSW gavimas.** *Download* skirtuke matyti visi iPhone, iPad ir iPod touch modeliai iš ipsw.me
+(emuliuojami viršuje), su IPSW dydžiu, data ir tuo, ar emuliatorius gali juos paleisti. Failas
+siunčiamas iš Apple CDN fone, nutrūkęs siuntimas tęsiamas nuo tos vietos, o baigus patikrinamas
+pagal ipsw.me SHA-1 ir importuojamas automatiškai. Turimą `.ipsw` galima importuoti ir iš Files;
+jis skaitomas vietoje, nekopijuojamas.
+
+## JIT ir varikliai
+
+Programoje yra du QEMU varikliai:
+
+| Variklis | Greitis | Ko reikia |
+|---|---|---|
+| **JIT** | Greitas | JIT leidimo programai (StikDebug, TrollStore „Open with JIT“) |
+| **Interpreter** (TCI) | Kelis kartus lėtesnis | Nieko |
+
+*Settings → Emulator → Engine*: **Automatic** (JIT, jei įjungtas, kitaip interpretatorius), **JIT**
+arba **Interpreter**.
+
+**iOS 26 ir naujesni įrenginiai su TXM** (iPhone 15 Pro, 16, 16e, 17 ir naujesni). Čia vien
+prisijungęs debugger'is nebeleidžia programai pačiai paversti atminties vykdoma: JIT kodas
+nepasileidžia, ir mašina sustoja iškart po starto. Programa todėl paprašo StikDebug paruošti JIT
+atmintį per jų [`brk #0xf00d` protokolą](https://github.com/StikDebug/StikJIT/blob/main/INTEGRATION.md)
+(QEMU patch 0016):
+
+1. *Settings → Emulator* → **Enable JIT with StikDebug**. Programa atidaro
+   `stikdebug://enable-jit?bundle-id=…&pid=…&script-name=universal.js`.
+2. StikDebug prisijungia su `universal.js` skriptu; grįžus programa paruošia JIT atmintį ir parašo
+   „JIT enabled; … MB prepared“.
+3. Paleisk mašiną. Vertimo kešas lieka paruošto dydžio iki kito programos paleidimo.
+
+Jei JIT vis tiek nesiseka, pasirink **Interpreter**.
+
+## Būsena
+
+Kiekvienas IPSW matuojamas tuo pačiu keliu: XNU → IOKit → root → launchd → SpringBoard. `Boot test`
+workflow tai daro macOS CI'e su tikrais IPSW, programa telefone eina tuo pačiu keliu.
+
+| Įrenginys ir iOS | Kur pasiekia | Kas stabdo |
+|---|---|---|
+| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | `launchd`; praeina `fsck`, `mount-phase-1`, `data-protection`, SEP boot ir gigalocker | Pirmo paleidimo „Erase All Content“ (`mobile_obliterator`) panikuoja „Failed to write effaceable.“: effaceable saugykla (NVMe nsid 6) nesuformatuota, branduolys į ją net nebando rašyti. Ją paprastai suformatuoja restore |
+| iPhone 11, iOS 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB-over-TCP, ROADMAP 4 etapas) |
+| iPhone 6s / 6s Plus (A9), iOS 15.8 | IOKit (AIC, AES, SPI, I2C, PCIe, NVMe) | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
+| iPhone XR (A12), iOS 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įjungiamas | Panika `rtclock` inicializacijoje dar prieš serial išvestį. Atidėta, kol tvarkomas iPhone 11 |
+| Telefone (iPhone 16e, iOS 27) | QEMU susikuria mašiną | Be TXM JIT protokolo pirmas JIT blokas sustoja; pataisyta StikDebug mygtuku ir interpretatoriumi, laukia patvirtinimo |
+| SpringBoard | Dar nepasiekta | |
+
+**Emuliuojamos mašinos**
+
+| Backend | Įrenginiai | iOS |
+|---|---|---|
+| `inferno-t8030` | iPhone 11 (A13); 11 Pro / Pro Max / SE 2 eksperimentiškai; iPhone XR (A12) tik su `--force-backend` | 14 išbandyta; 13, 15–18, 26 eksperimentinės |
+| `inferno-s8000` | iPhone 6s / 6s Plus (A9), visada 2 GiB RAM | 9–15 eksperimentinės; 15.8 pasiekia IOKit |
+| `qemu-ios` | iPod touch 1G / 2G | iPhoneOS 1.x–2.x, tik macOS (į programą dar neįdėta) |
+
+Kiti IPSW importuojami ir išanalizuojami: programa parodo, kokio hardware trūksta.
+
+## Kaip tai veikia
+
+Apple lustų periferija (pertraukimų valdiklis, laikmačiai, PMGR, DART, NVMe, SEP, ekranas)
+nedokumentuota. Todėl einama taip:
+
+1. **IPSW pats aprašo savo hardware.** Kiekvienas IPSW turi DeviceTree su visais įrenginiais,
+   MMIO adresais ir pertraukimais. Programa jį perskaito ir parodo, kas jau emuliuojama.
+2. **Viena mašina, kuri susirenka pati.** Mašina pasistato iš IPSW DeviceTree: žinomiems blokams
+   prijungia modelius, nežinomus praleidžia. Kiekvienas naujas modelis padeda visiems lustams.
+3. **Įdiegimas be restore.** iOS įrašoma tiesiai iš IPSW: išskleidžiamas UDIF atvaizdas,
+   parašomas GPT 4 KiB blokams, į APFS konteinerį įrašomi Preboot, xART ir Data tomai, pritaikomas
+   `fstab`. `idevicerestore` ir kompiuterio nereikia.
+4. **SEP be vartotojo failų.** Simuliuotas SEP pats atlieka boot'ą su IPSW SEP firmware ir atsako
+   į raktų saugyklos ir xART užklausas.
+5. **QEMU telefone.** QEMU kompiliuojamas kaip biblioteka (iOS neleidžia kurti procesų) ir
+   paleidžiamas programos viduje; ekranas rodomas per VNC.
+6. **Matavimas, ne spėjimas.** `Boot test` bootina tikrus IPSW, užrašo toliausią etapą, panic'ą,
+   registrus ir atmintį; taisoma tai, kas sustoja pirmiausia.
+7. **Viešos žinios.** Inferno / QEMUAppleSilicon (A9/A13), Asahi Linux (M1/M2), devos50 (S5L89xx).
+
+Etapai:
 
 | # | Etapas | Būsena |
 |---|---|---|
-| 0 | Programa telefone be kompiuterio (IPA per GitHub Actions, SideStore/TrollStore) | Veikia: Rolling IPA su QEMU branduoliu, IPSW parsisiuntimas iš ipsw.me |
+| 0 | Programa telefone be kompiuterio (IPA per GitHub Actions, SideStore/TrollStore) | Veikia |
 | 1 | DeviceTree parseris ir hardware padengimo ataskaita | Atlikta |
-| 1b | Įdiegimas be restore (UDIF, GPT, APFS tomai, fstab) | Veikia iOS 14: Preboot, xART ir Data tomai įrašomi, `fsck_apfs` švarus, iOS juos prijungia |
-| 1c | Simuliuotas SEP (SEP boot, raktų saugykla, xART, gigalocker) | SEP boot, gigalocker ir raktų saugyklos endpoint'as veikia; toliau sistemos keybag'as |
-| 2 | Bendra DeviceTree valdoma mašina | Pradėta: T8030 mašina praleidžia blokus, kurių kito lusto DeviceTree neturi (A12) |
+| 1b | Įdiegimas be restore (UDIF, GPT, APFS tomai, fstab) | Veikia iOS 14 |
+| 1c | Simuliuotas SEP (boot, raktų saugykla, xART, gigalocker) | Veikia; toliau sistemos keybag'as ir effaceable |
+| 2 | Bendra DeviceTree valdoma mašina | Pradėta (A12 ant T8030) |
 | 3 | A14 (T8101) ir M1 (T8103) | Planuojama |
 | 4 | Restore programoje (USB-over-TCP) | Planuojama |
 | 5 | A15–A18, M2, M4 | Planuojama |
 | 6 | 32 bitų era (A4–A6, iOS 4–10) | Planuojama |
-| 7 | Greitis (JIT, TCG optimizacijos) | Planuojama |
+| 7 | Greitis (savas arm64→arm64 vertėjas, HVF ten, kur yra hipervizorius) | Planuojama |
 
-## Būsena
+Visas planas: [ROADMAP.md](ROADMAP.md).
 
-| Dalis | Būsena |
-|---|---|
-| IPSW analizė (ZIP64, BuildManifest, IMG4, LZFSE/LZSS, DeviceTree, UDIF) | Veikia, padengta testais |
-| Suderinamumo ir hardware padengimo ataskaita | Veikia programoje ir `ipsw-emu inspect` |
-| iOS 14.0, iPhone 11, restore režimas | Bootina iki launchd |
-| iOS 14.0, iPhone 11, tiesioginis įdiegimas | Praeina `fsck`, `mount-phase-1`, `data-protection`, `finish-obliteration`, `commit-boot-mode`, `mount-phase-2` (Data tomas ant `/private/var`), `init-with-data-volume`, `MSUEarlyBootTask`, `fips`. Stoja `keybag`: nėra `/private/var/keybags/systembag.kb`, todėl iOS persikrauna ratu |
-| APFS rašytuvas | Prideda tomus su katalogais, failais, savininkais ir teisėmis; daugiapakopiai B-medžiai dideliems tomams. CI tikrina `fsck_apfs` ir macOS mount'u (6000 katalogų, 300 failų) |
-| iOS 15.8, iPhone 6s Plus (A9), tiesioginis įdiegimas | Kernelis paleidžia IOKit (AIC, AES, SPI, I2C, PCIe, NVMe MMU), tada panic „Kernel data abort“ iškart po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
-| iOS 14.0, iPhone XR (A12), ant T8030 mašinos | Mašina susirenka (patch'ai 0010–0014), kernelis įsijungia MMU ir pasiekia `rtclock` inicializaciją, bet ten panikuoja prieš pirmą serial eilutę. Patch 0014 grąžino A12 CPU mazgus į DeviceTree (`timebase-frequency` dabar pasiekia kernelį), bet panika liko; kita – `-d exec,int` sekti kelią iki pirmos išimties. Atidėta, kol tvarkomas iPhone 11 |
-| SpringBoard | Dar nepasiekta |
-| QEMU iOS'ui | Kompiliuojasi ir įdedamas į IPA (biblioteka be `qemu-system` programos); pirmas toks build'as 0.1.85 |
-| IPSW skaitymas programoje | Pozicinis skaitymas (`pread`): keli vienu metu skaitantys procesai nebegauna vienas kito baitų (anksčiau tai rodė „CRC mismatch“ ir „Corrupt compressed data (deflate)“ ant sveikų failų) |
-| Atmintis telefone | QEMU vertimo kešas ribojamas 256 MiB; prieš boot'ą patikrinama, ar VM telpa į iOS leidžiamą atmintį, kitaip parodoma klaida (iOS programą, viršijusią ribą, uždaro be pranešimo) |
-| Rolling release | Publikuojamas į [`Rolling`](https://github.com/vytska69/Ios-emul/releases/tag/Rolling) kiekvienam IPA build'ui; SideStore šaltinio versijos imamos iš paties IPA |
+## Programa
 
-Šiuo metu emuliuojamos mašinos:
+Trys skirtukai:
 
-| Backend | Įrenginiai | iOS |
-|---|---|---|
-| `inferno-t8030` | iPhone 11 (A13); 11 Pro / Pro Max / SE 2 eksperimentiškai; iPhone XR (A12) paleidžiamas tik su `--force-backend` | 14 išbandyta; 13, 15–18, 26 eksperimentinės |
-| `inferno-s8000` | iPhone 6s / 6s Plus (A9), visada 2 GiB RAM (QEMU modelis kito dydžio nepriima) | 9–15 eksperimentinės; 15.8 pasiekia IOKit |
-| `qemu-ios` | iPod touch 1G / 2G | iPhoneOS 1.x–2.x |
+- **Machines.** Importuotų IPSW kortelės su iOS versijos ženkliuku. Firmware puslapyje: boot režimai
+  (tiesioginis įdiegimas arba restore), RAM ir CPU, suderinamumas, hardware padengimas, įrenginiai.
+- **Download.** ipsw.me katalogas su filtrais iPhone / iPad / iPod ir paieška.
+- **Settings.** Temos (Aurora, Ember, Circuit, Mono), boot numatytieji, emuliatorius (variklis,
+  JIT, vertimo kešas, verbose boot, ekrano neužmigdymas), siuntimai, saugykla, *About*.
 
-Kiti IPSW importuojami ir išanalizuojami: programa parodo, kokio hardware trūksta. Naujo lusto
-paleidimas pradedamas nuo `ipsw-emu boot --force-backend inferno-t8030` (Boot test workflow
-įvestis `force_backend`). Boot test išsaugo įrenginio `arm-io` medį, o pasibaigus laikui išveda
-visų CPU registrus, todėl matosi, kur sustoja ir tylus boot'as.
+**Mašinos ekranas.** Lietimas siunčiamas kaip pelė, mygtukai Home ir Lock. Kol ekranas dar
+neįsijungė, rodoma, ar QEMU dar kuria mašiną, ar ji jau veikia, kur yra CPU 0 ir ar jis juda, o
+laukelyje – branduolio serial išvestis (arba QEMU žurnalas, kol branduolys nieko neišspausdino).
 
-## Įdiegimas
+**Eksperimentinės funkcijos.** *About* puslapyje 7 kartus paspausk versijos numerį:
 
-Kiekvienas IPA build'as atnaujina [rolling release](https://github.com/vytska69/Ios-emul/releases/tag/Rolling):
+- QEMU debug flags (`in_asm`, `int`, `exec` …), papildomi boot-args ir QEMU argumentai, prievartinis backend.
+- Mašinos įrankiai: pauzė, tęsimas, perkrovimas, ekrano nuotrauka, QEMU monitorius, serial konsolė, kadrų skaitiklis.
+- Firmware įrankiai: IPSW failų naršyklė, DeviceTree naršyklė, žurnalai (`serial.log`, `qemu.log`, `qemu-debug.log`), mašinos trynimas.
+- Emuliuoto iOS nustatymai, įrašomi į Data tomą prieš pirmą paleidimą: VoiceOver, Zoom,
+  AssistiveTouch, didesnis ar paryškintas tekstas, mažiau judesio, šviesi ar tamsi išvaizda, kalba
+  ir regionas, 24 val. laikrodis, įrenginio vardas, sąrankos ekranų praleidimas.
 
-- **SideStore / AltStore Classic:** pridėk šaltinį
-  `https://github.com/vytska69/Ios-emul/releases/download/Rolling/sidestore.json`. Šaltinio
-  `version` ir `buildVersion` imami iš IPA `Info.plist`, todėl sutampa su atsisiunčiamu failu.
-  **AltStore PAL** (ES versija) šio šaltinio nepriims: ji diegia tik Apple notarizuotas programas
-  su `marketplaceID`, o šis build'as nėra notarizuotas.
-- **TrollStore:** atidaryk
-  `https://github.com/vytska69/Ios-emul/releases/download/Rolling/IOSEmul.ipa`.
+Jei programa užsidaro veikiant mašinai, kitą kartą firmware puslapyje rodoma paskutinė QEMU
+išvestis. Jei mašina netelpa į iOS programai leidžiamą atmintį, boot'as nepradedamas.
 
-**IPSW gavimas.** Programoje „+“ → *Download from ipsw.me* parodo visus iPhone, iPad ir iPod touch
-įrenginius (emuliuojami viršuje) ir jų IPSW su dydžiu, data ir tuo, ar emuliatorius gali juos
-paleisti. Failas siunčiamas iš Apple CDN fone (tęsiasi ir uždarius programą, nutrūkęs siuntimas
-pratęsiamas nuo tos vietos), įrašomas į `Firmware` aplanką (matomas Files programoje) ir
-importuojamas automatiškai. Atsisiųstas failas patikrinamas pagal ipsw.me SHA-1; sugadintas
-ištrinamas ir siūloma siųsti iš naujo. Turimą `.ipsw` galima ir tiesiog importuoti iš Files.
+## Kūrėjams
 
-**Programa** turi tris skirtukus: *Machines* (importuotų IPSW kortelės), *Download* (ipsw.me
-katalogas su filtrais iPhone / iPad / iPod) ir *Settings*. Nustatymuose: tema (Aurora, Ember,
-Circuit, Mono), numatytas boot režimas, CPU branduoliai ir atmintis, QEMU vertimo kešo dydis,
-verbose boot, ekrano neužmigdymas veikiant VM, JIT būsena, SHA-1 tikrinimas ir mobilieji duomenys
-siuntimams, užimta vieta ir virtualių diskų trynimas.
-
-Jei programa užsidaro paleidus VM, ją vėl atidarius firmware puslapyje rodoma QEMU paskutinė
-išvestis. Jei VM netelpa į atmintį, kurią iOS leidžia programai, boot'as nepradedamas ir parodoma,
-kiek atminties reikia.
-
-Nuo 0.1.85 IPA turi emuliatoriaus branduolį. Greitam darbui QEMU reikia JIT (TrollStore,
-SideStore su JIT įjungikliu); be jo naudok `scripts/build-qemu-ios.sh --tci` build'ą. Kiek toli
-bootina kiekvienas iOS, rodo [Būsena](#būsena): telefone tai tas pats kelias, kurį CI tikrina macOS'e.
-
-## Struktūra
+### Struktūra
 
 ```
-Sources/IPSWKit/       IPSW: ZIP64, BuildManifest/Restore.plist, IMG4/IM4P, LZFSE/LZSS,
-                       DeviceTree (skaitymas ir rašymas), UDIF, GPT, APFS tomų rašymas
-Sources/EmulatorKit/   Backend'ai, suderinamumas, hardware padengimas, QEMU paleidimas, VNC
-Sources/ipsw-emu/      CLI: inspect / boot (--qemu-debug, --force-backend) / dt (--product, --path) /
-                       apfs-add-volume (--role, --owners) / apfs-dump
+Sources/IPSWKit/       IPSW: ZIP64, BuildManifest, IMG4/IM4P, LZFSE/LZSS, DeviceTree, UDIF, GPT,
+                       APFS tomų rašymas
+Sources/EmulatorKit/   Backend'ai, suderinamumas, padengimas, QEMU paleidimas (variklis, JIT), VNC,
+                       emuliuoto iOS nustatymai
+Sources/ipsw-emu/      CLI
 App/IOSEmul/           SwiftUI programa
-qemu/patches/inferno/  Patch'ai Inferno QEMU: iOS embedding, JIT, SEP, debranding, NVRAM kintamieji (0009),
-                       kitų lustų DeviceTree T8030 mašinoje (0010, 0011)
-scripts/               build-qemu-ios.sh, build-inferno-macos.sh, make-sidestore-source.py,
-                       dt-survey.py, gen-inferno-coverage.py
-research/devicetrees/  13 SoC DeviceTree inventoriai: kiekvieno lusto darbo sąrašas
-.github/workflows/     ci (testai + APFS patikra), ipa (QEMU iOS + IPA + release), boot-test (tikri IPSW,
-                       SEP žurnalas), rootfs-probe (IPSW root failų sistemos tyrimas, failų
-                       ištraukimas), dt-survey
+qemu/patches/inferno/  Patch'ai Inferno QEMU (žr. žemiau)
+qemu/keymaps/          QEMU VNC klaviatūros išdėstymai
+scripts/               QEMU build'ai, SideStore šaltinis, DeviceTree ir branduolio analizės įrankiai
+research/devicetrees/  13 SoC DeviceTree inventoriai
+distribution/          Ikona ir whats-new.md (SideStore „What's New“)
+.github/workflows/     ci, ipa, boot-test, rootfs-probe, dt-survey
 ```
 
-## Kompiliavimas
+### Kompiliavimas
 
 Reikia macOS su Xcode 16.
 
 ```sh
 swift test
 brew install xcodegen
-scripts/build-qemu-ios.sh        # QEMU → App/Frameworks (ilgai trunka)
-xcodegen generate
-open IOSEmul.xcodeproj
+scripts/build-qemu-ios.sh                                     # JIT QEMU → App/Frameworks (ilgai)
+QEMU_IOS_OUT=build-qemu-tci-out scripts/build-qemu-ios.sh --tci # interpretatorius
+xcodegen generate && open IOSEmul.xcodeproj
 ```
 
-`scripts/build-qemu-ios.sh --tci` sukompiliuoja TCG interpretatorių vietoj JIT: veikia be JIT
-leidimo, bet kelis kartus lėčiau.
+IPA workflow abu QEMU sudeda į vieną IPA: interpretatorius įdedamas kaip
+`qemu-aarch64-softmmu-tci.framework`, o `QEMURunner` pasirenka variklį paleidimo metu.
 
-## Ribos ir apribojimai
+### CLI
 
-- **Failai, kurių nėra IPSW.** SecureROM ir SEP ROM yra lusto viduje. Be jų bootinama su simuliuotu
-  SEP; tikrą SEP galima įjungti pateikus savo dump'ą. iPod boot ROM ir AP ticket'as taip pat gaunami
-  iš savo įrenginio.
-- **Šifravimas.** 64 bitų IPSW kernelcache nešifruotas (nuo iOS 10), todėl bootinama be iBoot.
-  32 bitų erai reikia viešai žinomų arba vartotojo pateiktų raktų.
-- **iOS 16+** Preboot tome reikia sistemos cryptex failų. Tomų rašytuvas jau moka rašyti failus,
-  bet cryptex'ų įdiegimas dar nepadarytas.
-- **Gigalocker vardas** xART tome kol kas paimtas iš emuliuojamo iPhone 11 boot žurnalo; kitiems
-  įrenginiams jo apskaičiavimas dar nežinomas. Failas yra 6 MiB nulių, kaip jį sukuria `seputil`.
-- **Sistemos keybag'as.** Restore jį sukuria per SEP ir užšifruoja effaceable saugyklos `BAG1`
-  raktu. Simuliuoto SEP raktų saugykla bet kokį keybag'ą priima, bet effaceable saugykla ir
-  `systembag.kb` dar tušti. Pirmas boot'as po įdiegimo todėl paleidžia iOS „Erase All Content“
-  pabaigimą (`oblit-inprogress` NVRAM'e): iOS ištrina Data, atšaukia raktus ir išvalo gigalocker'ius,
-  bet stoja ties „Failed to write effaceable.“, nes effaceable saugykla (NVMe namespace 6)
-  nesuformatuota. Ją paruošti yra kitas žingsnis.
-- **Data tomas** kol kas turi tik pagrindinius katalogus. Restore į jį nukopijuoja visą rootfs
-  `/private/var` (~17 tūkst. įrašų); tam reikia APFS skaitytuvo su suspaustų failų palaikymu.
-- **iPhone 6s RAM** visada 2 GiB: tiek priima QEMU S8000 modelis. Telefone, kuriame programai
-  leidžiama mažiau nei ~2,6 GiB, šios mašinos paleisti nepavyks.
-- **A12 (iPhone XR)** kol kas tik ant iPhone 11 mašinos: senesnis USB valdiklis (`usb-complex`)
-  dar nemodeliuojamas, todėl USB praleidžiamas, o kernelis stoja ties pirmomis instrukcijomis.
-- **JIT.** Greitam QEMU reikia JIT leidimo (TrollStore, SideStore su JIT įjungikliu, debugger).
+```sh
+ipsw-emu inspect firmware.ipsw                                  # identitetai, suderinamumas, padengimas
+ipsw-emu dt firmware.ipsw --product iPhone12,1 --path /arm-io   # DeviceTree mazgas
+ipsw-emu boot firmware.ipsw --work vm --product iPhone12,1 --mode direct \
+  --seconds 600 [--force-backend inferno-t8030] [--qemu-debug guest_errors] \
+  [--monitor "info registers; x /16wx 0x…"] [--qemu-args "-accel tcg,split-wx=on"]
+ipsw-emu apfs-add-volume disk.img --role data|preboot|xart …   # APFS tomų rašytuvas
+ipsw-emu apfs-dump disk.img
+```
+
+### Boot test
+
+`Boot test` workflow (Actions → Run workflow) bootina tikrus IPSW macOS'e. Įvestys: `product`,
+`versions`, `modes` (`direct`, `auto`), `force_backend`, `qemu_debug` (pvz.
+`trace:pci_nvme_io_cmd`), `seconds`, `monitor` (QEMU monitoriaus komandos pasibaigus laikui, pvz.
+`pmemsave`), `qemu_args` ir `after` (shell komandos po boot'o). Pasibaigus laikui išvedami visų CPU
+registrai, žodžiai aplink PC ir paskutinės debug žurnalo eilutės prieš pirmą išimtį.
+
+Pagalbiniai įrankiai:
+
+- `scripts/xref.py` – randa branduolio kodą, kuris skaito ar rašo globalų kintamąjį, `pmemsave` atminties kopijoje.
+- `scripts/adt.py` – išspausdina neapdorotą Apple DeviceTree (pvz. tą, kurį QEMU perdavė branduoliui).
+- `scripts/dt-survey.py`, `scripts/gen-inferno-coverage.py` – DeviceTree inventoriai ir padengimo lentelė.
+
+### QEMU patch'ai
+
+| # | Ką daro |
+|---|---|
+| 0001, 0008 | QEMU kaip biblioteka iOS'ui (UTM pagrindu), libucontext |
+| 0002, 0006, 0007 | Simuliuotas SEP: be duomenų šifravimo, iš anksto įkeltas SEPOS, pranešimų žurnalas |
+| 0003 | Išvestinio build'o debranding'as |
+| 0004, 0005 | iOS JIT rašymo apsauga, `statfs` antraštės |
+| 0009 | T8030 NVRAM kintamieji (`nvram-vars`) |
+| 0010–0014 | Kitų lustų (A12) DeviceTree T8030 mašinoje: DART, PCIe SID, MIPI DSI, APRR registrai, CPU mazgai |
+| 0015 | ANS NVMe „tunnel“ komandų žurnalas |
+| 0016 | iOS 26+ (TXM) JIT per StikDebug `brk #0xf00d` |
+| 0017, 0018 | Interpretatoriaus (TCI) build'as: `Int128` dydis, be disasemblerio |
+
+### Pakeitimai programoje
+
+Kiekvienas programą pasiekiantis pakeitimas tame pačiame commit'e prideda eilutę į
+[`distribution/whats-new.md`](distribution/whats-new.md), parašytą paprastam vartotojui; ji
+rodoma SideStore „What's New“ ir Rolling release puslapyje (žr. [`CLAUDE.md`](CLAUDE.md)).
+
+## Ribos
+
+- **Failai, kurių nėra IPSW.** SecureROM ir SEP ROM yra lusto viduje; bootinama su simuliuotu SEP.
+  iPod boot ROM negali būti platinamas su programa.
+- **Effaceable ir sistemos keybag'as.** Restore juos sukuria per SEP; tiesioginis įdiegimas jų dar
+  neturi, todėl iPhone 11 pirmas paleidimas sustoja (žr. [ROADMAP](ROADMAP.md)).
+- **iOS 16+** Preboot tome reikia sistemos cryptex failų; dar nepadaryta.
+- **Data tomas** kol kas turi tik pagrindinius katalogus.
+- **iPhone 6s RAM** visada 2 GiB (tiek priima QEMU S8000 modelis).
+- **Hipervizoriaus nėra.** iPhone programoms Apple nesuteikia virtualizacijos (EL2), todėl tai
+  emuliacija su JIT; UTM HV versija veikia tik M1+ iPad su jailbreak ar TrollStore.
 - **Vienas VM per paleidimą.** QEMU laiko globalią būseną, o iOS neleidžia kurti procesų.
-- Naudokite tik teisėtai turimą programinę įrangą ir laikykitės Apple licencijos sąlygų.
-- Apple mašinų modeliai paimti iš [QEMUAppleSilicon](https://github.com/ChefKissInc/QEMUAppleSilicon)
-  (GPLv3/AGPLv3) ir modifikuoti patch'ais iš `qemu/patches/inferno/`. Tai išvestinis build'as: pagal
-  upstream branding sąlygas jame nėra jų paveikslėlio ir „ChefKiss Inferno“ pavadinimo, o šis
-  projektas nėra su ChefKiss susijęs ar jų remiamas.
+- **32 bitų era** reikalaus viešai žinomų ar vartotojo pateiktų firmware raktų.
+
+## Licencija ir padėkos
+
+Naudokite tik teisėtai turimą programinę įrangą ir laikykitės Apple licencijos sąlygų.
+
+Apple mašinų modeliai paimti iš [QEMUAppleSilicon](https://github.com/ChefKissInc/QEMUAppleSilicon)
+(GPLv3/AGPLv3) ir modifikuoti patch'ais iš `qemu/patches/inferno/`. Tai išvestinis build'as: pagal
+upstream branding sąlygas jame nėra jų paveikslėlio ir „ChefKiss Inferno“ pavadinimo, o šis
+projektas nėra su ChefKiss susijęs ar jų remiamas. iOS build'as remiasi [UTM](https://github.com/utmapp/UTM)
+priklausomybių kompiliavimu; iPod touch mašinos – [devos50/qemu-ios](https://github.com/devos50/qemu-ios);
+TXM JIT protokolas – [StikDebug](https://github.com/StikDebug/StikJIT).
