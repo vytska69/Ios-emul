@@ -36,9 +36,6 @@ jobs:
   ipa:
     runs-on: macos-15
     timeout-minutes: 340
-    env:
-      # Interpreter (TCI) builds go to their own release so they never replace the JIT build.
-      RELEASE_TAG: ${{ inputs.tci && 'Rolling-TCI' || 'Rolling' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -115,7 +112,7 @@ jobs:
         run: |
           python3 scripts/make-sidestore-source.py --ipa out/IOSEmul.ipa \
             --repo "${{ github.repository }}" \
-            --tag "$RELEASE_TAG" --commit "${{ github.sha }}" --out out/sidestore.json \
+            --tag Rolling --commit "${{ github.sha }}" --out out/sidestore.json \
             ${{ steps.core.outputs.included != 'true' && '--no-core' || '' }}
 
       - uses: actions/upload-artifact@v4
@@ -143,24 +140,21 @@ jobs:
             core="Note: this build has NO emulator core yet (QEMU for iOS failed to build in run ${{ github.run_id }}); the app opens and inspects IPSWs but cannot boot them. The next green build replaces it."
           fi
           changes=$(python3 scripts/make-sidestore-source.py --print-notes)
-          if [ "$RELEASE_TAG" = "Rolling-TCI" ]; then
-            core="$core This is the interpreter (TCI) build: it runs without JIT, much more slowly, for devices where JIT does not work."
-          fi
           notes="## What's new
 
           $changes
 
           Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}. $core
 
-          Install: add https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG build" --notes "$notes"
+          Install: add https://github.com/${{ github.repository }}/releases/download/Rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
+          if gh release view Rolling >/dev/null 2>&1; then
+            gh release edit Rolling --title "Rolling build" --notes "$notes"
           else
             # GITHUB_TOKEN may not create the tag itself (403), so it has to exist already.
-            if ! git ls-remote --exit-code --tags origin refs/tags/$RELEASE_TAG >/dev/null; then
-              echo "::error::Tag '$RELEASE_TAG' is missing. Create it once with: git push origin HEAD:refs/tags/$RELEASE_TAG"
+            if ! git ls-remote --exit-code --tags origin refs/tags/Rolling >/dev/null; then
+              echo "::error::Tag 'Rolling' is missing. Create it once with: git push origin HEAD:refs/tags/Rolling"
               exit 1
             fi
-            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG build" --notes "$notes" --prerelease
+            gh release create Rolling --verify-tag --title "Rolling build" --notes "$notes" --prerelease
           fi
-          gh release upload "$RELEASE_TAG" out/IOSEmul.ipa out/sidestore.json --clobber
+          gh release upload Rolling out/IOSEmul.ipa out/sidestore.json --clobber
