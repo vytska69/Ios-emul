@@ -167,6 +167,13 @@ case "boot":
         if let regs = monitor.query("info registers -a") {
             print("==> CPU state at the time limit:")
             regs.split(separator: "\n").prefix(400).forEach { print("  | \($0)") }
+            // The code CPU0 is spinning in (virtual addresses, so x rather than xp).
+            if let field = regs.split(whereSeparator: { $0 == " " || $0 == "\n" }).first(where: { $0.hasPrefix("PC=") }),
+               let pc = UInt64(field.dropFirst(3), radix: 16), pc >= 0x40,
+               let code = monitor.query(String(format: "x /32i 0x%llx", pc - 0x40)) {
+                print("==> code around CPU0 PC 0x\(String(pc, radix: 16)):")
+                code.split(separator: "\n").prefix(40).forEach { print("  | \($0)") }
+            }
         }
         // What the kernel's first instructions are in guest memory (Inferno logs the entry point).
         let qemuLog = (try? String(contentsOf: work.appendingPathComponent("qemu.log"), encoding: .utf8)) ?? ""
