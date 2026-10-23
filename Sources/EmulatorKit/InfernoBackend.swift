@@ -136,6 +136,10 @@ public struct InfernoBackend: EmulatorBackend {
         var bootArgs = "debug=0x14e kextlog=0xffff serial=3"
         if ctx.verboseBoot { bootArgs += " -v" }
         bootArgs += " wdt=-1"
+        // Spinlocks time out after 0.1 s by default; under emulation a lock holder on another
+        // vCPU can take longer than that ("Ticket spinlock timeout" panics once userland runs).
+        // 100 s, which still fits XNU's 32-bit LockTimeOut at the 24 MHz timebase.
+        bootArgs += " slto_us=100000000"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
         let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
         if !extra.isEmpty { bootArgs += " " + extra }
