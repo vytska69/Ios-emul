@@ -1,0 +1,44 @@
+diff --git a/hw/arm/apple-silicon/a13.c b/hw/arm/apple-silicon/a13.c
+index 6a6116c..a03d298 100644
+--- a/hw/arm/apple-silicon/a13.c
++++ b/hw/arm/apple-silicon/a13.c
+@@ -546,6 +546,12 @@ static const ARMCPRegInfo apple_a13_cp_reginfo_tcg[] = {
+     A13_CPREG_DEF(PMCR1, 3, 1, 15, 1, 0, PL1_RW, 0),
+     A13_CPREG_DEF(PMSR, 3, 1, 15, 13, 0, PL1_RW, 0),
+     A13_CPREG_DEF(S3_4_c15_c0_5, 3, 4, 15, 0, 5, PL1_RW, 0),
++    // A12 kernels program APRR and read it back before turning the MMU on;
++    // permissions are not enforced, which is only more permissive.
++    A13_CPREG_DEF(APRR0_EL1, 3, 4, 15, 2, 0, PL1_RW, 0),
++    A13_CPREG_DEF(APRR1_EL1, 3, 4, 15, 2, 1, PL1_RW, 0),
++    A13_CPREG_DEF(APRR_MASK_EN_EL1, 3, 4, 15, 2, 6, PL1_RW, 0),
++    A13_CPREG_DEF(APRR_MASK_EL0, 3, 4, 15, 2, 7, PL1_RW, 0),
+     A13_CPREG_DEF(AMX_STATUS_EL1, 3, 4, 15, 1, 3, PL1_R, 0),
+     A13_CPREG_DEF(AMX_CTL_EL1, 3, 4, 15, 1, 4, PL1_RW, 0),
+     A13_CPREG_DEF(ARM64_REG_CPU_OVRD, 3, 5, 15, 5, 0, PL1_RW, 0),
+@@ -797,6 +803,10 @@ static const VMStateDescription vmstate_apple_a13 = {
+             VMSTATE_A13_CPREG(PMCR1),
+             VMSTATE_A13_CPREG(PMSR),
+             VMSTATE_A13_CPREG(S3_4_c15_c0_5),
++            VMSTATE_A13_CPREG(APRR0_EL1),
++            VMSTATE_A13_CPREG(APRR1_EL1),
++            VMSTATE_A13_CPREG(APRR_MASK_EN_EL1),
++            VMSTATE_A13_CPREG(APRR_MASK_EL0),
+             VMSTATE_A13_CPREG(AMX_STATUS_EL1),
+             VMSTATE_A13_CPREG(AMX_CTL_EL1),
+             VMSTATE_A13_CPREG(ARM64_REG_CPU_OVRD),
+diff --git a/include/hw/arm/apple-silicon/a13.h b/include/hw/arm/apple-silicon/a13.h
+index 590eaab..ef30a66 100644
+--- a/include/hw/arm/apple-silicon/a13.h
++++ b/include/hw/arm/apple-silicon/a13.h
+@@ -94,6 +94,11 @@ typedef struct AppleA13State {
+     A13_CPREG_VAR_DEF(PMCR1);
+     A13_CPREG_VAR_DEF(PMSR);
+     A13_CPREG_VAR_DEF(S3_4_c15_c0_5);
++    // A11/A12 APRR (A13+ kernels use SPRR instead).
++    A13_CPREG_VAR_DEF(APRR0_EL1);
++    A13_CPREG_VAR_DEF(APRR1_EL1);
++    A13_CPREG_VAR_DEF(APRR_MASK_EN_EL1);
++    A13_CPREG_VAR_DEF(APRR_MASK_EL0);
+     A13_CPREG_VAR_DEF(AMX_STATUS_EL1);
+     A13_CPREG_VAR_DEF(AMX_CTL_EL1);
+     A13_CPREG_VAR_DEF(ARM64_REG_CPU_OVRD);
