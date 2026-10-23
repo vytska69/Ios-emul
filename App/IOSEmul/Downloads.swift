@@ -195,7 +195,8 @@ private final class SessionRelay: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
         let id = downloadTask.taskIdentifier
-        if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
+        // A transfer resumed from resume data finishes with 206 Partial Content.
+        if let http = downloadTask.response as? HTTPURLResponse, ![200, 206].contains(http.statusCode) {
             let error = URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
             Task { @MainActor in self.manager?.failedToSave(task: id, error: error) }
             return

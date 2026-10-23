@@ -51,6 +51,28 @@ public final class ZipArchive {
 
     deinit { try? handle.close() }
 
+    /// Reads at an absolute offset with pread(2), which leaves no shared file position behind:
+    /// the app reads one IPSW from several tasks at once (the hardware report while a boot is
+    /// being prepared), and seek-then-read on a shared FileHandle hands each the other's bytes,
+    /// which surfaced as CRC and "corrupt deflate" errors on intact files.
+    private func read(at offset: UInt64, count: Int) throws -> Data? {
+        var data = Data(count: count)
+        var done = 0
+        let fd = handle.fileDescriptor
+        try data.withUnsafeMutableBytes { (buf: UnsafeMutableRawBufferPointer) in
+            while done < count {
+                let n = pread(fd, buf.baseAddress! + done, count - done, off_t(offset) + off_t(done))
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    throw CocoaError(.fileReadUnknown, userInfo: [NSUnderlyingErrorKey: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)])
+                }
+                if n == 0 { break }
+                done += n
+            }
+        }
+        return done == count ? data : data.prefix(done)
+    }
+
     public func entry(_ path: String) -> Entry? { index[path] }
 
     /// Case-insensitive lookup by last path component (IPSW layouts vary between versions).
@@ -117,12 +139,13 @@ public final class ZipArchive {
         switch entry.method {
         case 0:
             var remaining = entry.compressedSize
-            try handle.seek(toOffset: dataOffset)
+            var offset = dataOffset
             while remaining > 0 {
                 let n = Int(min(UInt64(Self.chunkSize), remaining))
-                guard let chunk = try handle.read(upToCount: n), chunk.count == n else {
+                guard let chunk = try read(at: offset, count: n), chunk.count == n else {
                     throw Error.truncated(entry.path)
                 }
+                offset += UInt64(n)
                 crc.update(chunk)
                 try sink(chunk)
                 remaining -= UInt64(n)
@@ -130,12 +153,13 @@ public final class ZipArchive {
         case 8:
             let inflater = try RawInflater()
             var remaining = entry.compressedSize
-            try handle.seek(toOffset: dataOffset)
+            var offset = dataOffset
             while remaining > 0 {
                 let n = Int(min(UInt64(Self.chunkSize), remaining))
-                guard let chunk = try handle.read(upToCount: n), chunk.count == n else {
+                guard let chunk = try read(at: offset, count: n), chunk.count == n else {
                     throw Error.truncated(entry.path)
                 }
+                offset += UInt64(n)
                 remaining -= UInt64(n)
                 try inflater.process(chunk, final: remaining == 0) { out in
                     crc.update(out)
@@ -149,8 +173,7 @@ public final class ZipArchive {
     }
 
     private func localDataOffset(_ entry: Entry) throws -> UInt64 {
-        try handle.seek(toOffset: entry.localHeaderOffset)
-        guard let header = try handle.read(upToCount: 30), header.count == 30 else {
+        guard let header = try read(at: entry.localHeaderOffset, count: 30), header.count == 30 else {
             throw Error.truncated("local header")
         }
         let r = ByteReader(header)
@@ -165,8 +188,7 @@ public final class ZipArchive {
     private func readCentralDirectory() throws {
         // EOCD is at most 65535 + 22 bytes from the end.
         let tailLen = min(fileSize, 65_557)
-        try handle.seek(toOffset: fileSize - tailLen)
-        guard let tail = try handle.read(upToCount: Int(tailLen)) else { throw Error.notAZip }
+        guard let tail = try read(at: fileSize - tailLen, count: Int(tailLen)) else { throw Error.notAZip }
         let t = ByteReader(tail)
         var eocd: Int?
         var i = tail.count - 22
@@ -184,8 +206,7 @@ public final class ZipArchive {
         let locPos = eocdPos - 20
         if locPos >= 0, t.u32(at: locPos) == 0x0706_4B50 {
             let eocd64Offset = t.u64(at: locPos + 8)
-            try handle.seek(toOffset: eocd64Offset)
-            guard let rec = try handle.read(upToCount: 56), rec.count == 56 else {
+            guard let rec = try read(at: eocd64Offset, count: 56), rec.count == 56 else {
                 throw Error.truncated("zip64 eocd")
             }
             let r = ByteReader(rec)
@@ -195,8 +216,7 @@ public final class ZipArchive {
             cdOffset = r.u64(at: 48)
         }
 
-        try handle.seek(toOffset: cdOffset)
-        guard let cd = try handle.read(upToCount: Int(cdSize)), UInt64(cd.count) == cdSize else {
+        guard let cd = try read(at: cdOffset, count: Int(cdSize)), UInt64(cd.count) == cdSize else {
             throw Error.truncated("central directory")
         }
         let r = ByteReader(cd)

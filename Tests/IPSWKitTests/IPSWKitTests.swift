@@ -35,6 +35,27 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: out), text)
     }
 
+    /// The app reads one IPSW from several tasks at once; each read must see its own bytes.
+    func testConcurrentReadsOfOneArchive() throws {
+        // Larger than ZipArchive's 4 MiB read chunk, and not very compressible, so reads interleave.
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        let bytes = (0..<(12 << 20)).map { _ -> UInt8 in
+            state ^= state << 13; state ^= state >> 7; state ^= state << 17
+            return UInt8(truncatingIfNeeded: state >> 56) & 0x3F
+        }
+        let blob = Data(bytes)
+        let url = tmp.appendingPathComponent("big.zip")
+        try TestZip.write(to: url, entries: [("a.bin", blob, true), ("b.bin", blob, false)])
+        let zip = try ZipArchive(url: url)
+
+        let results = UnsafeMutableBufferPointer<Bool>.allocate(capacity: 8)
+        defer { results.deallocate() }
+        DispatchQueue.concurrentPerform(iterations: 8) { i in
+            results[i] = (try? zip.data(for: i.isMultiple(of: 2) ? "a.bin" : "b.bin")) == blob
+        }
+        XCTAssertEqual(Array(results), Array(repeating: true, count: 8))
+    }
+
     /// Written by Python's zipfile (zlib), like real IPSWs; Apple's decoder once reported
     /// OK instead of END on such a final chunk.
     func testZlibDeflatedEntryFromAnotherEncoder() throws {
