@@ -29,6 +29,10 @@ def nodes(source: str) -> list:
                 found.add(name)
     for n in re.findall(r'"spi%u"', source):
         found.update(f"spi{i}" for i in range(4))
+    # UARTs are created in a loop from uart0's registers: "uart%u" for each of NUM_UARTS ports.
+    count = re.search(r'#define\s+NUM_UARTS\s+\(?(\d+)\)?', source)
+    if count and '"uart%u"' in source:
+        found.update(f"uart{i}" for i in range(int(count.group(1))))
     return sorted(found)
 
 

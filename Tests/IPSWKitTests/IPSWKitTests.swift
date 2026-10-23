@@ -203,6 +203,9 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(report[0].emulatedCount, 2)
         XCTAssertEqual(report[1].missingBootCritical.map(\.name), ["aic", "pmgr"])
         XCTAssertFalse(HardwareCoverage.knownNodes["t8030"]?.isEmpty ?? true, "bundled Inferno node list loads")
+        // T8030 creates its nine UARTs in a loop from uart0's registers; S8000 only uart0.
+        XCTAssertTrue(HardwareCoverage.knownNodes["t8030"]?.isSuperset(of: (0..<9).map { "uart\($0)" }) ?? false)
+        XCTAssertFalse(HardwareCoverage.knownNodes["s8000"]?.contains("uart4") ?? true)
     }
 
     /// device-tree { filesystems { fstab { system-vol, data-vol, preboot-vol, xart-vol } } }
