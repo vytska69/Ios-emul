@@ -30,6 +30,7 @@ jobs:
     runs-on: macos-15
     outputs:
       key: ${{ steps.rev.outputs.key }}
+      rev: ${{ steps.rev.outputs.rev }}
     steps:
       - uses: actions/checkout@v4
       # Same pinned revision and patches as the iOS build (scripts/build-qemu-ios.sh).
@@ -45,22 +46,7 @@ jobs:
           key: inferno-macos-v2-${{ steps.rev.outputs.key }}
       - name: Build Inferno
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          brew install meson ninja pkg-config glib pixman nettle libtasn1 lzfse gnutls libslirp
-          git init -q inferno
-          git -C inferno fetch -q --depth 1 https://github.com/ChefKissInc/QEMUAppleSilicon.git ${{ steps.rev.outputs.rev }}
-          git -C inferno checkout -q FETCH_HEAD
-          git -C inferno submodule update --init --depth 1 util/mlib
-          for p in qemu/patches/inferno/*.patch; do git -C inferno apply --whitespace=nowarn "$PWD/$p"; done
-          mkdir inferno/build && cd inferno/build
-          ../configure --prefix="$GITHUB_WORKSPACE/qemu-bin" \
-            --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp --disable-gcrypt --enable-nettle \
-            --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib"
-          ninja
-          # A full install puts QEMU's data files (VNC keymaps, firmware) in <prefix>/share/qemu,
-          # where the relocatable binary in <prefix>/bin looks for them.
-          meson install --quiet
-          ls "$GITHUB_WORKSPACE/qemu-bin/bin" "$GITHUB_WORKSPACE/qemu-bin/share/qemu" | head -20
+        run: scripts/build-inferno-macos.sh "${{ steps.rev.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin"
 
   matrix:
     runs-on: ubuntu-latest
@@ -85,11 +71,16 @@ jobs:
         mode: ${{ fromJSON(needs.matrix.outputs.modes) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache/restore@v4
+      - id: cache
+        uses: actions/cache/restore@v4
         with:
           path: qemu-bin
           key: inferno-macos-v2-${{ needs.qemu.outputs.key }}
-          fail-on-cache-miss: true
+      # The qemu job saved this build; restoring it can still fail (e.g. the account's cache
+      # egress limit), so build it here then rather than giving up on the boot.
+      - name: Build Inferno (cache unavailable)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build-inferno-macos.sh "${{ needs.qemu.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin"
       - name: Runtime libraries
         run: brew install glib pixman nettle libtasn1 lzfse gnutls libslirp
 
