@@ -179,6 +179,18 @@ case "boot":
                     out.split(separator: "\n").prefix(40).forEach { print("  | \($0)") }
                 }
             }
+            // Which memory regions cover the entry point: a device window mapped over DRAM reads
+            // back as 0xffffffff instead of the kernel.
+            if let address = UInt64(entry.dropFirst(2), radix: 16),
+               let tree = monitor.query("info mtree -f", idleSeconds: 2) {
+                let covering = tree.split(separator: "\n").filter { line in
+                    let range = line.trimmingCharacters(in: .whitespaces).split(separator: " ").first ?? ""
+                    let ends = range.split(separator: "-").compactMap { UInt64($0, radix: 16) }
+                    return ends.count == 2 && ends[0] <= address && address <= ends[1]
+                }
+                print("==> memory regions at \(entry):")
+                covering.prefix(40).forEach { print("  | \($0)") }
+            }
         }
         runner.stop()
     }
