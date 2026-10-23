@@ -226,7 +226,7 @@ public struct QEMUMonitor {
         let text = String(decoding: drain().filter { $0 < 0x80 }, as: UTF8.self)
         return text.replacingOccurrences(of: "\r", with: "")
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.hasPrefix("(qemu)") }
+            .filter { !$0.hasPrefix("(qemu)") && !$0.contains("\u{1B}") }   // prompt and echoed command line
             .joined(separator: "\n")
     }
 }
