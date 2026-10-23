@@ -433,7 +433,7 @@ private struct EmulatorPage: View {
                     "StikDebug prepared \(QEMURunner.preparedJITMB) MB of JIT memory at launch (iOS 26+); the translation cache stays at that size until the next launch.")
         }
         return QEMURunner.jitAvailable
-            ? ("Enabled", .green, "bolt.fill", "Generated code can run. On iOS 26 and later, StikDebug must run the universal.js script for this app, or machines stop right after starting.")
+            ? ("Enabled", .green, "bolt.fill", "Generated code can run. On iOS 26 and later JIT memory must also be prepared: use Enable JIT with StikDebug below, which picks the right script.")
             : ("Off", .orange, "bolt.slash", "Open the app through StikDebug or TrollStore's Open with JIT before booting.")
     }
 
@@ -449,6 +449,9 @@ private struct EmulatorPage: View {
                         }
                         Spacer()
                         Chip(text: jit.0, color: jit.1, icon: jit.2)
+                    }
+                    if QEMURunner.jitBundled && QEMURunner.preparedJITMB == 0 {
+                        StikDebugButton()
                     }
                 }
             }

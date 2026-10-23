@@ -300,6 +300,7 @@ struct FirmwareDetailView: View {
                 if let error = model.runError {
                     Label(error, systemImage: "exclamationmark.octagon.fill")
                         .font(.footnote).foregroundStyle(.red)
+                    if error == "\(QEMURunner.RunnerError.jitUnavailable)" { StikDebugButton() }
                 }
                 if let log = model.lastExit {
                     VStack(alignment: .leading, spacing: 6) {

@@ -27,8 +27,8 @@ public final class QEMURunner {
                 return "This build of the app is missing QEMU's \(what), and QEMU would exit at start-up. Install a newer build."
             case .jitUnavailable:
                 return "JIT is not enabled for this app, and iOS closes an app that runs the emulator without it. "
-                    + "Enable JIT before booting: in SideStore, open the app through StikDebug or another JIT "
-                    + "enabler; in TrollStore, use \"Open with JIT\". Then return here and boot again. "
+                    + "Tap Enable JIT with StikDebug below (or in Settings → Emulator), or in TrollStore use "
+                    + "\"Open with JIT\". Then boot again. "
                     + "Or choose Interpreter under Settings → Emulator → Engine (slower, no JIT needed)."
             }
         }
