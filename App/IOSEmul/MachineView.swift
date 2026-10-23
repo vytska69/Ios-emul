@@ -59,46 +59,123 @@ final class DisplayModel: ObservableObject {
 struct MachineView: View {
     @StateObject private var display: DisplayModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
+    @AppStorage(Pref.keepAwake) private var keepAwake = true
+    @State private var controlsVisible = true
+    @State private var confirmStop = false
 
     init(runner: QEMURunner) {
         _display = StateObject(wrappedValue: DisplayModel(runner: runner))
     }
 
+    private var running: Bool {
+        if case .running = display.vmState { return true }
+        return false
+    }
+
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                if let frame = display.frame {
-                    let aspect = CGFloat(frame.width) / CGFloat(max(frame.height, 1))
-                    Image(decorative: frame, scale: 1)
-                        .resizable()
-                        .interpolation(.medium)
-                        .aspectRatio(aspect, contentMode: .fit)
-                        .overlay(TouchSurface(display: display))
-                } else {
-                    VStack(spacing: 12) {
-                        ProgressView().tint(.white)
-                        Text(display.status).foregroundStyle(.white).font(.footnote)
-                        Text("Serial output: serial.log in the machine folder")
-                            .foregroundStyle(.gray).font(.caption2)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let frame = display.frame {
+                let aspect = CGFloat(frame.width) / CGFloat(max(frame.height, 1))
+                Image(decorative: frame, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .aspectRatio(aspect, contentMode: .fit)
+                    .overlay(TouchSurface(display: display))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: theme.colors.0.opacity(0.25), radius: 30)
+                    .padding(.vertical, 56)
+            } else {
+                VStack(spacing: 18) {
+                    ZStack {
+                        Circle().stroke(.white.opacity(0.08), lineWidth: 6).frame(width: 84, height: 84)
+                        ProgressView().tint(theme.accent).scaleEffect(1.4)
                     }
+                    Text(display.status).font(.headline).foregroundStyle(.white)
+                    Text("Kernel output goes to serial.log in the machine folder (Files app).")
+                        .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
+                }
+                .padding(32)
+            }
+
+            VStack {
+                statusPill
+                Spacer()
+                if controlsVisible {
+                    controls.transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    Button { withAnimation(.spring(response: 0.3)) { controlsVisible = true } } label: {
+                        Image(systemName: "chevron.up").font(.caption.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(width: 44, height: 22)
+                            .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(display.status).font(.caption).foregroundStyle(.secondary)
-                }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button { display.key(0xFF50) } label: { Label("Home", systemImage: "circle") }
-                    Button { display.key(0xFF1B) } label: { Label("Lock", systemImage: "lock") }
-                    Spacer()
-                    Button(role: .destructive) {
-                        display.shutdown()
-                        dismiss()
-                    } label: { Label("Stop", systemImage: "stop.fill") }
-                }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .statusBarHidden()
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = keepAwake }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .confirmationDialog("Stop this machine?", isPresented: $confirmStop, titleVisibility: .visible) {
+            Button("Stop", role: .destructive) {
+                display.shutdown()
+                dismiss()
+            }
+        } message: {
+            Text("QEMU can run once per app launch; reopen the app to boot again.")
+        }
+    }
+
+    private var statusPill: some View {
+        HStack(spacing: 8) {
+            Circle().fill(running ? Color.green : Color.orange).frame(width: 8, height: 8)
+                .shadow(color: running ? .green : .orange, radius: 4)
+            Text(display.status).font(.caption.weight(.semibold).monospacedDigit())
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            ControlButton(symbol: "circle.circle", title: "Home") { display.key(0xFF50) }
+            ControlButton(symbol: "lock.fill", title: "Lock") { display.key(0xFF1B) }
+            ControlButton(symbol: "eye.slash", title: "Hide") {
+                withAnimation(.spring(response: 0.3)) { controlsVisible = false }
+            }
+            ControlButton(symbol: "power", title: "Stop", tint: .red) {
+                if running { confirmStop = true } else { dismiss() }
             }
         }
+        .padding(8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+    }
+}
+
+/// Round button in the floating control bar.
+private struct ControlButton: View {
+    @Environment(\.theme) private var theme
+    let symbol: String
+    let title: String
+    var tint: Color?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                Text(title).font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(tint ?? theme.accent)
+            .frame(width: 62, height: 52)
+            .background((tint ?? theme.accent).opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 

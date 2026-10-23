@@ -46,12 +46,15 @@ public final class QEMURunner {
     /// errors (`exit`, `abort`), so finding it at the next launch means the last run ended that way.
     public static let runningMarker = "qemu.running"
 
-    /// TCG translation cache size for in-process runs on iOS (`-accel tcg,tb-size=`).
-    public static let translationCacheMB = 256
+    /// Default TCG translation cache for in-process runs on iOS (`-accel tcg,tb-size=`); the app's
+    /// settings can change it per boot (PrepareContext.translationCacheMB).
+    public static let defaultTranslationCacheMB = 256
 
     /// Memory an in-process VM needs besides guest RAM: the translation cache plus QEMU's own
     /// allocations (device models, display buffers, block caches).
-    public static func requiredMemoryMB(guestMB: Int) -> Int { guestMB + translationCacheMB + 384 }
+    public static func requiredMemoryMB(guestMB: Int, translationCacheMB: Int = defaultTranslationCacheMB) -> Int {
+        guestMB + translationCacheMB + 384
+    }
 
     /// What QEMU printed during the last in-process run in `directory`, if that run ended the app;
     /// clears the marker so it is reported once.

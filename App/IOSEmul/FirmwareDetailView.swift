@@ -48,6 +48,8 @@ final class FirmwareModel: ObservableObject {
 
     func boot(item: FirmwareItem, row: CompatibilityReport.Row, mode: BootMode, memoryMB: Int, cpus: Int) {
         guard let ipsw, let backend = row.backend else { return }
+        runError = nil
+        let cacheMB = Pref.defaults.integer(forKey: Pref.translationCacheMB)
         guard let identity = ipsw.manifest.identity(for: Self.boardConfig(for: row.device, in: ipsw)) else {
             runError = "\(IPSWError.noIdentity)"
             return
@@ -60,7 +62,7 @@ final class FirmwareModel: ObservableObject {
         // iOS ends an app that goes over its memory limit without a message, so refuse up front
         // when the VM cannot fit (os_proc_available_memory is what is left before that limit).
         let guestMB = min(max(memoryMB, backend.memoryRangeMB.lowerBound), backend.memoryRangeMB.upperBound)
-        let neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB)
+        let neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB, translationCacheMB: cacheMB)
         let availableMB = Int(os_proc_available_memory() / 1_048_576)
         if availableMB > 0 && availableMB < neededMB {
             runError = "This VM needs about \(neededMB) MB (\(guestMB) MB guest RAM plus the emulator), "
@@ -76,7 +78,9 @@ final class FirmwareModel: ObservableObject {
         let ctx = PrepareContext(ipsw: ipsw, identity: identity, device: row.device,
                                  workDirectory: item.workDirectory.appendingPathComponent(backend.id),
                                  externalAssets: assetScopes.mapValues(\.url), bootMode: mode,
-                                 memoryMB: memoryMB, cpuCount: cpus) { [weak self] name, fraction in
+                                 memoryMB: memoryMB, cpuCount: cpus,
+                                 verboseBoot: Pref.defaults.bool(forKey: Pref.verboseBoot),
+                                 translationCacheMB: cacheMB) { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
@@ -115,12 +119,14 @@ final class FirmwareModel: ObservableObject {
     }
 }
 
+
 struct FirmwareDetailView: View {
     let itemID: UUID
     @EnvironmentObject private var library: Library
     @EnvironmentObject private var downloads: DownloadManager
+    @Environment(\.theme) private var theme
     @StateObject private var model = FirmwareModel()
-    @State private var bootMode: BootMode = .direct
+    @State private var bootMode = BootMode(rawValue: Pref.defaults.string(forKey: Pref.bootMode) ?? "") ?? .direct
     @State private var memoryMB = 2048
     @State private var cpus = 2
     @State private var pickingAsset: ExternalAsset?
@@ -131,152 +137,50 @@ struct FirmwareDetailView: View {
                 content(item)
                     .task { await model.load(item) }
             } else {
-                Text("Firmware removed")
+                Text("Firmware removed").foregroundStyle(.white.opacity(0.6))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(AppBackground())
             }
         }
         .fullScreenCover(item: Binding(get: { model.runner.map(RunnerBox.init) }, set: { if $0 == nil { model.runner = nil } })) { box in
             MachineView(runner: box.runner)
+                .environment(\.theme, theme)
         }
     }
 
     @ViewBuilder
     private func content(_ item: FirmwareItem) -> some View {
-        List {
-            Section("Firmware") {
-                LabeledContent("Version", value: item.version)
-                LabeledContent("Build", value: item.build)
-                if let ipsw = model.ipsw {
-                    LabeledContent("Image format", value: ipsw.imageFormat)
-                    LabeledContent("Build identities", value: "\(ipsw.manifest.identities.count)")
-                }
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                hero(item)
 
-            if let error = model.loadError {
-                Section { Text(error).foregroundStyle(.red) }
-            }
-
-            if let report = model.report {
-                Section("Devices") {
-                    ForEach(report.rows, id: \.device.productType) { row in
-                        DeviceRow(row: row)
-                    }
+                if let error = model.loadError {
+                    Card { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
                 }
 
-                if report.best == nil {
-                    Section {
-                        Text("None of these devices has a machine model yet. The same iOS release can still run on an emulated device.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        if let s = model.suggestion {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(s.device.name) — iOS \(s.firmware.version) (\(s.firmware.buildid))").bold()
-                                Text(s.compatibility.summary).font(.caption).foregroundStyle(.secondary)
-                                if let size = s.firmware.filesize {
-                                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption)
-                                }
-                            }
-                            if let item = downloads.items.first(where: { $0.url == s.firmware.url }) {
-                                DownloadProgressRow(item: item)
-                            } else {
-                                Button("Download and import") {
-                                    downloads.start(s.firmware, title: "\(s.device.name) — iOS \(s.firmware.version) (\(s.firmware.buildid))")
-                                }
-                            }
-                        } else {
-                            Button("Find bootable firmware for iOS \(item.version)") {
-                                Task { await model.findSuggestion(version: item.version) }
-                            }
-                        }
-                        if let state = model.suggestionState {
-                            Text(state).font(.caption).foregroundStyle(.secondary)
-                        }
-                    } header: {
-                        Text("Run iOS \(item.version) anyway")
+                if let report = model.report {
+                    if let best = report.best, let backend = best.backend {
+                        bootCard(item: item, best: best, backend: backend)
+                        if !backend.externalAssets.isEmpty { assetsCard(item: item, backend: backend) }
+                    } else {
+                        suggestionCard(item: item)
                     }
-                }
-
-                if let best = report.best, let backend = best.backend {
-                    Section("Machine — \(backend.displayName)") {
-                        Picker("Boot", selection: $bootMode) {
-                            Text("Install directly (no computer)").tag(BootMode.direct)
-                            Text("Restore via ramdisk").tag(BootMode.auto)
-                            Text("Force restore ramdisk").tag(BootMode.enterRecovery)
-                            Text("Force installed OS").tag(BootMode.exitRecovery)
-                        }
-                        if backend.memoryRangeMB.count == 1 {
-                            LabeledContent("Memory", value: "\(backend.memoryRangeMB.lowerBound) MB (fixed by the machine)")
-                        } else {
-                            Stepper("Memory: \(memoryMB) MB", value: $memoryMB, in: backend.memoryRangeMB, step: 512)
-                        }
-                        Stepper("CPUs: \(cpus)", value: $cpus, in: 1...8)
-                        Link("Machine model source", destination: URL(string: backend.upstream)!)
-                    }
-                    .onAppear {
-                        memoryMB = backend.defaultMemoryMB
-                        cpus = backend.defaultCPUCount
-                    }
-
-                    Section {
-                        ForEach(backend.externalAssets) { asset in
-                            Button { pickingAsset = asset } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(asset.title)
-                                        Text(asset.help).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: item.assets[asset.id] == nil ? "circle" : "checkmark.circle.fill")
-                                        .foregroundStyle(item.assets[asset.id] == nil ? Color.secondary : Color.green)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    } header: {
-                        Text("Files not included in the IPSW")
-                    }
-
-                    Section {
-                        if let progress = model.progress {
-                            ProgressView("Extracting \(progress.0)…", value: progress.1)
-                        } else {
-                            Button {
-                                model.boot(item: item, row: best, mode: bootMode, memoryMB: memoryMB, cpus: cpus)
-                            } label: {
-                                Label("Boot \(best.device.name)", systemImage: "play.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        if let error = model.runError {
-                            Text(error).font(.footnote).foregroundStyle(.red)
-                        }
-                        if let log = model.lastExit {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("The last run closed the app. QEMU's last output:")
-                                    .font(.footnote).foregroundStyle(.red)
-                                Text(log.isEmpty ? "(nothing; the emulator crashed without a message)" : log)
-                                    .font(.caption2.monospaced()).textSelection(.enabled)
-                            }
+                    devicesCard(report)
+                    if let best = model.coverage.first { CoverageCard(coverage: best) }
+                    componentsCard
+                } else if model.loadError == nil {
+                    Card {
+                        HStack(spacing: 12) {
+                            ProgressView().tint(theme.accent)
+                            Text("Reading BuildManifest…").foregroundStyle(.white.opacity(0.7))
                         }
                     }
                 }
-
-                if let best = model.coverage.first {
-                    CoverageSection(coverage: best)
-                }
-
-                if let ipsw = model.ipsw, let identity = ipsw.manifest.identity() {
-                    Section("Components (\(identity.deviceClass))") {
-                        ForEach(identity.components.keys.sorted(), id: \.self) { key in
-                            LabeledContent(key, value: (identity.components[key]!.path as NSString).lastPathComponent)
-                                .font(.caption)
-                        }
-                    }
-                }
-            } else if model.loadError == nil {
-                Section { ProgressView("Reading BuildManifest…") }
             }
+            .padding(.horizontal, 16).padding(.bottom, 32)
         }
+        .screenStyle()
         .navigationTitle("iOS \(item.version)")
+        .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: Binding(get: { pickingAsset != nil }, set: { if !$0 { pickingAsset = nil } }),
                       allowedContentTypes: [.data, .folder]) { result in
             if case .success(let url) = result, let asset = pickingAsset {
@@ -285,77 +189,327 @@ struct FirmwareDetailView: View {
             pickingAsset = nil
         }
     }
+
+    // MARK: Cards
+
+    private func hero(_ item: FirmwareItem) -> some View {
+        let best = model.report?.best
+        return ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    GlyphTile(symbol: deviceSymbol(for: item.productTypes.first ?? ""), size: 58)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("iOS \(item.version)")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        Text(item.build).font(.subheadline.monospaced()).foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                HStack(spacing: 8) {
+                    if let best { Chip(text: best.compatibility.label, color: best.compatibility.color) }
+                    if let ipsw = model.ipsw {
+                        Chip(text: ipsw.imageFormat, color: .white.opacity(0.8))
+                        Chip(text: "\(ipsw.manifest.identities.count) identities", color: .white.opacity(0.8))
+                    }
+                }
+                Text(item.fileName).font(.caption2.monospaced()).foregroundStyle(.white.opacity(0.35)).lineLimit(1)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.gradient(opacity: 0.14), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(theme.gradient(opacity: 0.5)))
+        }
+        .padding(.top, 8)
+    }
+
+    private func bootCard(item: FirmwareItem, best: CompatibilityReport.Row, backend: EmulatorBackend) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Machine · \(backend.displayName)", icon: "cpu")
+            Card {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    ForEach([BootMode.direct, .auto, .enterRecovery, .exitRecovery], id: \.self) { mode in
+                        ModeTile(mode: mode, selected: bootMode == mode) { bootMode = mode }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    if backend.memoryRangeMB.count == 1 {
+                        InfoRow(label: "Memory", value: "\(backend.memoryRangeMB.lowerBound) MB · fixed")
+                    } else {
+                        InfoRow(label: "Memory", value: "\(memoryMB) MB")
+                        Slider(value: Binding(get: { Double(memoryMB) }, set: { memoryMB = Int($0) }),
+                               in: Double(backend.memoryRangeMB.lowerBound)...Double(backend.memoryRangeMB.upperBound),
+                               step: 512)
+                            .tint(theme.accent)
+                    }
+                    Stepper(value: $cpus, in: 1...8) { InfoRow(label: "CPU cores", value: "\(cpus)") }
+                }
+                .padding(.top, 4)
+
+                if let progress = model.progress {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(progress.0 == "OS" ? "Installing iOS…" : "Extracting \(progress.0)…")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text(progress.1, format: .percent.precision(.fractionLength(0)))
+                                .font(.subheadline.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+                        }
+                        GlowBar(value: progress.1)
+                    }
+                    .padding(.top, 6)
+                } else {
+                    Button {
+                        model.boot(item: item, row: best, mode: bootMode, memoryMB: memoryMB, cpus: cpus)
+                    } label: {
+                        Label("Boot \(best.device.name)", systemImage: "power")
+                    }
+                    .buttonStyle(GlowButtonStyle())
+                    .padding(.top, 6)
+                }
+
+                if let error = model.runError {
+                    Label(error, systemImage: "exclamationmark.octagon.fill")
+                        .font(.footnote).foregroundStyle(.red)
+                }
+                if let log = model.lastExit {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("The last run closed the app. QEMU's last output:", systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote.weight(.semibold)).foregroundStyle(.orange)
+                        ScrollView(.horizontal) {
+                            Text(log.isEmpty ? "(nothing; the emulator crashed without a message)" : log)
+                                .font(.caption2.monospaced()).foregroundStyle(.green.opacity(0.85))
+                                .textSelection(.enabled)
+                                .padding(10)
+                        }
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+        .onAppear {
+            let preferred = Pref.defaults.integer(forKey: Pref.memoryMB)
+            memoryMB = preferred > 0
+                ? min(max(preferred, backend.memoryRangeMB.lowerBound), backend.memoryRangeMB.upperBound)
+                : backend.defaultMemoryMB
+            cpus = min(max(Pref.defaults.integer(forKey: Pref.cpus), 1), 8)
+        }
+    }
+
+    private func assetsCard(item: FirmwareItem, backend: EmulatorBackend) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Files not in the IPSW", icon: "doc.badge.plus")
+            Card {
+                ForEach(backend.externalAssets) { asset in
+                    let provided = item.assets[asset.id] != nil
+                    Button { pickingAsset = asset } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: provided ? "checkmark.circle.fill" : "plus.circle")
+                                .font(.title3).foregroundStyle(provided ? Color.green : theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(asset.title).font(.subheadline.weight(.semibold))
+                                Text(asset.help).font(.caption).foregroundStyle(.white.opacity(0.5))
+                            }
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func suggestionCard(item: FirmwareItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Run iOS \(item.version) anyway", icon: "wand.and.stars")
+            Card {
+                Text("None of these devices has a machine model yet. The same iOS release can still run on an emulated device.")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.65))
+                if let s = model.suggestion {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(s.device.name) · iOS \(s.firmware.version)").font(.headline)
+                        Text(s.firmware.buildid).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.5))
+                        HStack(spacing: 8) {
+                            Chip(text: s.compatibility.label, color: s.compatibility.color)
+                            if let size = s.firmware.filesize {
+                                Chip(text: ByteCountFormatter.string(fromByteCount: size, countStyle: .file), color: .white.opacity(0.8))
+                            }
+                        }
+                    }
+                    if let dl = downloads.items.first(where: { $0.url == s.firmware.url }) {
+                        DownloadProgressRow(item: dl)
+                    } else {
+                        Button {
+                            downloads.start(s.firmware, title: "\(s.device.name) — iOS \(s.firmware.version) (\(s.firmware.buildid))")
+                        } label: { Label("Download and import", systemImage: "arrow.down.circle.fill") }
+                            .buttonStyle(GlowButtonStyle())
+                    }
+                } else {
+                    Button {
+                        Task { await model.findSuggestion(version: item.version) }
+                    } label: { Label("Find bootable firmware for iOS \(item.version)", systemImage: "magnifyingglass") }
+                        .buttonStyle(GhostButtonStyle())
+                }
+                if let state = model.suggestionState {
+                    Text(state).font(.caption).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+        }
+    }
+
+    private func devicesCard(_ report: CompatibilityReport) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Devices in this IPSW", icon: "iphone")
+            Card {
+                ForEach(Array(report.rows.enumerated()), id: \.element.device.productType) { index, row in
+                    if index > 0 { Divider().overlay(.white.opacity(0.08)) }
+                    DeviceRow(row: row)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var componentsCard: some View {
+        if let ipsw = model.ipsw, let identity = ipsw.manifest.identity() {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Components · \(identity.deviceClass)", icon: "shippingbox")
+                Card {
+                    DisclosureGroup("\(identity.components.count) firmware components") {
+                        VStack(spacing: 6) {
+                            ForEach(identity.components.keys.sorted(), id: \.self) { key in
+                                InfoRow(label: key, value: (identity.components[key]!.path as NSString).lastPathComponent, mono: true)
+                                    .font(.caption)
+                            }
+                        }
+                        .padding(.top, 8)
+                    }
+                    .tint(theme.accent)
+                }
+            }
+        }
+    }
+}
+
+/// One selectable boot mode.
+private struct ModeTile: View {
+    @Environment(\.theme) private var theme
+    let mode: BootMode
+    let selected: Bool
+    let action: () -> Void
+
+    private var symbol: String {
+        switch mode {
+        case .direct: return "bolt.fill"
+        case .auto: return "arrow.triangle.2.circlepath"
+        case .enterRecovery: return "lifepreserver"
+        case .exitRecovery: return "internaldrive"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: symbol).font(.headline)
+                    .foregroundStyle(selected ? Color.black.opacity(0.8) : theme.accent)
+                Text(mode.title).font(.caption.weight(.bold)).lineLimit(2)
+                    .foregroundStyle(selected ? Color.black.opacity(0.85) : Color.white)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).fill(theme.gradient)
+                } else {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.05))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(selected ? 0 : 0.08)))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct DeviceRow: View {
     let row: CompatibilityReport.Row
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(row.device.name).font(.headline)
-                Spacer()
-                badge
-            }
-            Text([row.device.productType, row.device.soc.map { "\($0.marketingName) · \($0.id)" }]
-                .compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-            switch row.compatibility {
-            case .supported: EmptyView()
-            case .experimental(let why), .unsupported(let why):
-                Text(why).font(.caption2).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: deviceSymbol(for: row.device.productType))
+                .font(.title3).foregroundStyle(row.compatibility.color)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(row.device.name).font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Chip(text: row.compatibility.label, color: row.compatibility.color)
+                }
+                Text([row.device.productType, row.device.soc.map { "\($0.marketingName) · \($0.id)" }]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.white.opacity(0.5))
+                switch row.compatibility {
+                case .supported: EmptyView()
+                case .experimental(let why), .unsupported(let why):
+                    Text(why).font(.caption2).foregroundStyle(.white.opacity(0.45))
+                }
             }
         }
-    }
-
-    private var badge: some View {
-        let (text, color): (String, Color) = {
-            switch row.compatibility {
-            case .supported: return ("Supported", .green)
-            case .experimental: return ("Experimental", .orange)
-            case .unsupported: return ("Unsupported", .red)
-            }
-        }()
-        return Text(text).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule()).foregroundStyle(color)
     }
 }
 
 /// What fraction of this firmware's DeviceTree hardware the closest machine model emulates.
-private struct CoverageSection: View {
+private struct CoverageCard: View {
+    @Environment(\.theme) private var theme
     let coverage: HardwareCoverage
+    @State private var showAll = false
 
     var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Closest model: \(coverage.machine.uppercased())")
-                    Spacer()
-                    Text(coverage.fraction, format: .percent.precision(.fractionLength(0))).bold()
-                }
-                ProgressView(value: coverage.fraction)
-                Text("\(coverage.emulatedCount) of \(coverage.peripherals.count) DeviceTree peripherals are emulated")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if !coverage.missingBootCritical.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Missing boot-critical hardware").font(.subheadline.bold())
-                    Text(coverage.missingBootCritical.map(\.name).joined(separator: ", "))
-                        .font(.caption.monospaced()).foregroundStyle(.red)
-                }
-            }
-            DisclosureGroup("All missing peripherals") {
-                ForEach(coverage.peripherals.filter { !$0.emulated }, id: \.path) { p in
-                    VStack(alignment: .leading) {
-                        Text(p.path).font(.caption.monospaced())
-                        if !p.compatible.isEmpty {
-                            Text(p.compatible.joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
-                        }
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Hardware coverage", icon: "square.stack.3d.up")
+            Card {
+                HStack(spacing: 16) {
+                    RingGauge(value: coverage.fraction)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Closest model \(coverage.machine.uppercased())").font(.subheadline.weight(.semibold))
+                        Text("\(coverage.emulatedCount) of \(coverage.peripherals.count) DeviceTree peripherals are emulated")
+                            .font(.caption).foregroundStyle(.white.opacity(0.55))
                     }
                 }
+                if !coverage.missingBootCritical.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Missing boot-critical hardware").font(.caption.weight(.bold)).foregroundStyle(.red)
+                        FlowChips(items: coverage.missingBootCritical.map(\.name), color: .red)
+                    }
+                }
+                DisclosureGroup("All missing peripherals", isExpanded: $showAll) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(coverage.peripherals.filter { !$0.emulated }, id: \.path) { p in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.path).font(.caption.monospaced())
+                                if !p.compatible.isEmpty {
+                                    Text(p.compatible.joined(separator: ", ")).font(.caption2).foregroundStyle(.white.opacity(0.45))
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+                .tint(theme.accent)
             }
-        } header: {
-            Text("Hardware coverage")
+        }
+    }
+}
+
+/// Chips that wrap onto several lines.
+private struct FlowChips: View {
+    let items: [String]
+    let color: Color
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+            ForEach(items, id: \.self) { Chip(text: $0, color: color) }
         }
     }
 }

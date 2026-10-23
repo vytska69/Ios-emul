@@ -84,9 +84,11 @@ final class DownloadManager: ObservableObject {
             return
         }
         items.removeAll { $0.url == firmware.url }
-        if let sha1 = firmware.sha1sum, !sha1.isEmpty { checksums[firmware.url.absoluteString] = sha1.lowercased() }
+        if Pref.defaults.bool(forKey: Pref.verifyDownloads), let sha1 = firmware.sha1sum, !sha1.isEmpty {
+            checksums[firmware.url.absoluteString] = sha1.lowercased()
+        }
         let task = resumeData.removeValue(forKey: firmware.url).map { session.downloadTask(withResumeData: $0) }
-            ?? session.downloadTask(with: firmware.url)
+            ?? session.downloadTask(with: Self.request(for: firmware.url))
         task.taskDescription = title
         if let size = firmware.filesize { task.countOfBytesClientExpectsToReceive = size }
         items.append(FirmwareDownloadItem(id: task.taskIdentifier, url: firmware.url, title: title,
@@ -97,7 +99,7 @@ final class DownloadManager: ObservableObject {
     func retry(_ item: FirmwareDownloadItem) {
         items.removeAll { $0.id == item.id }
         let task = resumeData.removeValue(forKey: item.url).map { session.downloadTask(withResumeData: $0) }
-            ?? session.downloadTask(with: item.url)
+            ?? session.downloadTask(with: Self.request(for: item.url))
         task.taskDescription = item.title
         items.append(FirmwareDownloadItem(id: task.taskIdentifier, url: item.url, title: item.title,
                                           written: item.written, expected: item.expected))
@@ -108,6 +110,13 @@ final class DownloadManager: ObservableObject {
         items.removeAll { $0.id == item.id }
         resumeData[item.url] = nil
         session.getAllTasks { tasks in tasks.first { $0.taskIdentifier == item.id }?.cancel() }
+    }
+
+    /// Mobile data only when Settings allows it: IPSWs are several GB.
+    nonisolated static func request(for url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.allowsCellularAccess = Pref.defaults.bool(forKey: Pref.cellularDownloads)
+        return request
     }
 
     nonisolated static func freeSpace() -> Int64? {

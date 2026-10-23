@@ -138,18 +138,19 @@ public struct InfernoBackend: EmulatorBackend {
             "-cpu", "max", "-smp", "\(cpus)", "-m", "\(min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound))M",
             "-kernel", kernel.path,
             "-dtb", deviceTree.path,
-            "-append", "debug=0x14e kextlog=0xffff serial=3 -v wdt=-1" + (rootDevice.map { " rd=\($0)" } ?? ""),
+            "-append", "debug=0x14e kextlog=0xffff serial=3" + (ctx.verboseBoot ? " -v" : "") + " wdt=-1"
+                + (rootDevice.map { " rd=\($0)" } ?? ""),
             "-serial", "file:\(dir.appendingPathComponent("serial.log").path)",
             "-monitor", "telnet:127.0.0.1:\(monitorPort),server,nowait",
             "-vnc", "127.0.0.1:\(vncPort - 5900)",
         ]
         #if os(iOS)
         // In-process on iOS the translation cache counts against the app's memory limit, next to
-        // guest RAM; QEMU's 1 GiB default can get the app killed. See QEMURunner.translationCacheMB.
+        // guest RAM; QEMU's 1 GiB default can get the app killed. See PrepareContext.translationCacheMB.
         // split-wx: QEMU's default code buffer is a MAP_JIT mapping, which iOS refuses (EPERM) to
         // apps without Apple's dynamic-codesigning entitlement, even with a debugger attached. JIT
         // enablers instead allow a writable mapping plus an executable alias of it (mach_vm_remap).
-        args += ["-accel", "tcg,tb-size=\(QEMURunner.translationCacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
+        args += ["-accel", "tcg,tb-size=\(ctx.translationCacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
         #endif
         if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
         for ns in namespaces {

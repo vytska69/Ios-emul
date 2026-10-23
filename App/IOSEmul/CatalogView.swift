@@ -4,57 +4,100 @@ import EmulatorKit
 
 /// Browses the IPSWs ipsw.me lists and downloads them from Apple's CDN.
 struct CatalogView: View {
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
     @State private var devices: [FirmwareCatalog.Device] = []
     @State private var error: String?
     @State private var query = ""
+    @State private var family = "All"
+
+    private let families = ["All", "iPhone", "iPad", "iPod"]
 
     var body: some View {
         NavigationStack {
-            List {
-                if let error {
-                    Section {
-                        Text(error).foregroundStyle(.red)
-                        Button("Try again") { Task { await load() } }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    header
+                    familyPicker
+
+                    if let error {
+                        Card {
+                            Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(.red)
+                            Button("Try again") { Task { await load() } }.buttonStyle(GhostButtonStyle())
+                        }
+                    } else if devices.isEmpty {
+                        Card {
+                            HStack(spacing: 12) {
+                                ProgressView().tint(theme.accent)
+                                Text("Loading devices from ipsw.me…").foregroundStyle(.white.opacity(0.7))
+                            }
+                        }
                     }
-                } else if devices.isEmpty {
-                    ProgressView("Loading devices from ipsw.me…").frame(maxWidth: .infinity)
-                }
-                let emulated = Set(FirmwareCatalog.emulatedProducts)
-                let shown = filtered
-                if !shown.filter({ emulated.contains($0.identifier) }).isEmpty {
-                    Section {
-                        ForEach(shown.filter { emulated.contains($0.identifier) }) { DeviceLink(device: $0, emulated: true) }
-                    } header: {
-                        Text("Emulated devices")
-                    } footer: {
-                        Text("These have a machine model. Firmware for other devices can be inspected, and often the same iOS version exists for an emulated one.")
+
+                    let emulated = Set(FirmwareCatalog.emulatedProducts)
+                    let shown = filtered
+                    let ready = shown.filter { emulated.contains($0.identifier) }
+                    if !ready.isEmpty {
+                        SectionLabel(text: "Emulated devices", icon: "bolt.fill")
+                        ForEach(ready) { DeviceLink(device: $0, emulated: true) }
+                        Text("These have a machine model. Firmware for other devices can still be inspected, and the same iOS version often exists for an emulated one.")
+                            .font(.caption).foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 4)
                     }
-                }
-                ForEach(["iPhone", "iPad", "iPod"], id: \.self) { family in
-                    let rows = shown.filter { $0.family == family && !emulated.contains($0.identifier) }
-                    if !rows.isEmpty {
-                        Section(family) {
+                    ForEach(families.dropFirst(), id: \.self) { name in
+                        let rows = shown.filter { $0.family == name && !emulated.contains($0.identifier) }
+                        if !rows.isEmpty {
+                            SectionLabel(text: name, icon: deviceSymbol(for: name))
                             ForEach(rows) { DeviceLink(device: $0, emulated: false) }
                         }
                     }
                 }
+                .padding(.horizontal, 16).padding(.bottom, 32)
             }
+            .screenStyle()
             .searchable(text: $query, prompt: "Device or identifier")
-            .navigationTitle("Download IPSW")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: FirmwareCatalog.Device.self) { FirmwareListView(device: $0) }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
             .task { if devices.isEmpty { await load() } }
+            .refreshable { await load() }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            GlyphTile(symbol: "arrow.down.circle", size: 52)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Download").font(.system(.largeTitle, design: .rounded).weight(.bold))
+                Text("Every IPSW Apple has published, via ipsw.me")
+                    .font(.footnote).foregroundStyle(.white.opacity(0.55))
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private var familyPicker: some View {
+        HStack(spacing: 8) {
+            ForEach(families, id: \.self) { name in
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { family = name } } label: {
+                    Text(name).font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .foregroundStyle(family == name ? Color.black.opacity(0.85) : Color.white.opacity(0.8))
+                        .background {
+                            if family == name {
+                                Capsule().fill(theme.gradient)
+                            } else {
+                                Capsule().fill(.white.opacity(0.07))
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
     private var filtered: [FirmwareCatalog.Device] {
-        guard !query.isEmpty else { return devices }
-        return devices.filter {
-            $0.name.localizedCaseInsensitiveContains(query) || $0.identifier.localizedCaseInsensitiveContains(query)
+        devices.filter { device in
+            (family == "All" || device.family == family)
+                && (query.isEmpty || device.name.localizedCaseInsensitiveContains(query)
+                    || device.identifier.localizedCaseInsensitiveContains(query))
         }
     }
 
@@ -69,46 +112,72 @@ struct CatalogView: View {
 }
 
 private struct DeviceLink: View {
+    @Environment(\.theme) private var theme
     let device: FirmwareCatalog.Device
     let emulated: Bool
 
     var body: some View {
         NavigationLink(value: device) {
-            HStack {
+            HStack(spacing: 14) {
+                if emulated {
+                    GlyphTile(symbol: deviceSymbol(for: device.identifier), size: 40)
+                } else {
+                    Image(systemName: deviceSymbol(for: device.identifier))
+                        .font(.title3).foregroundStyle(.white.opacity(0.5))
+                        .frame(width: 40, height: 40)
+                        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(device.name)
-                    Text(device.identifier).font(.caption).foregroundStyle(.secondary)
+                    Text(device.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    Text(device.identifier).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.45))
                 }
                 Spacer()
-                if emulated {
-                    Image(systemName: "cpu").foregroundStyle(.tint)
-                }
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.3))
             }
+            .padding(12)
+            .background(.white.opacity(emulated ? 0.07 : 0.04), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(emulated ? theme.gradient(opacity: 0.45) : theme.gradient(opacity: 0)))
         }
+        .buttonStyle(.plain)
     }
 }
 
 /// Every IPSW of one device, newest first, with what the emulator can do with it.
 private struct FirmwareListView: View {
     let device: FirmwareCatalog.Device
+    @Environment(\.theme) private var theme
     @State private var firmwares: [FirmwareCatalog.Firmware] = []
     @State private var error: String?
     @State private var loading = true
 
     var body: some View {
-        List {
-            if let error {
-                Section { Text(error).foregroundStyle(.red) }
-            } else if loading {
-                ProgressView().frame(maxWidth: .infinity)
-            } else if firmwares.isEmpty {
-                Text("ipsw.me lists no IPSW for this device.").foregroundStyle(.secondary)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    GlyphTile(symbol: deviceSymbol(for: device.identifier), size: 52)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(device.name).font(.system(.title, design: .rounded).weight(.bold))
+                        Text(device.identifier).font(.footnote.monospaced()).foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+                .padding(.top, 8)
+
+                if let error {
+                    Card { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
+                } else if loading {
+                    Card { ProgressView().tint(theme.accent).frame(maxWidth: .infinity) }
+                } else if firmwares.isEmpty {
+                    Card { Text("ipsw.me lists no IPSW for this device.").foregroundStyle(.white.opacity(0.6)) }
+                }
+                ForEach(firmwares, id: \.url) { fw in
+                    FirmwareRow(firmware: fw, deviceName: device.name)
+                }
             }
-            ForEach(firmwares, id: \.url) { fw in
-                FirmwareRow(firmware: fw, deviceName: device.name)
-            }
+            .padding(.horizontal, 16).padding(.bottom, 32)
         }
-        .navigationTitle(device.name)
+        .screenStyle()
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             do {
                 firmwares = try await FirmwareCatalog().firmwares(for: device.identifier)
@@ -123,6 +192,7 @@ private struct FirmwareListView: View {
 private struct FirmwareRow: View {
     let firmware: FirmwareCatalog.Firmware
     let deviceName: String
+    @Environment(\.theme) private var theme
     @EnvironmentObject private var downloads: DownloadManager
     @EnvironmentObject private var library: Library
 
@@ -130,44 +200,39 @@ private struct FirmwareRow: View {
         let compat = FirmwareCatalog.compatibility(of: firmware)
         let downloaded = library.items.contains { $0.fileName == firmware.fileName }
             || FileManager.default.fileExists(atPath: DownloadManager.localFile(for: firmware.url).path)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("iOS \(firmware.version)").font(.headline)
-                Text(firmware.buildid).foregroundStyle(.secondary)
+        Card(padding: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("iOS \(firmware.version)").font(.system(.title3, design: .rounded).weight(.bold))
+                Text(firmware.buildid).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.5))
                 Spacer()
-                if firmware.signed == true {
-                    Text("Signed").font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(.green.opacity(0.2), in: Capsule())
+                if firmware.signed == true { Chip(text: "Signed", color: .green, icon: "checkmark.seal.fill") }
+            }
+            HStack(spacing: 6) {
+                Chip(text: compat.label, color: compat.color)
+                if let size = firmware.filesize {
+                    Chip(text: ByteCountFormatter.string(fromByteCount: size, countStyle: .file), color: .white.opacity(0.75))
+                }
+                if let date = firmware.releasedate?.prefix(10) {
+                    Chip(text: String(date), color: .white.opacity(0.75))
                 }
             }
-            Text(details).font(.caption).foregroundStyle(.secondary)
-            Label(compat.summary, systemImage: compat == .supported ? "checkmark.circle"
-                  : compat.isRunnable ? "exclamationmark.triangle" : "xmark.circle")
-                .font(.caption)
-                .foregroundStyle(compat == .supported ? .green : compat.isRunnable ? .orange : .secondary)
-                .lineLimit(2)
+            if compat != .supported {
+                Text(compat.summary).font(.caption).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+            }
             if let item = downloads.items.first(where: { $0.url == firmware.url }) {
                 DownloadProgressRow(item: item)
             } else if downloaded {
-                Label("Downloaded", systemImage: "arrow.down.circle.fill").font(.caption).foregroundStyle(.secondary)
+                Label("Downloaded", systemImage: "checkmark.circle.fill").font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
             } else {
                 Button {
                     downloads.start(firmware, title: "\(deviceName) — iOS \(firmware.version) (\(firmware.buildid))")
                 } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
+                    Label("Download", systemImage: "arrow.down.circle.fill")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(GhostButtonStyle())
             }
         }
-        .padding(.vertical, 2)
-    }
-
-    private var details: String {
-        var parts: [String] = []
-        if let size = firmware.filesize { parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
-        if let date = firmware.releasedate?.prefix(10) { parts.append(String(date)) }
-        parts.append(firmware.fileName)
-        return parts.joined(separator: " · ")
     }
 }
 
@@ -177,35 +242,36 @@ struct DownloadProgressRow: View {
     @EnvironmentObject private var downloads: DownloadManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             switch item.state {
             case .running:
-                if let f = item.fraction { ProgressView(value: f) } else { ProgressView() }
+                GlowBar(value: item.fraction)
                 HStack {
-                    Text(byteProgress).font(.caption).foregroundStyle(.secondary)
+                    Text(byteProgress).font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.55))
                     Spacer()
-                    Button("Cancel", role: .destructive) { downloads.cancel(item) }
-                        .buttonStyle(.borderless).font(.caption)
+                    Button(role: .destructive) { downloads.cancel(item) } label: {
+                        Image(systemName: "xmark.circle.fill").font(.title3)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.white.opacity(0.5))
                 }
             case .verifying:
-                HStack(spacing: 6) {
-                    ProgressView()
-                    Text("Checking the file…").font(.caption).foregroundStyle(.secondary)
-                }
+                GlowBar(value: nil)
+                Text("Checking the file…").font(.caption).foregroundStyle(.white.opacity(0.55))
             case .failed(let message):
-                Text(message).font(.caption).foregroundStyle(.red)
+                Label(message, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
                 HStack {
-                    Button("Retry") { downloads.retry(item) }.buttonStyle(.borderless)
+                    Button("Retry") { downloads.retry(item) }.buttonStyle(GhostButtonStyle())
                     Spacer()
-                    Button("Remove", role: .destructive) { downloads.cancel(item) }.buttonStyle(.borderless)
+                    Button("Remove", role: .destructive) { downloads.cancel(item) }
+                        .font(.caption.weight(.semibold)).foregroundStyle(.red)
                 }
-                .font(.caption)
             }
         }
     }
 
     private var byteProgress: String {
         let fmt = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-        return item.expected > 0 ? "\(fmt(item.written)) of \(fmt(item.expected))" : fmt(item.written)
+        let fraction = item.fraction.map { " · \(Int($0 * 100))%" } ?? ""
+        return (item.expected > 0 ? "\(fmt(item.written)) of \(fmt(item.expected))" : fmt(item.written)) + fraction
     }
 }
