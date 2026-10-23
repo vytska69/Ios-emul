@@ -27,6 +27,9 @@ on:
       monitor:
         description: "QEMU monitor commands run at the time limit, separated by ';'"
         default: ""
+      qemu_args:
+        description: "Extra QEMU arguments (e.g. -accel tcg,tb-size=256,split-wx=on, as the iOS app runs)"
+        default: ""
       after:
         description: "Shell commands run after the boot (e.g. scripts/xref.py on a pmemsave dump)"
         default: ""
@@ -128,13 +131,14 @@ jobs:
       - name: Boot
         env:
           MONITOR: ${{ inputs.monitor }}
+          QEMU_ARGS: ${{ inputs.qemu_args }}
         run: |
           export PATH="$PWD/qemu-bin/bin:$PATH"
           .build/release/ipsw-emu boot firmware.ipsw --work vm --product "${{ inputs.product }}" \
             --seconds "${{ inputs.seconds }}" --memory 4096 --cpus 4 --mode "${{ matrix.mode }}" \
             ${{ inputs.force_backend && format('--force-backend {0}', inputs.force_backend) || '' }} \
             ${{ inputs.qemu_debug && format('--qemu-debug {0}', inputs.qemu_debug) || '' }} \
-            ${MONITOR:+--monitor "$MONITOR"} | tee boot.txt || true
+            ${MONITOR:+--monitor "$MONITOR"} ${QEMU_ARGS:+--qemu-args "$QEMU_ARGS"} | tee boot.txt || true
 
       - name: After
         if: inputs.after != ''

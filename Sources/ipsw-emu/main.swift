@@ -144,6 +144,11 @@ case "boot":
     if let flags = options["qemu-debug"], !flags.isEmpty {
         config.arguments += ["-d", flags, "-D", debugLog.path]
     }
+    // Extra QEMU arguments, e.g. --qemu-args "-accel tcg,tb-size=256,split-wx=on" to run the way
+    // the iOS app does.
+    if let extra = options["qemu-args"], !extra.isEmpty {
+        config.arguments += extra.split(separator: " ").map(String.init)
+    }
     print("==> qemu \(config.arguments.joined(separator: " "))")
 
     let runner = QEMURunner(configuration: config)
