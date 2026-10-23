@@ -1,0 +1,136 @@
+diff --git a/tcg/region.c b/tcg/region.c
+index 2bf3ce3..453bc39 100644
+--- a/tcg/region.c
++++ b/tcg/region.c
+@@ -571,12 +571,131 @@ extern kern_return_t mach_vm_remap(vm_map_t target_task,
+                                    vm_prot_t *max_protection,
+                                    vm_inherit_t inheritance);
+ 
++#include <TargetConditionals.h>
++#if TARGET_OS_IPHONE
++#include <sys/sysctl.h>
++
++/*
++ * On iOS 26+ devices with TXM, a debugger having attached (CS_DEBUGGED) no longer lets the
++ * process make memory executable itself: mprotect to RX is silently dropped and the first jump
++ * into generated code stops the vCPU thread. StikDebug's universal.js script instead maps the
++ * region when the app asks for it with brk #0xf00d: x16 = 1 prepares a region (x0 address or
++ * NULL to allocate, x1 length; returns the RX address in x0), x16 = 0 detaches the script
++ * (StikJIT INTEGRATION.md). A brk with no debugger attached kills the process, so this is only
++ * tried while one is (P_TRACED).
++ */
++static bool ios_debugger_attached(void)
++{
++    struct kinfo_proc info;
++    size_t len = sizeof(info);
++    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
++
++    memset(&info, 0, sizeof(info));
++    if (sysctl(mib, 4, &info, &len, NULL, 0) != 0) {
++        return false;
++    }
++    return (info.kp_proc.p_flag & P_TRACED) != 0;
++}
++
++__attribute__((noinline, optnone, naked))
++static void *jit26_prepare_region(void *address, size_t length)
++{
++    asm("mov x16, #1\n"
++        "brk #0xf00d\n"
++        "ret\n");
++}
++
++__attribute__((noinline, optnone, naked))
++static void jit26_detach(void)
++{
++    asm("mov x16, #0\n"
++        "brk #0xf00d\n"
++        "ret\n");
++}
++
++/* A region prepared by qemu_ios_jit_prepare() at app launch, while the debugger is attached. */
++static mach_vm_address_t ios_jit_rx, ios_jit_rw;
++static size_t ios_jit_size;
++
++static int ios_jit_map(size_t size, mach_vm_address_t *rx_out, mach_vm_address_t *rw_out)
++{
++    kern_return_t ret;
++    mach_vm_address_t buf_rw = 0, buf_rx;
++    vm_prot_t cur_prot, max_prot;
++
++    buf_rx = (mach_vm_address_t)jit26_prepare_region(NULL, size);
++    /*
++     * A script that does not service the request leaves something else in x0 (e.g. the brk
++     * encoding); a real mapping is page aligned and above the 4 GiB __PAGEZERO.
++     */
++    if (buf_rx < 0x100000000ULL || (buf_rx & (qemu_real_host_page_size() - 1))) {
++        return -1;
++    }
++    ret = mach_vm_remap(mach_task_self(), &buf_rw, size, 0, VM_FLAGS_ANYWHERE,
++                        mach_task_self(), buf_rx, false, &cur_prot, &max_prot,
++                        VM_INHERIT_NONE);
++    if (ret != KERN_SUCCESS) {
++        return -1;
++    }
++    if (mprotect((void *)buf_rw, size, PROT_READ | PROT_WRITE) != 0) {
++        munmap((void *)buf_rw, size);
++        return -1;
++    }
++    jit26_detach();
++    *rx_out = buf_rx;
++    *rw_out = buf_rw;
++    return 0;
++}
++
++/*
++ * Called by the app right after launch, while StikDebug's script is still attached: maps a JIT
++ * region of `size` bytes for the TCG that qemu_init() creates later. Returns 0 on success.
++ */
++int qemu_ios_jit_prepare(size_t size);
++int qemu_ios_jit_prepare(size_t size)
++{
++    if (ios_jit_size) {
++        return 0;
++    }
++    if (!ios_debugger_attached() || ios_jit_map(size, &ios_jit_rx, &ios_jit_rw) != 0) {
++        return -1;
++    }
++    ios_jit_size = size;
++    return 0;
++}
++
++static int alloc_code_gen_buffer_splitwx_txm(size_t size)
++{
++    mach_vm_address_t buf_rx, buf_rw;
++
++    if (ios_jit_size >= size) {
++        buf_rx = ios_jit_rx;
++        buf_rw = ios_jit_rw;   /* only the first `size` bytes are used */
++    } else if (!ios_debugger_attached() || ios_jit_map(size, &buf_rx, &buf_rw) != 0) {
++        return -1;
++    }
++    region.start_aligned = (void *)buf_rw;
++    region.total_size = size;
++    tcg_splitwx_diff = buf_rx - buf_rw;
++    return PROT_READ | PROT_WRITE;
++}
++#endif /* TARGET_OS_IPHONE */
++
+ static int alloc_code_gen_buffer_splitwx_vmremap(size_t size, Error **errp)
+ {
+     kern_return_t ret;
+     mach_vm_address_t buf_rw, buf_rx;
+     vm_prot_t cur_prot, max_prot;
+ 
++#if TARGET_OS_IPHONE
++    {
++        int prot = alloc_code_gen_buffer_splitwx_txm(size);
++        if (prot >= 0) {
++            return prot;
++        }
++    }
++#endif
++
+     /* Map the read-write portion via normal anon memory. */
+     if (!alloc_code_gen_buffer_anon(size, PROT_READ | PROT_WRITE,
+                                     MAP_PRIVATE | MAP_ANONYMOUS, errp)) {

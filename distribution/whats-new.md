@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- JIT on iOS 26 and later (iPhone 15 Pro, 16, 16e, 17 and newer): the app now asks StikDebug for its JIT memory the way these devices require, so machines no longer stop right after starting. In StikDebug, use the universal.js script for iOS Emul.
 - The app now runs without JIT too: it includes a slower interpreter and uses it automatically when JIT is not enabled. You can also pick JIT or Interpreter yourself under Settings → Emulator → Engine, e.g. if a machine stops right after starting with JIT on.
 - iPod touch 1G/2G firmware is now marked as not supported yet in the app, instead of asking for a boot ROM file it could not use.
 - While waiting for the display, the screen shows where the emulated processor is and whether it is moving, to tell a slow start from a stuck one.

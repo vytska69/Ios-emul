@@ -156,7 +156,9 @@ public struct InfernoBackend: EmulatorBackend {
         // split-wx: QEMU's default code buffer is a MAP_JIT mapping, which iOS refuses (EPERM) to
         // apps without Apple's dynamic-codesigning entitlement, even with a debugger attached. JIT
         // enablers instead allow a writable mapping plus an executable alias of it (mach_vm_remap).
-        args += ["-accel", "tcg,tb-size=\(ctx.translationCacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
+        // A JIT region prepared at launch (TXM devices) has a fixed size; the cache must fit in it.
+        let cacheMB = QEMURunner.needsJIT && QEMURunner.preparedJITMB > 0 ? QEMURunner.preparedJITMB : ctx.translationCacheMB
+        args += ["-accel", "tcg,tb-size=\(cacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
         #endif
         if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
         for ns in namespaces {

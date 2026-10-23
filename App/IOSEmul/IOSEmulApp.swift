@@ -10,7 +10,13 @@ struct IOSEmulApp: App {
     @StateObject private var downloads = DownloadManager()
     @AppStorage(Pref.theme) private var themeName = AppTheme.aurora.rawValue
 
-    init() { Pref.register() }
+    init() {
+        Pref.register()
+        // Before anything else: StikDebug's iOS 26+ script waits, attached, for the JIT request.
+        if QEMURunner.preferredEngine != .interpreter {
+            QEMURunner.prepareJITAtLaunch(megabytes: Pref.defaults.integer(forKey: Pref.translationCacheMB))
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

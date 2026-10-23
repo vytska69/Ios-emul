@@ -160,6 +160,35 @@ public final class QEMURunner {
 
     public static var needsJIT: Bool { activeEngine == .jit }
 
+    /// Whether a debugger is attached right now (P_TRACED). StikDebug's iOS 26+ (TXM) script stays
+    /// attached after launch until the app has asked it for its JIT memory.
+    public static var debuggerAttached: Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return false }
+        return info.kp_proc.p_flag & P_TRACED != 0
+    }
+
+    /// Size of the JIT region prepared at launch (0: none), which machines then use as their
+    /// translation cache.
+    public private(set) static var preparedJITMB = 0
+
+    /// On devices with TXM (iOS 26+ on A15 and later) the process cannot make memory executable
+    /// itself even with JIT enabled; StikDebug maps it when asked through `brk #0xf00d`, which
+    /// qemu/patches/inferno/0016 implements. Call this right after launch, while the debugger is
+    /// still attached; without one it does nothing.
+    public static func prepareJITAtLaunch(megabytes: Int) {
+        guard preparedJITMB == 0, jitBundled, jitAvailable, debuggerAttached,
+              let dir = Bundle.main.privateFrameworksURL else { return }
+        let name = "qemu-aarch64-softmmu"
+        guard let handle = dlopen(dir.appendingPathComponent("\(name).framework/\(name)").path, RTLD_NOW | RTLD_LOCAL),
+              let sym = dlsym(handle, "qemu_ios_jit_prepare") else { return }
+        typealias PrepareFn = @convention(c) (Int) -> Int32
+        let prepare = unsafeBitCast(sym, to: PrepareFn.self)
+        if prepare(megabytes << 20) == 0 { preparedJITMB = megabytes }
+    }
+
     /// Whether this process may run generated code: on iOS that needs a debugger to have attached
     /// (CS_DEBUGGED), which is what SideStore's JIT enablers and TrollStore's "Open with JIT" do.
     public static var jitAvailable: Bool {
