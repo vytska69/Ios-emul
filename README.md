@@ -12,11 +12,10 @@ programai įdiegti, nei iOS į virtualų įrenginį įrašyti.
 [Programa](#programa) · [Kūrėjams](#kūrėjams) · [Ribos](#ribos) · [ROADMAP](ROADMAP.md) ·
 [Kas naujo](distribution/whats-new.md)
 
-> **Dabar.** macOS CI'e iPhone 11 su iOS 14.0 įsidiegia be restore ir pasiekia `launchd`, o
-> pirmame paleidime sustoja, nes effaceable saugykla nesuformatuota. iPhone 6s su iOS 15.8 pasiekia
-> IOKit. Telefone mašina susikuria. iOS 26+ įrenginiuose (TXM) JIT dabar prašomas per StikDebug,
-> o be JIT veikia interpretatorius; abiejų dar laukiama patvirtinimo telefone. Plačiau:
-> [Būsena](#būsena).
+> **Dabar.** iPhone 11 su iOS 14.0 įsidiegia be restore ir pasiekia `launchd` ir macOS CI'e, ir
+> telefone (iPhone 16e, iOS 27.2, JIT per StikDebug). Abiem atvejais sustoja ties sistemos keybag'u,
+> kurio dar nėra, nes effaceable saugykla nesuformatuota. iPhone 6s su iOS 15.8 pasiekia IOKit.
+> Plačiau: [Būsena](#būsena).
 
 ---
 
@@ -75,7 +74,7 @@ workflow tai daro macOS CI'e su tikrais IPSW, programa telefone eina tuo pačiu 
 | iPhone 11, iOS 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB-over-TCP, ROADMAP 4 etapas) |
 | iPhone 6s / 6s Plus (A9), iOS 15.8 | IOKit (AIC, AES, SPI, I2C, PCIe, NVMe) | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
 | iPhone XR (A12), iOS 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įjungiamas | Panika `rtclock` inicializacijoje dar prieš serial išvestį. Atidėta, kol tvarkomas iPhone 11 |
-| Telefone (iPhone 16e, iOS 27) | QEMU susikuria mašiną | Be TXM JIT protokolo pirmas JIT blokas sustoja; pataisyta StikDebug mygtuku ir interpretatoriumi, laukia patvirtinimo |
+| Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) | Tas pats kaip CI: `launchd` per kelias sekundes, `fsck` … `fips`; VNC ekranas prisijungia (832×1792) | `keybag`: nėra `systembag.kb` („tears in rain… Time to die“), iOS persikrauna ratu |
 | SpringBoard | Dar nepasiekta | |
 
 **Emuliuojamos mašinos**
