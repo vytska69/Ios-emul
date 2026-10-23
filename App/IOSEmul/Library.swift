@@ -23,8 +23,8 @@ final class Library: ObservableObject {
     @Published private(set) var items: [FirmwareItem] = []
     @Published var lastError: String?
 
-    static let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    static let machinesDirectory = documents.appendingPathComponent("Machines", isDirectory: true)
+    nonisolated static let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    nonisolated static let machinesDirectory = documents.appendingPathComponent("Machines", isDirectory: true)
     private static let indexURL = documents.appendingPathComponent("library.json")
 
     init() {

@@ -27,8 +27,8 @@ struct FirmwareDownloadItem: Identifiable, Hashable {
 /// stopped instead of starting over.
 @MainActor
 final class DownloadManager: ObservableObject {
-    static let sessionIdentifier = "com.iosemul.app.firmware-downloads"
-    static let directory = Library.documents.appendingPathComponent("Firmware", isDirectory: true)
+    nonisolated static let sessionIdentifier = "com.iosemul.app.firmware-downloads"
+    nonisolated static let directory = Library.documents.appendingPathComponent("Firmware", isDirectory: true)
 
     @Published private(set) var items: [FirmwareDownloadItem] = []
     @Published var lastError: String?
@@ -63,7 +63,7 @@ final class DownloadManager: ObservableObject {
 
     func isActive(_ url: URL) -> Bool { items.contains { $0.url == url && $0.state == .running } }
 
-    static func localFile(for url: URL) -> URL { directory.appendingPathComponent(url.lastPathComponent) }
+    nonisolated static func localFile(for url: URL) -> URL { directory.appendingPathComponent(url.lastPathComponent) }
 
     /// Starts fetching `firmware` unless it is already downloading or there is no room for it.
     func start(_ firmware: FirmwareCatalog.Firmware, title: String) {
@@ -99,7 +99,7 @@ final class DownloadManager: ObservableObject {
         session.getAllTasks { tasks in tasks.first { $0.taskIdentifier == item.id }?.cancel() }
     }
 
-    static func freeSpace() -> Int64? {
+    nonisolated static func freeSpace() -> Int64? {
         let values = try? Library.documents.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage
     }
