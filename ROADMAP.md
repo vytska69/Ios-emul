@@ -79,3 +79,11 @@ jį kompiliuoja macOS runneryje.
 - Kelias: arba atkartoti suformatuotos srities turinį tiesioginiame įdiegime, arba (patikimiau) prieš
   `mobile_obliterator` paleisti nedidelį įrankį, kuris iškviečia effaceable „format“ metodą, arba
   pasiekti tikrą restore programoje (4 etapas).
+- `AppleEffaceableStorage` vartotojo kliento selektoriai (iphone-dataprotection, iOS 4–5 laikų, gali
+  būti pasikeitę): 0 getCapacity, 1 getBytes, 2 setBytes, 3 isFormatted, **4 format**, 5 getLocker,
+  6 setLocker, 7 effaceLocker, 8 lockerSpace. Lockeriai: `Lk` (0x4c6b) magic, u16 ilgis, u32 žyma
+  (`BAG1`, `Dkey`, `EMF!`, `LWVM`), duomenys.
+- Kliūtis įrankiui: tiesioginis įdiegimas sisteminį tomą kopijuoja iš IPSW kaip yra, o naujų
+  LaunchDaemon'ų iOS 14 launchd nepaleidžia (jie imami iš sisteminio kešo). Reikėtų arba sisteminio
+  tomo failų keitimo APFS rašytuve (pvz. `mobile_obliterator` apvalkalo), arba branduolio pataiso.
+
