@@ -176,10 +176,8 @@ private struct FirmwareCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: deviceSymbol(for: item.productTypes.first ?? ""))
-                    .font(.title3)
-                    .foregroundStyle(emulated ? theme.accent : .white.opacity(0.4))
+            HStack(alignment: .top) {
+                VersionBadge(version: item.version, size: 46)
                 Spacer()
                 if emulated { Chip(text: "Emulated", color: theme.accent, icon: "bolt.fill") }
             }
@@ -188,7 +186,8 @@ private struct FirmwareCard: View {
                 .font(.system(.title2, design: .rounded).weight(.bold))
                 .lineLimit(1).minimumScaleFactor(0.7)
             Text(item.build).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.5))
-            Text(deviceNames).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
+            Label(deviceNames, systemImage: deviceSymbol(for: item.productTypes.first ?? ""))
+                .font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)

@@ -201,9 +201,12 @@ private struct FirmwareRow: View {
         let downloaded = library.items.contains { $0.fileName == firmware.fileName }
             || FileManager.default.fileExists(atPath: DownloadManager.localFile(for: firmware.url).path)
         Card(padding: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("iOS \(firmware.version)").font(.system(.title3, design: .rounded).weight(.bold))
-                Text(firmware.buildid).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.5))
+            HStack(alignment: .center, spacing: 12) {
+                VersionBadge(version: firmware.version, size: 38)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("iOS \(firmware.version)").font(.system(.title3, design: .rounded).weight(.bold))
+                    Text(firmware.buildid).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.5))
+                }
                 Spacer()
                 if firmware.signed == true { Chip(text: "Signed", color: .green, icon: "checkmark.seal.fill") }
             }

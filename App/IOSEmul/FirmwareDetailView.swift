@@ -225,7 +225,7 @@ struct FirmwareDetailView: View {
         return ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
-                    GlyphTile(symbol: deviceSymbol(for: item.productTypes.first ?? ""), size: 58)
+                    VersionBadge(version: item.version, size: 58)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("iOS \(item.version)")
                             .font(.system(size: 34, weight: .bold, design: .rounded))

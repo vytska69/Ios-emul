@@ -244,6 +244,60 @@ struct GlyphTile: View {
     }
 }
 
+/// A badge for one iOS release: its major version on a gradient in the colours that release is
+/// remembered by (its default wallpaper and keynote art). Our own drawing; no Apple artwork.
+struct VersionBadge: View {
+    let version: String
+    var size: CGFloat = 44
+
+    private var major: Int { Int(version.split(separator: ".").first ?? "") ?? 0 }
+
+    var body: some View {
+        let colors = Self.palette(major)
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+                .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+                .fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center))
+            Text(major > 0 ? "\(major)" : "?")
+                .font(.system(size: size * (major >= 10 ? 0.5 : 0.58), weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.25), radius: size * 0.04, y: size * 0.02)
+                .minimumScaleFactor(0.5)
+        }
+        .frame(width: size, height: size)
+        .overlay(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).strokeBorder(.white.opacity(0.18)))
+        .accessibilityHidden(true)
+    }
+
+    static func palette(_ major: Int) -> [Color] {
+        func c(_ hex: UInt32) -> Color {
+            Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
+        }
+        switch major {
+        case 1, 2, 3: return [c(0x8E9AAB), c(0x3A4556)]   // iPhone OS: brushed metal
+        case 4: return [c(0x4A90E2), c(0x1C3F94)]
+        case 5: return [c(0x5AC8FA), c(0x1D62C4)]
+        case 6: return [c(0x7FA7D6), c(0x2B4C7E)]
+        case 7: return [c(0x34C3F0), c(0xC643FC), c(0xFF5E3A)]
+        case 8: return [c(0x5856D6), c(0x0A84FF)]
+        case 9: return [c(0x1AD6FD), c(0x1D62F0)]
+        case 10: return [c(0xFF9500), c(0xFF2D55), c(0x5856D6)]
+        case 11: return [c(0x0A84FF), c(0x7A1FD1)]
+        case 12: return [c(0xFFB340), c(0xFF3B30)]
+        case 13: return [c(0x5E5CE6), c(0x1C1C72)]
+        case 14: return [c(0x30D5C8), c(0x0A60FF)]
+        case 15: return [c(0x64D2FF), c(0x5E5CE6), c(0xBF5AF2)]
+        case 16: return [c(0x0A84FF), c(0x2E1A8A)]
+        case 17: return [c(0xFF6482), c(0xFF9F0A)]
+        case 18: return [c(0x00C7FF), c(0x7D5CFF), c(0xFF4FD8)]
+        case 19...: return [c(0xB8F1FF), c(0x4FA8FF), c(0x7B6CFF)]  // iOS 26: Liquid Glass
+        default: return [c(0x636366), c(0x2C2C2E)]
+        }
+    }
+}
+
 extension View {
     /// Dark screen chrome shared by every tab.
     func screenStyle() -> some View {
