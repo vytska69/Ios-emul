@@ -1,0 +1,13 @@
+diff --git a/hw/ssi/apple_spi.c b/hw/ssi/apple_spi.c
+index e584d18..e7d7175 100644
+--- a/hw/ssi/apple_spi.c
++++ b/hw/ssi/apple_spi.c
+@@ -510,7 +510,7 @@ static void apple_spi_realize(DeviceState *dev, struct Error **errp)
+     snprintf(name, sizeof(name), "%s.bus", dev->id);
+     spi->ssi_bus = ssi_create_bus(dev, name);
+ 
+-    if (spi->iomem.size == 0) {
++    if (memory_region_size(&spi->iomem) == 0) {
+         snprintf(name, sizeof(name), "%s.mmio", dev->id);
+         memory_region_init_io(&spi->iomem, OBJECT(dev), &apple_spi_reg_ops, spi,
+                               name, APPLE_SPI_MMIO_SIZE);
