@@ -379,7 +379,7 @@ public final class APFSContainer {
         let extentPlan = BTree.plan(fs.extentRefs, blockSize: bs, fixed: nil, aligned: extentFlags & 0x40 == 0)
         let fsNodes = fsPlan.reduce(0) { $0 + $1.count }, extentNodes = extentPlan.reduce(0) { $0 + $1.count }
         // The volume object map maps one virtual oid per file-system tree node.
-        let omapSlots = (0..<fsNodes).map { (key: Data(count: 16), value: Data(count: 16)) }
+        let omapSlots: [BTree.Record] = (0..<fsNodes).map { _ in (key: Data(count: 16), value: Data(count: 16)) }
         let omapPlan = BTree.plan(omapSlots, blockSize: bs, fixed: (16, 16), aligned: false)
         let omapNodes = omapPlan.reduce(0) { $0 + $1.count }
 
@@ -417,8 +417,14 @@ public final class APFSContainer {
 
         // Volume object map: each fs tree node's oid → its block. A single leaf is laid out like
         // the container's object map tree (whose TOC newfs_apfs sizes for the whole node).
-        let mappings = zip(fsOIDs, fsTreeAddrs).map {
-            (key: Data.le64($0.0) + Data.le64(xid), value: Data.le32(0) + Data.le32(UInt32(blockSize)) + Data.le64($0.1))
+        var mappings: [BTree.Record] = []
+        for (oid, addr) in zip(fsOIDs, fsTreeAddrs) {
+            var key = Data.le64(oid)
+            key.appendLE64(xid)
+            var value = Data.le32(0)                                         // flags, size, paddr
+            value.appendLE32(UInt32(blockSize))
+            value.appendLE64(addr)
+            mappings.append((key: key, value: value))
         }
         if omapNodes == 1 {
             var model = omapModel
