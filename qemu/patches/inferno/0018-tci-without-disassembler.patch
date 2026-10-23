@@ -1,0 +1,17 @@
+diff --git a/tcg/tci.c b/tcg/tci.c
+index e4dcb46..bd3c17c 100644
+--- a/tcg/tci.c
++++ b/tcg/tci.c
+@@ -870,6 +870,7 @@ static const char *str_c(TCGCond c)
+     return cond[c];
+ }
+ 
++#ifdef CONFIG_TCI_DISAS /* this tree has no disassembler (disas/dis-asm.h) */
+ /* Disassemble TCI bytecode. */
+ int print_insn_tci(bfd_vma addr, disassemble_info *info)
+ {
+@@ -1072,3 +1073,4 @@ int print_insn_tci(bfd_vma addr, disassemble_info *info)
+ 
+     return sizeof(insn);
+ }
++#endif
