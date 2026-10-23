@@ -15,6 +15,9 @@ on:
       commands:
         description: "Shell commands run with $ROOT set to the mounted root filesystem"
         default: ""
+      collect:
+        description: "Space-separated root filesystem paths to upload as an artifact"
+        default: ""
 
 jobs:
   probe:
@@ -64,3 +67,20 @@ jobs:
             strings -a "$ROOT/sbin/launchd" | grep -n -i 'data-protection\|init_data_protection\|mount-phase\|boot task\|BootTask' | head -60
             strings -a "$ROOT/usr/libexec/init_data_protection" 2>/dev/null | grep -i 'gigalocker\|xart\|usage\|-' | head -80
           fi
+
+      - name: Collect files
+        if: inputs.collect != ''
+        run: |
+          mkdir -p collected
+          for f in ${{ inputs.collect }}; do
+            src="$PWD/root/${f#/}"
+            [ -L "$src" ] && src="$PWD/root/$(readlink "$src" | sed 's|^/||')"
+            mkdir -p "collected/$(dirname "$f")" && cp -L "$src" "collected/$f" || echo "missing: $f"
+          done
+          find collected -type f -exec ls -la {} +
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.collect != ''
+        with:
+          name: rootfs-files
+          path: collected
