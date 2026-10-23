@@ -52,6 +52,11 @@ final class FirmwareModel: ObservableObject {
             runError = "\(IPSWError.noIdentity)"
             return
         }
+        // Likewise without JIT: say so before the install rather than after it.
+        if QEMURunner.needsJIT && !QEMURunner.jitAvailable {
+            runError = "\(QEMURunner.RunnerError.jitUnavailable)"
+            return
+        }
         // iOS ends an app that goes over its memory limit without a message, so refuse up front
         // when the VM cannot fit (os_proc_available_memory is what is left before that limit).
         let guestMB = min(max(memoryMB, backend.memoryRangeMB.lowerBound), backend.memoryRangeMB.upperBound)

@@ -15,12 +15,17 @@ public final class QEMURunner {
         case binaryNotFound(String)
         case symbolMissing(String)
         case alreadyUsed
+        case jitUnavailable
 
         public var description: String {
             switch self {
             case .binaryNotFound(let b): return "QEMU binary/framework not found: \(b)"
             case .symbolMissing(let s): return "QEMU framework does not export \(s)"
             case .alreadyUsed: return "QEMU already ran in this process; relaunch the app to start another machine"
+            case .jitUnavailable:
+                return "JIT is not enabled for this app, and iOS closes an app that runs the emulator without it. "
+                    + "Enable JIT before booting: in SideStore, open the app through StikDebug or another JIT "
+                    + "enabler; in TrollStore, use \"Open with JIT\". Then return here and boot again."
             }
         }
     }
@@ -115,8 +120,24 @@ public final class QEMURunner {
     private typealias LoopFn = @convention(c) () -> Int32
     private typealias CleanupFn = @convention(c) (Int32) -> Void
 
+    /// TCI builds of QEMU (scripts/build-qemu-ios.sh --tci) interpret guest code and need no JIT;
+    /// the IPA workflow marks them with this Info.plist key.
+    public static var needsJIT: Bool {
+        !(Bundle.main.object(forInfoDictionaryKey: "IOSEmulQEMUInterpreter") as? Bool ?? false)
+    }
+
+    /// Whether this process may run generated code: on iOS that needs a debugger to have attached
+    /// (CS_DEBUGGED), which is what SideStore's JIT enablers and TrollStore's "Open with JIT" do.
+    public static var jitAvailable: Bool {
+        var flags: UInt32 = 0
+        guard csops(getpid(), 0 /* CS_OPS_STATUS */, &flags, MemoryLayout<UInt32>.size) == 0 else { return false }
+        return flags & 0x1000_0000 /* CS_DEBUGGED */ != 0
+    }
+
     private func startInProcess() throws {
         guard !Self.used else { throw RunnerError.alreadyUsed }
+        // Without JIT the first translated block kills the app before QEMU can report anything.
+        if Self.needsJIT && !Self.jitAvailable { throw RunnerError.jitUnavailable }
         // qemu-system-aarch64 → qemu-aarch64-softmmu.framework
         let target = configuration.qemuBinary.replacingOccurrences(of: "qemu-system-", with: "")
         let name = "qemu-\(target)-softmmu"
@@ -230,3 +251,8 @@ public struct QEMUMonitor {
             .joined(separator: "\n")
     }
 }
+
+#if os(iOS)
+@_silgen_name("csops")
+private func csops(_ pid: pid_t, _ ops: UInt32, _ useraddr: UnsafeMutableRawPointer?, _ usersize: Int) -> Int32
+#endif

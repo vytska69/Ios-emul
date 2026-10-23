@@ -80,6 +80,10 @@ jobs:
       - name: Build app
         run: |
           xcodegen generate
+          # TCI builds run without JIT; tell the app so it does not ask for it (QEMURunner.needsJIT).
+          if [ "${{ inputs.tci }}" = "true" ]; then
+            /usr/libexec/PlistBuddy -c "Add :IOSEmulQEMUInterpreter bool true" App/Info.plist
+          fi
           xcodebuild -project IOSEmul.xcodeproj -scheme IOSEmul -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
             MARKETING_VERSION="0.1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
