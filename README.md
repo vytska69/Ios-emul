@@ -111,6 +111,12 @@ pratęsiamas nuo tos vietos), įrašomas į `Firmware` aplanką (matomas Files p
 importuojamas automatiškai. Atsisiųstas failas patikrinamas pagal ipsw.me SHA-1; sugadintas
 ištrinamas ir siūloma siųsti iš naujo. Turimą `.ipsw` galima ir tiesiog importuoti iš Files.
 
+**Programa** turi tris skirtukus: *Machines* (importuotų IPSW kortelės), *Download* (ipsw.me
+katalogas su filtrais iPhone / iPad / iPod) ir *Settings*. Nustatymuose: tema (Aurora, Ember,
+Circuit, Mono), numatytas boot režimas, CPU branduoliai ir atmintis, QEMU vertimo kešo dydis,
+verbose boot, ekrano neužmigdymas veikiant VM, JIT būsena, SHA-1 tikrinimas ir mobilieji duomenys
+siuntimams, užimta vieta ir virtualių diskų trynimas.
+
 Jei programa užsidaro paleidus VM, ją vėl atidarius firmware puslapyje rodoma QEMU paskutinė
 išvestis. Jei VM netelpa į atmintį, kurią iOS leidžia programai, boot'as nepradedamas ir parodoma,
 kiek atminties reikia.
