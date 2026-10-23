@@ -1,0 +1,25 @@
+diff --git a/meson.build b/meson.build
+index cddec7c..1695136 100644
+--- a/meson.build
++++ b/meson.build
+@@ -3978,7 +3978,7 @@ foreach target : target_dirs
+                  objects: objects,
+                  include_directories: target_inc,
+                  c_args: c_args,
+-                 build_by_default: false,
++                 build_by_default: get_option('shared_lib'),
+                  kwargs: build_lib_args)
+ 
+   if target.endswith('-softmmu')
+@@ -4004,7 +4004,10 @@ foreach target : target_dirs
+       'dependencies': []
+     }]
+   endif
+-  foreach exe: execs
++  # A shared-library build is the emulator itself; hosts load it and call qemu_init and
++  # qemu_main_loop, so no executable is linked (its main would need symbols the library
++  # does not export).
++  foreach exe: get_option('shared_lib') ? [] : execs
+     exe_name = exe['name']
+     if host_os == 'darwin'
+       exe_name += '-unsigned'
