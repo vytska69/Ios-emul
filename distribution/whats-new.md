@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- Settings → Emulator → Engine is always shown, and says when a build has only one engine.
 - New Enable JIT with StikDebug button (Settings → Emulator, and on the firmware page when JIT is off): it opens StikDebug with the right script for this app, then prepares JIT memory once it has attached. No need to pick a script in StikDebug yourself.
 - Fixed the no-JIT interpreter missing from the app (it failed to build).
 - JIT on iOS 26 and later (iPhone 15 Pro, 16, 16e, 17 and newer): the app now asks StikDebug for its JIT memory the way these devices require, so machines no longer stop right after starting. In StikDebug, use the universal.js script for iOS Emul.

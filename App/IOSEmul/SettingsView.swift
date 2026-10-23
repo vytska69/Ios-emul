@@ -455,18 +455,21 @@ private struct EmulatorPage: View {
                     }
                 }
             }
-            if QEMURunner.interpreterBundled && QEMURunner.jitBundled {
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionLabel(text: "Engine", icon: "cpu")
-                    Card {
-                        Picker("Engine", selection: $engine) {
-                            Text("Automatic").tag(QEMURunner.Engine.automatic.rawValue)
-                            Text("JIT").tag(QEMURunner.Engine.jit.rawValue)
-                            Text("Interpreter").tag(QEMURunner.Engine.interpreter.rawValue)
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: engine) { _ in Pref.applyEngine() }
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Engine", icon: "cpu")
+                Card {
+                    Picker("Engine", selection: $engine) {
+                        Text("Automatic").tag(QEMURunner.Engine.automatic.rawValue)
+                        Text("JIT").tag(QEMURunner.Engine.jit.rawValue)
+                        Text("Interpreter").tag(QEMURunner.Engine.interpreter.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(!(QEMURunner.interpreterBundled && QEMURunner.jitBundled))
+                    .onChange(of: engine) { _ in Pref.applyEngine() }
+                    if QEMURunner.interpreterBundled && QEMURunner.jitBundled {
                         Hint(text: "Automatic uses JIT when it is enabled for the app and the interpreter otherwise. Choose Interpreter if machines stop right after starting with JIT on. Applies to machines started afterwards.")
+                    } else {
+                        Hint(text: "This build has only the \(QEMURunner.jitBundled ? "JIT" : "interpreter") engine; the interpreter for running without JIT comes with a newer build.")
                     }
                 }
             }
