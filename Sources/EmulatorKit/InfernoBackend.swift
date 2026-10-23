@@ -105,10 +105,10 @@ public struct InfernoBackend: EmulatorBackend {
         var firstBoot = false
         if direct {
             rootDevice = try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
-            deviceTree = try directDeviceTree(from: deviceTree)
             let marker = dir.appendingPathComponent(Self.firstBootMarker)
             firstBoot = fm.fileExists(atPath: marker.path)
             try? fm.removeItem(at: marker)
+            deviceTree = try directDeviceTree(from: deviceTree, dataInFirstMountPhase: firstBoot && ctx.firstBootErase)
         }
         for ns in namespaces { try ensureDisk(dir.appendingPathComponent(ns.file), sizeBytes: ns.size) }
 
@@ -217,7 +217,12 @@ public struct InfernoBackend: EmulatorBackend {
     }
 
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
-    func directDeviceTree(from file: URL) throws -> URL {
+    ///
+    /// With `dataInFirstMountPhase` the Data volume is mounted with System, Preboot and xART
+    /// (fs_passno 1) instead of in mount-phase-2. The first-boot obliteration then finds it mounted
+    /// on /private/var: it cannot delete and recreate it (newfs_apfs would need a media key the
+    /// simulated SEP cannot wrap), so it keeps it and writes the system keybag there.
+    func directDeviceTree(from file: URL, dataInFirstMountPhase: Bool = false) throws -> URL {
         let tree = try DeviceTree.parse(Data(contentsOf: file))
         let pruned = DeviceTree.serialize(tree) { node in
             // iBoot records that it loaded the SEP firmware; the kernel then asks the SEP ROM to
@@ -229,7 +234,13 @@ public struct InfernoBackend: EmulatorBackend {
                                       children: node.children)
             }
             guard node.parent?.name == "fstab", node.parent?.parent?.name == "filesystems" else { return node }
-            return Self.directInstallVolumes.contains(node.name) ? node : nil
+            guard Self.directInstallVolumes.contains(node.name) else { return nil }
+            if dataInFirstMountPhase, node.name == "data-vol" {
+                var props = node.properties
+                props["vol.fs_passno"] = Data([1, 0, 0, 0])
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders, children: node.children)
+            }
+            return node
         }
         let out = file.deletingLastPathComponent().appendingPathComponent("DeviceTree.direct.raw")
         try pruned.write(to: out)
