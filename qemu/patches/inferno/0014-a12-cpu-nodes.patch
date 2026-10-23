@@ -1,0 +1,14 @@
+diff --git a/hw/arm/apple-silicon/boot.c b/hw/arm/apple-silicon/boot.c
+index 103130d..35bbbe8 100644
+--- a/hw/arm/apple-silicon/boot.c
++++ b/hw/arm/apple-silicon/boot.c
+@@ -77,6 +77,9 @@ static const char *KEEP_COMP[] = {
+     "apple,lightning\0ARM,v8\0$",
+     "apple,thunder\0ARM,v8\0$",
+     "apple,twister\0ARM,v8\0$",
++    // A12 (T8020) cores, so an A12 device tree keeps its CPU nodes.
++    "apple,vortex\0ARM,v8\0$",
++    "apple,tempest\0ARM,v8\0$",
+     "arm-io,s8000\0$",
+     "arm-io,t8030\0$",
+     "atc-phy,t8030\0atc-phy,t8027\0$",
