@@ -67,3 +67,15 @@ jį kompiliuoja macOS runneryje.
   leisti importuoti savo dump'ą (assetų parinkimas jau yra), arba paleisti be ROM – įkelti LLB/iBoot
   iš IPSW tiesiai (reikia iššifruotų vaizdų).
 - NOR ir NAND vaizdus generuoti pačioje programėlėje iš IPSW, o ne qemu-ios įrankiais.
+
+## iPhone 11 tiesioginis įdiegimas: effaceable storage
+
+- Branduolys pasiekia launchd, o `mobile_obliterator` (pirmo paleidimo trynimas) panikuoja
+  „Failed to write effaceable.“
+- NVMe sekimas: effaceable namespace (nsid 6) perskaitomas vieną kartą (`unable to find content`) ir
+  į jį **niekada nerašoma**; ANS „tunnel“ (0xd8) komandos tėra buferių nustatymas. Branduolys
+  atsisako rašyti, nes sritis nesuformatuota. Ją formatuoja restore procesas (restored per
+  `AppleEffaceableStorage` vartotojo klientą), ne įprastas boot'as.
+- Kelias: arba atkartoti suformatuotos srities turinį tiesioginiame įdiegime, arba (patikimiau) prieš
+  `mobile_obliterator` paleisti nedidelį įrankį, kuris iškviečia effaceable „format“ metodą, arba
+  pasiekti tikrą restore programoje (4 etapas).
