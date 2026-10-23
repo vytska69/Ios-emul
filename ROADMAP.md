@@ -26,7 +26,7 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 | 0 | CI žalias, `.ipa` per GitHub Actions | Programa įsidiegia telefone per SideStore/TrollStore, kompiuterio nereikia | Atlikta: Rolling IPA su QEMU branduoliu (nuo 0.1.85), IPSW parsisiuntimas iš ipsw.me |
 | 1 | DeviceTree parseris + padengimo ataskaita | Kiekvienam IPSW matosi, kiek % hardware emuliuojama ir ko trūksta | Atlikta |
 | 1b | Įdiegimas be restore | iOS įrašoma į virtualų diską tiesiai iš IPSW: UDIF → GPT → APFS konteineris, Preboot/xART/Data tomai, pritaikytas `fstab` | Veikia iOS 14 (iPhone 11): visi tomai prijungiami, `fsck_apfs` švarus |
-| 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | SEP boot, gigalocker ir raktų saugykla veikia; 11 launchd žingsnių praeina, stoja `keybag` (nėra sistemos keybag'o) |
+| 1c | Simuliuotas SEP | SEP ROM dump'o nereikia: SEP boot'as su IPSW firmware, raktų saugykla, xART, gigalocker | SEP boot, gigalocker, effaceable, sistemos keybag'as veikia; iOS 14 pasiekia pilną userland'ą |
 | 2 | Bendra DT valdoma mašina (`apple-generic`) mūsų QEMU fork'e | A13 bootina per bendrą kelią, kaip ir per Inferno T8030 | Pradėta: T8030 mašina praleidžia blokus, kurių DeviceTree neturi, ir XR (A12) mašina susirenka (patch'ai 0010, 0011) |
 | 3 | A14 (T8101) ir M1 (T8103) | iPhone 12 / iPad Air 4 / iPad Pro M1 iki launchd, vėliau SpringBoard | Planuojama |
 | 4 | Restore programoje | `idevicerestore` + libimobiledevice įkompiliuoti į programą, jungiasi prie VM per vidinį USB-over-TCP | Planuojama (1b daugeliu atvejų jį pakeičia) |
@@ -36,7 +36,8 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 ### Artimiausi žingsniai
 
-1. Effaceable saugykla, kad pirmo boot'o „Erase All Content“ sukurtų sistemos keybag'ą.
+1. iPhone 11 iOS 14: nuo juodo ekrano iki SpringBoard. Sistema dirba, bet nieko nepiešia; reikia pamatyti, kurie
+   userland procesai stringa (SEP raktų saugyklos komandos 0x22/0x2A/0x4D/0x0B, Data be Data Protection).
 2. iPhone XR (A12, atidėta): kernelis panikuoja `rtclock` inicializacijoje dar prieš serial išvestį,
    nors patch 0014 grąžino CPU mazgus su `timebase-frequency`. Kita – `-d exec,nochain,int` kelias iki
    pirmos išimties (įrankiai: `scripts/xref.py`, `scripts/adt.py`, boot testo `after` įvestis);
@@ -68,22 +69,20 @@ jį kompiliuoja macOS runneryje.
   iš IPSW tiesiai (reikia iššifruotų vaizdų).
 - NOR ir NAND vaizdus generuoti pačioje programėlėje iš IPSW, o ne qemu-ios įrankiais.
 
-## iPhone 11 tiesioginis įdiegimas: effaceable storage
+## iPhone 11 tiesioginis įdiegimas: pirmas paleidimas
 
-- Branduolys pasiekia launchd, o `mobile_obliterator` (pirmo paleidimo trynimas) panikuoja
-  „Failed to write effaceable.“
-- NVMe sekimas: effaceable namespace (nsid 6) perskaitomas vieną kartą (`unable to find content`) ir
-  į jį **niekada nerašoma**; ANS „tunnel“ (0xd8) komandos tėra buferių nustatymas. Branduolys
-  atsisako rašyti, nes sritis nesuformatuota. Ją formatuoja restore procesas (restored per
-  `AppleEffaceableStorage` vartotojo klientą), ne įprastas boot'as.
-- Kelias: arba atkartoti suformatuotos srities turinį tiesioginiame įdiegime, arba (patikimiau) prieš
-  `mobile_obliterator` paleisti nedidelį įrankį, kuris iškviečia effaceable „format“ metodą, arba
-  pasiekti tikrą restore programoje (4 etapas).
-- `AppleEffaceableStorage` vartotojo kliento selektoriai (iphone-dataprotection, iOS 4–5 laikų, gali
-  būti pasikeitę): 0 getCapacity, 1 getBytes, 2 setBytes, 3 isFormatted, **4 format**, 5 getLocker,
-  6 setLocker, 7 effaceLocker, 8 lockerSpace. Lockeriai: `Lk` (0x4c6b) magic, u16 ilgis, u32 žyma
-  (`BAG1`, `Dkey`, `EMF!`, `LWVM`), duomenys.
-- Kliūtis įrankiui: tiesioginis įdiegimas sisteminį tomą kopijuoja iš IPSW kaip yra, o naujų
-  LaunchDaemon'ų iOS 14 launchd nepaleidžia (jie imami iš sisteminio kešo). Reikėtų arba sisteminio
-  tomo failų keitimo APFS rašytuve (pvz. `mobile_obliterator` apvalkalo), arba branduolio pataiso.
+Kelias, kuriuo tiesioginis įdiegimas pasiekia userland'ą (iOS 14.0, 2026-10-23):
 
+- **Effaceable** (patch 0020): tuščia saugykla laikoma suformatuota, todėl `mobile_obliterator` įrašo
+  `BAG1`/`Dkey` lockerius.
+- **Data tomas slot 1** (disk0s1s2), kaip tikrame iPhone: trynimas jį randa ir naikina tame slot'e.
+- **Data šifravimas**: iOS naują Data tomą kuria su SEP media raktu (AKS ref-key, SEP komanda 0x22,
+  DER užklausa `{bc: 13, kt: 4, o: "oc"}`; atsakyme laukiama `rk`/`ed` su `pub` viešuoju raktu). Simuliuotas
+  SEP to nemoka, todėl pirmame starte Data prijungiamas su mount-phase-1 (`vol.fs_passno` 1 DeviceTree
+  fstab'e): trynimas jo neištrina (`kIOReturnStillOpen`), sukuria katalogus ir `systembag.kb`.
+- **NVRAM** (patch 0022): `oblit-inprogress` nustatomas tik pirmam startui; guest'o NVRAM rašymai iki
+  disko nepasiekia, todėl QEMU žymę pašalina pats.
+- **Spinlock'ai**: `slto_us=100000000`, kitaip userland'e „Ticket spinlock timeout“ panika.
+
+Toliau: ekranas juodas. Tikras sprendimas Data šifravimui – AKS ref-key ir media raktų įgyvendinimas
+simuliuotame SEP (ECDH su SEP raktų pora), kad iOS sukurtų ir atrakintų šifruotą Data tomą.

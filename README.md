@@ -12,9 +12,10 @@ programai įdiegti, nei iOS į virtualų įrenginį įrašyti.
 [Programa](#programa) · [Kūrėjams](#kūrėjams) · [Ribos](#ribos) · [ROADMAP](ROADMAP.md) ·
 [Kas naujo](distribution/whats-new.md)
 
-> **Dabar.** iPhone 11 su iOS 14.0 įsidiegia be restore ir pasiekia `launchd` ir macOS CI'e, ir
-> telefone (iPhone 16e, iOS 27.2, JIT per StikDebug). Abiem atvejais sustoja ties sistemos keybag'u,
-> kurio dar nėra, nes effaceable saugykla nesuformatuota. iPhone 6s su iOS 15.8 pasiekia IOKit.
+> **Dabar.** iPhone 11 su iOS 14.0 įsidiegia be restore, praeina pirmo paleidimo trynimą ir sistemos
+> keybag'ą ir paleidžia pilną iOS userland'ą (macOS CI'e): įsijungia ekrano apšvietimas, sistema dirba
+> be panikų, bet ekranas kol kas juodas. Telefone (iPhone 16e, iOS 27.2) tai dar neišbandyta su naujausiu
+> build'u. iPhone 6s su iOS 15.8 pasiekia IOKit.
 > Plačiau: [Būsena](#būsena).
 
 ---
@@ -70,7 +71,7 @@ workflow tai daro macOS CI'e su tikrais IPSW, programa telefone eina tuo pačiu 
 
 | Įrenginys ir iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | `launchd`; praeina `fsck`, `mount-phase-1`, `data-protection`, SEP boot ir gigalocker | Pirmo paleidimo „Erase All Content“ (`mobile_obliterator`) panikuoja „Failed to write effaceable.“: effaceable saugykla (NVMe nsid 6) nesuformatuota, branduolys į ją net nebando rašyti. Ją paprastai suformatuoja restore |
+| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | Pilnas userland: trynimas, `keybag` („System Keybag loaded“), „Early boot complete“, IOMFB ir ekrano apšvietimas; 30 min be panikos | Ekranas juodas. Data tomas nešifruotas („not content protected“), simuliuotas SEP neatsako į dalį AppleSEPKeyStore komandų (0x22 ref-key, 0x2A, 0x4D, 0x0B) |
 | iPhone 11, iOS 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB-over-TCP, ROADMAP 4 etapas) |
 | iPhone 6s / 6s Plus (A9), iOS 15.8 | IOKit (AIC, AES, SPI, I2C, PCIe, NVMe) | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
 | iPhone XR (A12), iOS 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įjungiamas | Panika `rtclock` inicializacijoje dar prieš serial išvestį. Atidėta, kol tvarkomas iPhone 11 |
@@ -237,8 +238,9 @@ rodoma SideStore „What's New“ ir Rolling release puslapyje (žr. [`CLAUDE.md
 
 - **Failai, kurių nėra IPSW.** SecureROM ir SEP ROM yra lusto viduje; bootinama su simuliuotu SEP.
   iPod boot ROM negali būti platinamas su programa.
-- **Effaceable ir sistemos keybag'as.** Restore juos sukuria per SEP; tiesioginis įdiegimas jų dar
-  neturi, todėl iPhone 11 pirmas paleidimas sustoja (žr. [ROADMAP](ROADMAP.md)).
+- **Data tomo šifravimas.** Simuliuotas SEP nemoka AKS ref-key komandų (0x22), todėl iOS negali sukurti
+  šifruoto Data tomo. Tiesioginis įdiegimas palieka savo nešifruotą tomą ir pirmame starte jį prijungia
+  anksčiau (mount-phase-1), kad trynimas jo neištrintų (žr. [ROADMAP](ROADMAP.md)).
 - **iOS 16+** Preboot tome reikia sistemos cryptex failų; dar nepadaryta.
 - **Data tomas** kol kas turi tik pagrindinius katalogus.
 - **iPhone 6s RAM** visada 2 GiB (tiek priima QEMU S8000 modelis).
