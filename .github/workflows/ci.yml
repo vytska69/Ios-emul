@@ -37,6 +37,13 @@ jobs:
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/ref.txt")" || true
           .build/debug/ipsw-emu apfs-add-volume "$work/sys.cdr" --name Preboot \
             --dirs "$(printf '0%.0s' $(seq 96))/usr/standalone/firmware" --files "notes/hello.txt=hello apfs"
+          # A Data volume too big for single-node trees: multi-level file-system and object map
+          # trees, plus owners and permissions.
+          bigdirs=$(for i in $(seq 1 3000); do printf 'tree/d%04d/sub,' $i; done)
+          bigfiles=$(for i in $(seq 1 300); do printf 'files/f%03d.txt=file %d,' $i $i; done)
+          .build/debug/ipsw-emu apfs-add-volume "$work/sys.cdr" --name Data --role data \
+            --dirs "mobile/Library,tmp,${bigdirs%,}" --files "${bigfiles%,}" \
+            --owners "mobile=501:501:755,mobile/Library=501:501:700,tmp=0:0:1777"
           echo "== reference (diskutil)"; .build/debug/ipsw-emu apfs-dump "$work/ref.cdr" || true
           echo "== ours"; .build/debug/ipsw-emu apfs-dump "$work/sys.cdr" || true
           disk=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$work/sys.cdr" | awk 'NR==1{print $1}')
@@ -46,7 +53,7 @@ jobs:
           hdiutil detach "$disk"
           mkdir -p "$work/mnt"
           # Mount every volume of this image only (never the runner's own Preboot) and list them.
-          hdiutil attach -imagekey diskimage-class=CRawDiskImage -readonly -nobrowse \
+          hdiutil attach -imagekey diskimage-class=CRawDiskImage -readonly -nobrowse -owners on \
             -mountrandom "$work/mnt" "$work/sys.cdr" | tee "$work/attach.txt" || fsck=1
           awk -F'\t' 'NF>2 && $NF ~ /\// {print $NF}' "$work/attach.txt" | while read -r m; do
             echo "== $m"; ls -laR "$m" | head -40
@@ -64,6 +71,19 @@ jobs:
             [ "$(cat "$m/notes/hello.txt" 2>/dev/null)" = "hello apfs" ] && hello=1 && echo "file reads back on $m"
           done
           [ "$hello" = 1 ] || fsck=1
+          # The Data volume's entries, file contents and owners must read back.
+          big=0
+          for m in $(awk -F'\t' 'NF>2 && $NF ~ /\// {print $NF}' "$work/attach.txt"); do
+            [ -d "$m/tree/d3000/sub" ] || continue
+            dirs=$(find "$m/tree" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+            nfiles=$(find "$m/files" -type f | wc -l | tr -d ' ')
+            echo "Data volume on $m: $dirs dirs, $nfiles files"
+            stat -f '%Su:%Sg %Lp %N' "$m/mobile" "$m/mobile/Library" "$m/tmp" || true
+            [ "$dirs" = 3000 ] && [ "$nfiles" = 300 ] && [ "$(cat "$m/files/f150.txt")" = "file 150" ] \
+              && [ "$(stat -f '%u:%g:%Lp' "$m/mobile/Library")" = "501:501:700" ] \
+              && [ "$(stat -f '%Lp' "$m/tmp")" = "1777" ] && big=1
+          done
+          [ "$big" = 1 ] || fsck=1
           hdiutil detach "$(awk 'NR==1{print $1}' "$work/attach.txt")" || true
           exit $fsck
 

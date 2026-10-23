@@ -9,7 +9,8 @@ import EmulatorKit
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
 //                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
-//   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--dirs a/b,c] [--files a/f=text]
+//   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--role preboot|data|xart]
+//                            [--dirs a/b,c] [--files a/f=text] [--owners a/b=501:501:755]
 //
 // --force-backend runs a firmware on a machine its compatibility check rejects. That is how a new
 // SoC is brought up: boot it on the closest existing model and fix whatever it trips over first.
@@ -68,8 +69,20 @@ if command == "apfs-add-volume" {
             let parts = spec.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             files[String(parts[0])] = Data((parts.count > 1 ? String(parts[1]) : "").utf8)
         }
-        try container.addVolume(name: options["name"] ?? "Preboot", role: .preboot,
-                                tree: APFSContainer.Tree(directories: dirs, files: files))
+        // --owners "a/b=501:501:755" sets owner, group and octal permissions.
+        var attributes: [String: APFSContainer.Attributes] = [:]
+        for spec in (options["owners"] ?? "").split(separator: ",") {
+            let parts = spec.split(separator: "=", maxSplits: 1).map(String.init)
+            let ids = parts.count == 2 ? parts[1].split(separator: ":").map(String.init) : []
+            guard ids.count == 3, let uid = UInt32(ids[0]), let gid = UInt32(ids[1]), let mode = UInt16(ids[2], radix: 8) else {
+                fail("--owners expects path=uid:gid:mode")
+            }
+            attributes[parts[0]] = APFSContainer.Attributes(uid: uid, gid: gid, mode: mode)
+        }
+        let roles: [String: APFSContainer.Role] = ["preboot": .preboot, "data": .data, "xart": .xart]
+        guard let role = roles[options["role"] ?? "preboot"] else { fail("--role expects preboot, data or xart") }
+        try container.addVolume(name: options["name"] ?? "Preboot", role: role,
+                                tree: APFSContainer.Tree(directories: dirs, files: files, attributes: attributes))
         print("roles after: \(try container.roles().map { String(format: "0x%x", $0) })")
     } catch { fail("\(error)") }
     exit(0)

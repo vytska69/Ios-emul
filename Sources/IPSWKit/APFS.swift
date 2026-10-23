@@ -326,23 +326,39 @@ public final class APFSContainer {
               let templateOID = volumeOIDs.first else { throw Error.unsupported("no free volume slot") }
         let template = try volumeSuperblock(templateOID)
 
-        // Blocks: volume superblock, volume omap, its tree, fs tree, extent-ref tree, snapshot tree,
-        // then file data.
         let bs = Int(blockSize)
         let filePaths = tree.files.keys.sorted()
         let dataBlocks = filePaths.reduce(0) { $0 + (tree.files[$1]!.count + bs - 1) / bs }
-        let blocks = try allocate(6 + dataBlocks)
-        let (sbAddr, omapAddr, omapTreeAddr, fsTreeAddr, extentAddr, snapAddr) =
-            (blocks[0], blocks[1], blocks[2], blocks[3], blocks[4], blocks[5])
+        let infoAt = bs - FixedNode.infoSize
+        let now = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
 
-        // File contents, each as runs of consecutive blocks (the allocator may hand out gaps).
-        var nextData = 6
+        // Format details (B-tree flags, TOC sizes, object map flags) are copied from structures
+        // Apple's tools wrote: the template volume's trees and the container's object map tree.
+        let tpl = ByteReader(template)
+        let tplOmap = try read(block: tpl.u64(at: 128))
+        let tplFSRoot = try read(block: omapLookup(tree: ByteReader(tplOmap).u64(at: 48), oid: tpl.u64(at: 136)))
+        let tplExtentRef = try read(block: tpl.u64(at: 144))
+        let tplSnapMeta = try read(block: tpl.u64(at: 152))
+        let containerOmap = try read(block: r.u64(at: 160))
+        let omapModel = try read(block: ByteReader(containerOmap).u64(at: 48))
+        let fsFlags = ByteReader(tplFSRoot).u32(at: infoAt)
+        let extentFlags = ByteReader(tplExtentRef).u32(at: infoAt)
+        let omapFlags = ByteReader(omapModel).u32(at: infoAt)
+
+        let templateFlags = tpl.u64(at: 56)
+        let caseInsensitive = templateFlags & 0x1 != 0
+        let hashedNames = caseInsensitive || templateFlags & 0x8 != 0
+
+        // The file-system records depend on where file data lands, and the trees' shapes only on
+        // the records' sizes. Lay out the file data first, then size the trees, then place them.
+        var dataAddrs = try allocate(dataBlocks)
         var files: [FSTree.File] = []
         for path in filePaths {
             let data = tree.files[path]!
             let count = (data.count + bs - 1) / bs
-            let mine = Array(blocks[nextData..<(nextData + count)])
-            nextData += count
+            let mine = Array(dataAddrs.prefix(count))
+            dataAddrs.removeFirst(count)
+            // Each file as runs of consecutive blocks (the allocator may hand out gaps).
             var runs: [(logical: UInt64, paddr: UInt64, blocks: UInt64)] = []
             for (i, b) in mine.enumerated() {
                 if let last = runs.last, last.paddr + last.blocks == b {
@@ -356,62 +372,77 @@ public final class APFSContainer {
             }
             files.append(FSTree.File(path: path, size: UInt64(data.count), runs: runs))
         }
-        let volumeOID = r.u64(at: 88)                  // nx_next_oid
-        let fsTreeOID: UInt64 = 1026
-        let now = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-
-        let templateFlags = ByteReader(template).u64(at: 56)
-        let caseInsensitive = templateFlags & 0x1 != 0
-        let hashedNames = caseInsensitive || templateFlags & 0x8 != 0
         let fs = FSTree(directories: tree.directories, files: files, attributes: tree.attributes, blockSize: blockSize,
                         hashedNames: hashedNames, caseInsensitive: caseInsensitive, time: now)
 
-        // Format details (B-tree flags, TOC sizes, object map flags) are copied from structures
-        // Apple's tools wrote: the template volume's trees and the container's object map tree.
-        let tpl = ByteReader(template)
-        let tplOmap = try read(block: tpl.u64(at: 128))
-        let tplFSRoot = try read(block: omapLookup(tree: ByteReader(tplOmap).u64(at: 48), oid: tpl.u64(at: 136)))
-        let tplExtentRef = try read(block: tpl.u64(at: 144))
-        let tplSnapMeta = try read(block: tpl.u64(at: 152))
-        let infoAt = Int(blockSize) - FixedNode.infoSize
+        let fsPlan = BTree.plan(fs.records, blockSize: bs, fixed: nil, aligned: fsFlags & 0x40 == 0)
+        let extentPlan = BTree.plan(fs.extentRefs, blockSize: bs, fixed: nil, aligned: extentFlags & 0x40 == 0)
+        let fsNodes = fsPlan.reduce(0) { $0 + $1.count }, extentNodes = extentPlan.reduce(0) { $0 + $1.count }
+        // The volume object map maps one virtual oid per file-system tree node.
+        let omapSlots = (0..<fsNodes).map { (key: Data(count: 16), value: Data(count: 16)) }
+        let omapPlan = BTree.plan(omapSlots, blockSize: bs, fixed: (16, 16), aligned: false)
+        let omapNodes = omapPlan.reduce(0) { $0 + $1.count }
 
-        // File-system tree, a single root leaf of variable-size records.
-        var fsNode = VariableNode.build(records: fs.records, blockSize: blockSize,
-                                        header: (oid: fsTreeOID, xid: xid, type: 0x0000_0002, subtype: 0x0E),
-                                        info: (flags: ByteReader(tplFSRoot).u32(at: infoAt),
-                                               keyCount: UInt64(fs.records.count)))
-        Self.seal(&fsNode)
-        try write(fsNode, block: fsTreeAddr)
+        // Blocks: volume superblock, volume omap, its tree, fs tree, extent-ref tree, snapshot tree.
+        var meta = try allocate(3 + omapNodes + fsNodes + extentNodes)
+        let sbAddr = meta.removeFirst(), omapAddr = meta.removeFirst(), snapAddr = meta.removeFirst()
+        let omapTreeAddrs = Array(meta.prefix(omapNodes)); meta.removeFirst(omapNodes)
+        let fsTreeAddrs = Array(meta.prefix(fsNodes)); meta.removeFirst(fsNodes)
+        let extentAddrs = Array(meta.prefix(extentNodes))
+        let ownedBlocks = UInt64(2 + omapNodes + fsNodes + extentNodes + dataBlocks)   // all but the superblock
 
-        for (addr, subtype, model, records) in [(extentAddr, UInt32(0x0F), tplExtentRef, fs.extentRefs),
-                                                (snapAddr, UInt32(0x10), tplSnapMeta, [])] {
-            var node = VariableNode.build(records: records, blockSize: blockSize,
-                                          header: (oid: addr, xid: xid, type: 0x4000_0002, subtype: subtype),
-                                          info: (flags: ByteReader(model).u32(at: infoAt), keyCount: UInt64(records.count)))
+        // Virtual oids come from the container's counter: the volume superblock first, then the
+        // file-system tree nodes (root last, as BTree numbers them).
+        let volumeOID = r.u64(at: 88)                  // nx_next_oid
+        let fsOIDs = (0..<UInt64(fsNodes)).map { volumeOID + 1 + $0 }
+        let fsTreeOID = fsOIDs.last!
+
+        for (node, addr) in zip(BTree.serialize(fsPlan, ids: fsOIDs, blockSize: bs, xid: xid, virtual: true,
+                                                subtype: 0x0E, flags: fsFlags, fixed: nil), fsTreeAddrs) {
+            var node = node
             Self.seal(&node)
             try write(node, block: addr)
         }
+        for (node, addr) in zip(BTree.serialize(extentPlan, ids: extentAddrs, blockSize: bs, xid: xid, virtual: false,
+                                                subtype: 0x0F, flags: extentFlags, fixed: nil), extentAddrs) {
+            var node = node
+            Self.seal(&node)
+            try write(node, block: addr)
+        }
+        var snapNode = VariableNode.build(records: [], blockSize: blockSize,
+                                          header: (oid: snapAddr, xid: xid, type: 0x4000_0002, subtype: 0x10),
+                                          info: (flags: ByteReader(tplSnapMeta).u32(at: infoAt), keyCount: 0))
+        Self.seal(&snapNode)
+        try write(snapNode, block: snapAddr)
 
-        // Volume object map: fs tree oid → its block, laid out like the container's object map
-        // tree (a fixed-size root leaf whose TOC newfs_apfs sizes for the whole node).
-        let containerOmap = try read(block: r.u64(at: 160))
-        var omapModel = try read(block: ByteReader(containerOmap).u64(at: 48))
-        omapModel.putHeader(oid: omapTreeAddr, xid: xid, type: 0x4000_0002, subtype: 0x0B)
-        omapModel.put64(1, at: infoAt + 32)                                  // bt_node_count
-        var omapNode = try FixedNode.build(
-            from: omapModel,
-            entries: [(Data.le64(fsTreeOID) + Data.le64(xid),
-                       Data.le32(0) + Data.le32(UInt32(blockSize)) + Data.le64(fsTreeAddr))],
-            blockSize: blockSize)
-        Self.seal(&omapNode)
-        try write(omapNode, block: omapTreeAddr)
+        // Volume object map: each fs tree node's oid → its block. A single leaf is laid out like
+        // the container's object map tree (whose TOC newfs_apfs sizes for the whole node).
+        let mappings = zip(fsOIDs, fsTreeAddrs).map {
+            (key: Data.le64($0.0) + Data.le64(xid), value: Data.le32(0) + Data.le32(UInt32(blockSize)) + Data.le64($0.1))
+        }
+        if omapNodes == 1 {
+            var model = omapModel
+            model.putHeader(oid: omapTreeAddrs[0], xid: xid, type: 0x4000_0002, subtype: 0x0B)
+            model.put64(1, at: infoAt + 32)                                  // bt_node_count
+            var omapNode = try FixedNode.build(from: model, entries: mappings, blockSize: blockSize)
+            Self.seal(&omapNode)
+            try write(omapNode, block: omapTreeAddrs[0])
+        } else {
+            let plan = BTree.plan(mappings, blockSize: bs, fixed: (16, 16), aligned: false)
+            for (node, addr) in zip(BTree.serialize(plan, ids: omapTreeAddrs, blockSize: bs, xid: xid, virtual: false,
+                                                    subtype: 0x0B, flags: omapFlags, fixed: (16, 16)), omapTreeAddrs) {
+                var node = node
+                Self.seal(&node)
+                try write(node, block: addr)
+            }
+        }
 
         var omap = Data(count: Int(blockSize))
         omap.putHeader(oid: omapAddr, xid: xid, type: 0x4000_000B, subtype: 0)
         omap.put32(ByteReader(tplOmap).u32(at: 32), at: 32)                // om_flags
         omap.put32(ByteReader(tplOmap).u32(at: 40), at: 40)                // om_tree_type
         omap.put32(ByteReader(tplOmap).u32(at: 44), at: 44)                // om_snapshot_tree_type
-        omap.put64(omapTreeAddr, at: 48)
+        omap.put64(omapTreeAddrs.last!, at: 48)
         Self.seal(&omap)
         try write(omap, block: omapAddr)
 
@@ -424,19 +455,19 @@ public final class APFSContainer {
         sb.put64(0, at: 48)
         sb.put64(templateFlags & 0x9, at: 56)                            // case/normalization only
         sb.put64(now, at: 64)
-        sb.put64(UInt64(5 + dataBlocks), at: 88)                         // fs_alloc_count (the superblock is not counted)
+        sb.put64(ownedBlocks, at: 88)                                    // fs_alloc_count (the superblock is not counted)
         sb.replaceSubrange(96..<116, with: template[template.startIndex + 96..<template.startIndex + 116])
         sb.put32(0x0000_0002, at: 116)                                   // root tree: virtual
         sb.put32(0x4000_0002, at: 120)
         sb.put32(0x4000_0002, at: 124)
         sb.put64(omapAddr, at: 128)
         sb.put64(fsTreeOID, at: 136)
-        sb.put64(extentAddr, at: 144)
+        sb.put64(extentAddrs.last!, at: 144)
         sb.put64(snapAddr, at: 152)
         sb.put64(fs.nextObjectID, at: 176)
         sb.put64(UInt64(files.count), at: 184)                           // num_files
         sb.put64(UInt64(fs.directoryCount), at: 192)
-        sb.put64(UInt64(5 + dataBlocks), at: 224)                        // total_blocks_alloced
+        sb.put64(ownedBlocks, at: 224)                                   // total_blocks_alloced
         var uuid = UUID().uuid
         Swift.withUnsafeBytes(of: &uuid) { sb.replaceSubrange(240..<256, with: $0) }
         sb.put64(now, at: 256)
@@ -454,7 +485,7 @@ public final class APFSContainer {
         try addMapping(omapAddress: r.u64(at: 160), oid: volumeOID, paddr: sbAddr)
 
         // Register the volume in the container superblock (latest checkpoint copy and block 0).
-        superblock.put64(volumeOID + 1, at: 88)
+        superblock.put64(fsTreeOID + 1, at: 88)
         superblock.put64(volumeOID, at: 184 + slot * 8)
         Self.seal(&superblock)
         try write(superblock, block: superblockAddress)
@@ -522,6 +553,138 @@ enum FixedNode {
         d.put16(0xFFFF, at: 52); d.put16(0, at: 54)                    // empty value free list
         d.put64(UInt64(entries.count), at: bs - infoSize + 24)          // bt_key_count
         return d
+    }
+}
+
+/// Multi-level B-trees written bottom-up from sorted records.
+///
+/// `plan` packs the records into leaves and adds index levels until one root remains; nodes are
+/// numbered leaves first, level by level, so the root is last. `serialize` writes them with the
+/// ids (virtual oids or block addresses) the caller assigned in that order.
+enum BTree {
+    typealias Record = (key: Data, value: Data)
+    /// Levels from the leaves up; each node lists its records (leaves) or children's first keys
+    /// (index nodes, whose values are filled in by `serialize`).
+    typealias Plan = [[[Record]]]
+
+    static func plan(_ records: [Record], blockSize: Int, fixed: (key: Int, value: Int)?, aligned: Bool) -> Plan {
+        var levels: Plan = []
+        var current = records
+        var leaf = true
+        while true {
+            var nodes: [[Record]] = []
+            var node: [Record] = []
+            for rec in current {
+                if !node.isEmpty, !fits(node + [rec], blockSize: blockSize, root: false, leaf: leaf, fixed: fixed, aligned: aligned) {
+                    nodes.append(node)
+                    node = []
+                }
+                node.append(rec)
+            }
+            nodes.append(node)
+            // A lone node becomes the root, which also holds the 40-byte btree_info.
+            if nodes.count == 1, !fits(nodes[0], blockSize: blockSize, root: true, leaf: leaf, fixed: fixed, aligned: aligned) {
+                let half = nodes[0].count / 2
+                nodes = [Array(nodes[0][..<half]), Array(nodes[0][half...])]
+            }
+            levels.append(nodes)
+            if nodes.count == 1 { return levels }
+            current = nodes.map { (key: $0[0].key, value: Data(count: 8)) }
+            leaf = false
+        }
+    }
+
+    static func serialize(_ plan: Plan, ids: [UInt64], blockSize: Int, xid: UInt64, virtual: Bool,
+                          subtype: UInt32, flags: UInt32, fixed: (key: Int, value: Int)?) -> [Data] {
+        let aligned = flags & 0x40 == 0
+        let leafRecords = plan[0].reduce(0) { $0 + $1.count }
+        let nodeCount = plan.reduce(0) { $0 + $1.count }
+        var longestKey = 0, longestValue = 0
+        for node in plan[0] { for r in node { longestKey = max(longestKey, r.key.count); longestValue = max(longestValue, r.value.count) } }
+        var out: [Data] = []
+        var first = 0                                   // id index of this level's first node
+        for (level, nodes) in plan.enumerated() {
+            let childFirst = first - (level > 0 ? plan[level - 1].count : 0)
+            for (i, nodeRecords) in nodes.enumerated() {
+                var records = nodeRecords
+                let id = ids[first + i]
+                let root = level == plan.count - 1
+                if level > 0 {
+                    let before = nodes[..<i].reduce(0) { $0 + $1.count }
+                    for j in records.indices { records[j].value = Data.le64(ids[childFirst + before + j]) }
+                }
+                if root, level == 0, fixed == nil {
+                    out.append(VariableNode.build(records: records, blockSize: UInt64(blockSize),
+                                                  header: (oid: id, xid: xid, type: (virtual ? 0 : 0x4000_0000) | 2, subtype: subtype),
+                                                  info: (flags: flags, keyCount: UInt64(leafRecords))))
+                    continue
+                }
+                var d = Data(count: blockSize)
+                d.putHeader(oid: id, xid: xid, type: (virtual ? 0 : 0x4000_0000) | (root ? 2 : 3), subtype: subtype)
+                d.put16((root ? 1 : 0) | (level == 0 ? 2 : 0) | (fixed != nil ? 4 : 0), at: 32)
+                d.put16(UInt16(level), at: 34)
+                d.put32(UInt32(records.count), at: 36)
+                let end = blockSize - (root ? FixedNode.infoSize : 0)
+                let toc = tocLength(records.count, blockSize: blockSize, root: root, leaf: level == 0, fixed: fixed)
+                let keyStart = 56 + toc
+                d.put16(0, at: 40); d.put16(UInt16(toc), at: 42)
+                var k = 0, v = 0
+                for (j, rec) in records.enumerated() {
+                    if fixed != nil {
+                        d.put16(UInt16(k), at: 56 + j * 4)
+                        d.replaceSubrange((keyStart + k)..<(keyStart + k + rec.key.count), with: rec.key)
+                        k += rec.key.count
+                        v += rec.value.count
+                        d.put16(UInt16(v), at: 56 + j * 4 + 2)
+                    } else {
+                        d.put16(UInt16(k), at: 56 + j * 8); d.put16(UInt16(rec.key.count), at: 56 + j * 8 + 2)
+                        d.replaceSubrange((keyStart + k)..<(keyStart + k + rec.key.count), with: rec.key)
+                        k += aligned ? (rec.key.count + 7) & ~7 : rec.key.count
+                        v += aligned ? (rec.value.count + 7) & ~7 : rec.value.count
+                        d.put16(UInt16(v), at: 56 + j * 8 + 4); d.put16(UInt16(rec.value.count), at: 56 + j * 8 + 6)
+                    }
+                    d.replaceSubrange((end - v)..<(end - v + rec.value.count), with: rec.value)
+                }
+                d.put16(UInt16(k), at: 44); d.put16(UInt16(end - keyStart - k - v), at: 46)
+                d.put16(0xFFFF, at: 48); d.put16(0, at: 50)
+                d.put16(0xFFFF, at: 52); d.put16(0, at: 54)
+                if root {
+                    let i = blockSize - FixedNode.infoSize
+                    d.put32(flags, at: i); d.put32(UInt32(blockSize), at: i + 4)
+                    d.put32(UInt32(fixed?.key ?? 0), at: i + 8); d.put32(UInt32(fixed?.value ?? 0), at: i + 12)
+                    d.put32(UInt32(fixed?.key ?? longestKey), at: i + 16)
+                    d.put32(UInt32(fixed?.value ?? longestValue), at: i + 20)
+                    d.put64(UInt64(leafRecords), at: i + 24); d.put64(UInt64(nodeCount), at: i + 32)
+                }
+                out.append(d)
+            }
+            first += nodes.count
+        }
+        return out
+    }
+
+    /// Table of contents size: variable nodes list what they hold (in 64-byte steps); fixed nodes
+    /// are sized for as many entries as the node can take, as newfs_apfs does.
+    static func tocLength(_ count: Int, blockSize: Int, root: Bool, leaf: Bool, fixed: (key: Int, value: Int)?) -> Int {
+        guard let fixed else { return max(64, ((count * 8 + 63) / 64) * 64) }
+        let end = blockSize - (root ? FixedNode.infoSize : 0)
+        let entry = 4 + fixed.key + (leaf ? fixed.value : 8)
+        let capacity = (end - 56) / entry
+        return max(count, capacity) * 4
+    }
+
+    static func fits(_ records: [Record], blockSize: Int, root: Bool, leaf: Bool,
+                     fixed: (key: Int, value: Int)?, aligned: Bool) -> Bool {
+        let end = blockSize - (root ? FixedNode.infoSize : 0)
+        if let fixed {
+            let entry = 4 + fixed.key + (leaf ? fixed.value : 8)
+            return 56 + records.count * entry <= end
+        }
+        let toc = tocLength(records.count, blockSize: blockSize, root: root, leaf: leaf, fixed: nil)
+        let body = records.reduce(0) { sum, r in
+            sum + (aligned ? (r.key.count + 7) & ~7 : r.key.count) + (aligned ? (r.value.count + 7) & ~7 : r.value.count)
+        }
+        return 56 + toc + body <= end
     }
 }
 
