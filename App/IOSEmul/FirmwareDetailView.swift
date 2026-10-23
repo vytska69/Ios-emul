@@ -12,6 +12,8 @@ final class FirmwareModel: ObservableObject {
     @Published var progress: (String, Double)?
     @Published var runner: QEMURunner?
     @Published var runError: String?
+    /// QEMU's last output when the previous run ended the app (fatal QEMU error or crash).
+    @Published var lastExit: String?
     @Published var suggestion: FirmwareCatalog.Suggestion?
     @Published var suggestionState: String?
 
@@ -30,6 +32,9 @@ final class FirmwareModel: ObservableObject {
             let parsed = try await Task.detached { try IPSW(url: scope.url) }.value
             ipsw = parsed
             report = BackendRegistry.shared.report(for: parsed)
+            if let backend = report?.best?.backend {
+                lastExit = QEMURunner.unexpectedExit(in: item.workDirectory.appendingPathComponent(backend.id))
+            }
             if let identity = parsed.manifest.identity() {
                 coverage = (try? await Task.detached {
                     HardwareCoverage.analyze(try parsed.deviceTree(identity: identity))
@@ -216,6 +221,14 @@ struct FirmwareDetailView: View {
                         }
                         if let error = model.runError {
                             Text(error).font(.footnote).foregroundStyle(.red)
+                        }
+                        if let log = model.lastExit {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("The last run closed the app. QEMU's last output:")
+                                    .font(.footnote).foregroundStyle(.red)
+                                Text(log.isEmpty ? "(nothing; the emulator crashed without a message)" : log)
+                                    .font(.caption2.monospaced()).textSelection(.enabled)
+                            }
                         }
                     }
                 }

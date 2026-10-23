@@ -37,6 +37,22 @@ public final class QEMURunner {
         self.configuration = configuration
     }
 
+    /// Present while a machine runs in this app's process. QEMU ends the whole process on fatal
+    /// errors (`exit`, `abort`), so finding it at the next launch means the last run ended that way.
+    public static let runningMarker = "qemu.running"
+
+    /// What QEMU printed during the last in-process run in `directory`, if that run ended the app;
+    /// clears the marker so it is reported once.
+    public static func unexpectedExit(in directory: URL) -> String? {
+        let fm = FileManager.default
+        let marker = directory.appendingPathComponent(runningMarker)
+        guard fm.fileExists(atPath: marker.path) else { return nil }
+        try? fm.removeItem(at: marker)
+        let log = (try? String(contentsOf: directory.appendingPathComponent("qemu.log"), encoding: .utf8)) ?? ""
+        let tail = log.split(separator: "\n", omittingEmptySubsequences: false).suffix(40).joined(separator: "\n")
+        return tail.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public func start() throws {
         #if os(macOS)
         try startProcess()
@@ -117,6 +133,20 @@ public final class QEMURunner {
         }
         let argv = [configuration.qemuBinary] + dataArgs + configuration.arguments
         let cwd = configuration.workingDirectory.path
+
+        // QEMU reports errors on stdout/stderr, which an app does not show; keep them in qemu.log
+        // next to the machine, and mark the run so a fatal exit can be explained on the next launch.
+        let logPath = configuration.workingDirectory.appendingPathComponent("qemu.log").path
+        let log = open(logPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        if log >= 0 {
+            dup2(log, STDOUT_FILENO)
+            dup2(log, STDERR_FILENO)
+            close(log)
+        }
+        setvbuf(stdout, nil, _IOLBF, 0)
+        setvbuf(stderr, nil, _IONBF, 0)
+        let marker = configuration.workingDirectory.appendingPathComponent(Self.runningMarker)
+        FileManager.default.createFile(atPath: marker.path, contents: nil)
         let thread = Thread { [weak self] in
             FileManager.default.changeCurrentDirectoryPath(cwd)
             var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) } + [nil]
@@ -127,6 +157,7 @@ public final class QEMURunner {
                 return s
             }
             cargs.forEach { free($0) }
+            try? FileManager.default.removeItem(at: marker)
             DispatchQueue.main.async { self?.state = .stopped(status) }
         }
         thread.name = "qemu-main"

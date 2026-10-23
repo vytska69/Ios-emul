@@ -117,8 +117,9 @@ public struct InfernoBackend: EmulatorBackend {
         // direct install has neither, and the keybag boot task then reboots into recovery. The first
         // boot instead resumes an "Erase All Content": with oblit-inprogress set, finish-obliteration
         // (mobile_obliterator --init) reformats Data, creates the system keybag and clears the flag.
-        // Needs qemu/patches/inferno/0009 (nvram-vars).
-        if firstBoot { props.append("nvram-vars=oblit-inprogress=1") }
+        // Needs qemu/patches/inferno/0009 (nvram-vars), which only the T8030 machine has; an unknown
+        // machine property makes QEMU exit, and in-process on iOS that ends the app.
+        if firstBoot && machine.name == "t8030" { props.append("nvram-vars=oblit-inprogress=1") }
         // The simulated SEP starts in its ROM's bootstrap state; with sepfw-loaded set in the
         // DeviceTree (directDeviceTree) the kernel boots the firmware iBoot would have preloaded.
         // (qemu/patches/inferno/0006 also offers sep-preloaded=true, starting SEPOS directly, but
