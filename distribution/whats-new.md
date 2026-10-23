@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-23
 
+- While a machine starts, the screen now tells you whether QEMU is still building it or the machine is already running and the display is not on yet.
 - Each firmware now shows a badge for its iOS version, in that release's colours, in the library, the download list and the firmware page.
 - The machine screen no longer gets stuck on "Starting QEMU…": it keeps trying to show the display and counts how long it has been waiting.
 - While the display is not up yet, you see what the emulated device prints as it starts (or QEMU's own messages before that), so you can tell whether it is still working.

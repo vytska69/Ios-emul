@@ -15,6 +15,10 @@ final class DisplayModel: ObservableObject {
     let runner: QEMURunner
     private var vnc: VNCClient?
     private var connected = false
+    /// QEMU answers its monitor only once machine creation (loading and patching the kernel,
+    /// building the device tree) is done and the main loop runs; until then it prints nothing.
+    private var machineBuilt = false
+    private var checking = false
     private let started = Date()
 
     init(runner: QEMURunner) {
@@ -29,7 +33,11 @@ final class DisplayModel: ObservableObject {
         waitTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.connected, case .running = self.vmState else { return }
-                self.status = "Waiting for the display · \(Int(Date().timeIntervalSince(self.started))) s"
+                let seconds = Int(Date().timeIntervalSince(self.started))
+                self.status = self.machineBuilt
+                    ? "Machine running, waiting for the display · \(seconds) s"
+                    : "Building the machine · \(seconds) s"
+                if seconds % 3 == 0 && !self.machineBuilt { self.checkMachine() }
             }
         }
         if Pref.experimentalBool(Pref.fpsCounter) {
@@ -65,6 +73,20 @@ final class DisplayModel: ObservableObject {
         }
         client.connect()
         vnc = client
+    }
+
+    private func checkMachine() {
+        guard !checking else { return }
+        checking = true
+        let monitor = QEMUMonitor(port: runner.configuration.monitorPort)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let answer = monitor.query("info status") ?? ""
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.checking = false
+                if answer.contains("VM status") { self.machineBuilt = true }
+            }
+        }
     }
 
     func touch(at point: CGPoint, in size: CGSize, pressed: Bool) {
@@ -124,7 +146,7 @@ struct MachineView: View {
                         ProgressView().tint(theme.accent).scaleEffect(1.4)
                     }
                     Text(display.status).font(.headline).foregroundStyle(.white)
-                    Text("The screen appears once QEMU has built the machine; until then this shows the kernel's serial output, or QEMU's log before the kernel prints anything.")
+                    Text("Building the machine (unpacking and patching the kernel) can take several minutes on a phone, and QEMU prints nothing meanwhile. Then the kernel's serial output appears here, and the screen once iOS turns the display on.")
                         .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
                     if !consoleVisible {
                         SerialConsole(directory: display.runner.configuration.workingDirectory)
