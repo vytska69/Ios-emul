@@ -8,12 +8,12 @@ iki naujausios iOS, nuo A4 iki naujausių lustų. Be kompiuterio: nei programai 
 Viešai to dar niekas nedaro. Šis projektas eina ten etapais, ir kiekvienas etapas turi išmatuojamą
 rezultatą: kiek toli bootina tikras IPSW.
 
-> **Dabar:** iOS 14.0 ant emuliuojamo iPhone 11 įdiegiamas be restore ir bootina iki launchd
-> `mount-phase-2` žingsnio (macOS CI). Simuliuotas SEP užkrauna SEP firmware ir inicializuoja
-> gigalocker, todėl `data-protection` praeina; System, Preboot, xART ir Data tomai prijungiami.
-> Telefone programa veikia ir analizuoja IPSW, o QEMU iOS'ui jau kompiliuojasi: lieka paskutinis
-> linkavimo žingsnis, po kurio Rolling release gaus emuliatoriaus branduolį.
-> Žr. [Būsena](#būsena).
+> **Dabar:** iOS 14.0 ant emuliuojamo iPhone 11 įdiegiamas be restore ir praeina 11 launchd boot
+> žingsnių (`fsck` … `fips`, macOS CI). Simuliuotas SEP užkrauna SEP firmware, inicializuoja
+> gigalocker ir įjungia raktų saugyklą; System, Preboot, xART ir Data tomai prijungiami. Boot'as
+> stoja `keybag` žingsnyje: trūksta sistemos keybag'o, kurį paprastai sukuria restore.
+> Telefone programa veikia, parsisiunčia IPSW iš ipsw.me ir juos analizuoja; QEMU branduolys
+> iOS'ui kompiliuojasi, laukiama pirmo IPA su juo. Žr. [Būsena](#būsena).
 
 ## Kaip pasiekti universalumą
 
@@ -49,7 +49,7 @@ Visas planas su etapais: [ROADMAP.md](ROADMAP.md).
 | 0 | Programa telefone be kompiuterio (IPA per GitHub Actions, SideStore/TrollStore) | Programa veikia telefone ir importuoja IPSW; QEMU branduolys iOS'ui kompiliuojasi, taisomas linkavimas |
 | 1 | DeviceTree parseris ir hardware padengimo ataskaita | Atlikta |
 | 1b | Įdiegimas be restore (UDIF, GPT, APFS tomai, fstab) | Veikia iOS 14: Preboot, xART ir Data tomai įrašomi, `fsck_apfs` švarus, iOS juos prijungia |
-| 1c | Simuliuotas SEP (SEP boot, raktų saugykla, xART, gigalocker) | SEP boot ir gigalocker veikia, `data-protection` praeina; toliau `/private/var` turinys |
+| 1c | Simuliuotas SEP (SEP boot, raktų saugykla, xART, gigalocker) | SEP boot, gigalocker ir raktų saugyklos endpoint'as veikia; toliau sistemos keybag'as |
 | 2 | Bendra DeviceTree valdoma mašina | Planuojama |
 | 3 | A14 (T8101) ir M1 (T8103) | Planuojama |
 | 4 | Restore programoje (USB-over-TCP) | Planuojama |
@@ -64,7 +64,7 @@ Visas planas su etapais: [ROADMAP.md](ROADMAP.md).
 | IPSW analizė (ZIP64, BuildManifest, IMG4, LZFSE/LZSS, DeviceTree, UDIF) | Veikia, padengta testais |
 | Suderinamumo ir hardware padengimo ataskaita | Veikia programoje ir `ipsw-emu inspect` |
 | iOS 14.0, iPhone 11, restore režimas | Bootina iki launchd |
-| iOS 14.0, iPhone 11, tiesioginis įdiegimas | Praeina `fsck`, `mount-phase-1`, `data-protection`, `finish-obliteration`; `mount-phase-2` prijungia Data tomą, taisomi trūkstami `/private/var` katalogai |
+| iOS 14.0, iPhone 11, tiesioginis įdiegimas | Praeina `fsck`, `mount-phase-1`, `data-protection`, `finish-obliteration`, `commit-boot-mode`, `mount-phase-2` (Data tomas ant `/private/var`), `init-with-data-volume`, `MSUEarlyBootTask`, `fips`. Stoja `keybag`: nėra `/private/var/keybags/systembag.kb`, todėl iOS persikrauna ratu |
 | APFS rašytuvas | Prideda tomus su katalogais, failais, savininkais ir teisėmis; daugiapakopiai B-medžiai dideliems tomams. CI tikrina `fsck_apfs` ir macOS mount'u (6000 katalogų, 300 failų) |
 | SpringBoard | Dar nepasiekta |
 | QEMU iOS'ui | Visas QEMU kompiliuojasi; iOS build'e paliekama tik biblioteka (be `qemu-system` programos), laukiama pirmo žalio IPA |
@@ -144,6 +144,10 @@ leidimo, bet kelis kartus lėčiau.
   bet cryptex'ų įdiegimas dar nepadarytas.
 - **Gigalocker vardas** xART tome kol kas paimtas iš emuliuojamo iPhone 11 boot žurnalo; kitiems
   įrenginiams jo apskaičiavimas dar nežinomas. Failas yra 6 MiB nulių, kaip jį sukuria `seputil`.
+- **Sistemos keybag'as.** Restore jį sukuria per SEP ir užšifruoja effaceable saugyklos `BAG1`
+  raktu. Simuliuoto SEP raktų saugykla bet kokį keybag'ą priima, bet effaceable saugykla ir
+  `systembag.kb` dar tušti. Tiriamas kelias, kai juos sukuria pati iOS (`finish-obliteration`,
+  kaip „Erase All Content“), kad kompiuterio nereikėtų.
 - **Data tomas** kol kas turi tik pagrindinius katalogus. Restore į jį nukopijuoja visą rootfs
   `/private/var` (~17 tūkst. įrašų); tam reikia APFS skaitytuvo su suspaustų failų palaikymu.
 - **JIT.** Greitam QEMU reikia JIT leidimo (TrollStore, SideStore su JIT įjungikliu, debugger).
