@@ -162,7 +162,10 @@ public struct InfernoBackend: EmulatorBackend {
         return APFSContainer.Tree(
             directories: ["mobile/Library/Preferences", "mobile/Media", "mobile/Documents", "root/Library/Preferences",
                           "db", "logs", "log", "tmp", "run", "empty", "preferences", "containers", "keybags",
-                          "hardware", "networkd", "wireless", "folders", "MobileSoftwareUpdate", "MobileAsset",
+                          // mount-phase-2 bind-mounts this over /System/Library/Caches; on a
+                          // restored device it is on the Hardware volume.
+                          "hardware/FactoryData/System/Library/Caches/com.apple.factorydata",
+                          "networkd", "wireless", "folders", "MobileSoftwareUpdate", "MobileAsset",
                           "installd", "staged_system_apps", "vm"],
             attributes: ["mobile": mobile, "mobile/Library": mobile, "mobile/Library/Preferences": mobile,
                          "mobile/Media": mobile, "mobile/Documents": mobile, "tmp": sticky,
@@ -201,7 +204,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) preboot+xart6m+data2+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
