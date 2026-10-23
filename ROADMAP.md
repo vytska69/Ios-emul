@@ -58,3 +58,12 @@ jį kompiliuoja macOS runneryje.
 - **Šifruoti komponentai.** 64 bitų IPSW iBoot/SEP yra šifruoti GID raktu. Kernelcache nuo iOS 10
   nešifruotas, todėl bootinam tiesiai kernelį ir iBoot'o nereikia. 32 bitų erai reikia viešai
   žinomų arba vartotojo pateiktų raktų.
+
+## iPod touch 1G/2G programoje (vėliau)
+
+- `devos50/qemu-ios` dar nekompiliuojamas į IPA (tik Inferno); kol to nėra, programėlė iPod touch
+  IPSW žymi kaip nepalaikomus.
+- Boot ROM (SecureROM) yra Apple kodas lustuose, jo negalima platinti su programa. Variantai:
+  leisti importuoti savo dump'ą (assetų parinkimas jau yra), arba paleisti be ROM – įkelti LLB/iBoot
+  iš IPSW tiesiai (reikia iššifruotų vaizdų).
+- NOR ir NAND vaizdus generuoti pačioje programėlėje iš IPSW, o ne qemu-ios įrankiais.
