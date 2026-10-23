@@ -163,9 +163,21 @@ case "boot":
     if Date() >= deadline {
         print("==> time limit reached, stopping")
         // A boot that hangs without printing anything is found by where its CPUs are spinning.
-        if let regs = QEMUMonitor(port: runner.configuration.monitorPort).query("info registers -a") {
+        let monitor = QEMUMonitor(port: runner.configuration.monitorPort)
+        if let regs = monitor.query("info registers -a") {
             print("==> CPU state at the time limit:")
             regs.split(separator: "\n").prefix(400).forEach { print("  | \($0)") }
+        }
+        // What the kernel's first instructions are in guest memory (Inferno logs the entry point).
+        let qemuLog = (try? String(contentsOf: work.appendingPathComponent("qemu.log"), encoding: .utf8)) ?? ""
+        if let line = qemuLog.split(separator: "\n").first(where: { $0.contains("Kernel Entry Point:") }),
+           let entry = line.split(separator: " ").last {
+            for command in ["xp /16wx \(entry)", "xp /16i \(entry)"] {
+                if let out = monitor.query(command) {
+                    print("==> \(command):")
+                    out.split(separator: "\n").prefix(40).forEach { print("  | \($0)") }
+                }
+            }
         }
         runner.stop()
     }
