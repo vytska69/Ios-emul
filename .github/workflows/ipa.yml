@@ -20,6 +20,7 @@ on:
       - "qemu/**"
       - "scripts/build-qemu-ios.sh"
       - "scripts/make-sidestore-source.py"
+      - "distribution/whats-new.md"
       - "project.yml"
       - "Package.swift"
       - ".github/workflows/ipa.yml"
@@ -138,7 +139,12 @@ jobs:
           else
             core="Note: this build has NO emulator core yet (QEMU for iOS failed to build in run ${{ github.run_id }}); the app opens and inspects IPSWs but cannot boot them. The next green build replaces it."
           fi
-          notes="Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}. $core
+          changes=$(python3 scripts/make-sidestore-source.py --print-notes)
+          notes="## What's new
+
+          $changes
+
+          Rolling build 0.1.${{ github.run_number }} of ${GITHUB_SHA:0:7}. $core
 
           Install: add https://github.com/${{ github.repository }}/releases/download/Rolling/sidestore.json as a source in SideStore, or open IOSEmul.ipa with TrollStore."
           if gh release view Rolling >/dev/null 2>&1; then

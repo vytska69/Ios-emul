@@ -22,6 +22,28 @@ import re
 import struct
 import zipfile
 
+WHATS_NEW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "distribution", "whats-new.md")
+
+
+def whats_new(path=WHATS_NEW, sections=2):
+    """The newest dated sections of distribution/whats-new.md as plain text for SideStore."""
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return ""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    out, count = [], 0
+    for line in text.splitlines():
+        heading = re.match(r"##\s+(.+)", line)
+        if heading:
+            count += 1
+            if count > sections:
+                break
+            out.append(("" if not out else "\n") + heading.group(1).strip())
+        elif count and line.strip():
+            out.append(re.sub(r"^\s*[-*]\s+", "• ", line.rstrip()))
+    return "\n".join(out).strip()
+
 
 def bundle_info(ipa):
     """The app's Info.plist from an IPA (Payload/<name>.app/Info.plist)."""
@@ -58,13 +80,20 @@ def entitlements(ipa, executable):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ipa", required=True)
-    ap.add_argument("--repo", required=True, help="owner/name on GitHub")
+    ap.add_argument("--ipa")
+    ap.add_argument("--repo", help="owner/name on GitHub")
     ap.add_argument("--tag", default="Rolling")
     ap.add_argument("--commit", default="")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out")
     ap.add_argument("--no-core", action="store_true", help="the IPA was built without QEMU")
+    ap.add_argument("--print-notes", action="store_true",
+                    help="only print the What's New text (for the release page) and exit")
     args = ap.parse_args()
+    if args.print_notes:
+        print(whats_new())
+        return
+    if not (args.ipa and args.repo and args.out):
+        ap.error("--ipa, --repo and --out are required")
     info = bundle_info(args.ipa)
     short_version = info["CFBundleShortVersionString"]
     build_version = info["CFBundleVersion"]
@@ -79,6 +108,9 @@ def main():
     notes = f"Rolling build of {args.commit[:7]}." if args.commit else "Rolling build."
     if args.no_core:
         notes += " This build has no emulator core yet: IPSWs can be inspected but not booted."
+    changes = whats_new()
+    if changes:
+        notes = changes + "\n\n" + notes
     description = ("Boots iPhone, iPad and iPod touch IPSW firmware in an emulated Apple machine "
                    "(QEMU), entirely on the device.")
 
