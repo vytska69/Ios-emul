@@ -55,10 +55,12 @@ jobs:
       - name: Probe
         env:
           ROOT: ${{ github.workspace }}/root
+          # Passed through the environment so quotes in the commands survive.
+          COMMANDS: ${{ inputs.commands }}
         run: |
           set +e
-          if [ -n "${{ inputs.commands }}" ]; then
-            eval "${{ inputs.commands }}"
+          if [ -n "$COMMANDS" ]; then
+            eval "$COMMANDS"
           else
             ls -la "$ROOT/private" "$ROOT/private/xarts" "$ROOT/private/preboot" 2>&1
             ls -la "$ROOT/System/Library/xpc" 2>&1
