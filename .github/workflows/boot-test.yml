@@ -113,7 +113,7 @@ jobs:
           echo "url=$(sed -n 1p pick.txt)" >> "$GITHUB_OUTPUT"
           echo "version=$(sed -n 2p pick.txt)" >> "$GITHUB_OUTPUT"
           echo "build=$(sed -n 3p pick.txt)" >> "$GITHUB_OUTPUT"
-          curl -fL --retry 3 -o firmware.ipsw "$(sed -n 1p pick.txt)"
+          curl -fL --retry 5 --retry-all-errors -C - -o firmware.ipsw "$(sed -n 1p pick.txt)"
           ls -lh firmware.ipsw
 
       - name: Build ipsw-emu

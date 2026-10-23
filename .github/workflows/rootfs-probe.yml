@@ -33,7 +33,7 @@ jobs:
           print(pick[0]["url"])
           EOF
           )
-          curl -fL --retry 3 -o firmware.ipsw "$url"
+          curl -fL --retry 5 --retry-all-errors -C - -o firmware.ipsw "$url"
 
       - name: Mount root filesystem
         run: |
