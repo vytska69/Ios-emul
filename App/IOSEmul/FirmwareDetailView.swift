@@ -70,15 +70,20 @@ final class FirmwareModel: ObservableObject {
             return
         }
         assetScopes = item.assets.compactMapValues { ScopedURL(bookmark: $0) }
+        // The install reports progress for every chunk it copies; a main-actor hop each time
+        // swamped the UI, so pass on a few updates a second (and every step change).
+        let throttle = ProgressThrottle()
         let ctx = PrepareContext(ipsw: ipsw, identity: identity, device: row.device,
                                  workDirectory: item.workDirectory.appendingPathComponent(backend.id),
                                  externalAssets: assetScopes.mapValues(\.url), bootMode: mode,
                                  memoryMB: memoryMB, cpuCount: cpus) { [weak self] name, fraction in
+            guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
         Task {
             do {
-                let config = try await Task.detached { try backend.prepare(ctx) }.value
+                // Below the UI's priority, so scrolling and taps stay responsive during the install.
+                let config = try await Task.detached(priority: .utility) { try backend.prepare(ctx) }.value
                 let runner = QEMURunner(configuration: config)
                 try runner.start()
                 self.progress = nil

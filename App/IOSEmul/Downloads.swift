@@ -183,10 +183,14 @@ final class DownloadManager: ObservableObject {
 /// before `didFinishDownloadingTo` returns, everything else is forwarded to the main actor.
 private final class SessionRelay: NSObject, URLSessionDownloadDelegate {
     weak var manager: DownloadManager?
+    private let throttle = ProgressThrottle()
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         let id = downloadTask.taskIdentifier
+        // URLSession reports every received chunk, hundreds of times a second; redrawing the
+        // download list that often made the whole app stutter.
+        guard throttle.shouldReport(key: id, done: totalBytesWritten == totalBytesExpectedToWrite) else { return }
         Task { @MainActor in
             self.manager?.progress(task: id, written: totalBytesWritten, expected: totalBytesExpectedToWrite)
         }
@@ -225,6 +229,24 @@ private final class SessionRelay: NSObject, URLSessionDownloadDelegate {
             AppDelegate.backgroundCompletion?()
             AppDelegate.backgroundCompletion = nil
         }
+    }
+}
+
+/// Lets progress through a few times a second per key; always lets the final report through.
+/// Called from background threads.
+final class ProgressThrottle: @unchecked Sendable {
+    private let interval: TimeInterval
+    private var last: [AnyHashable: TimeInterval] = [:]
+    private let lock = NSLock()
+
+    init(interval: TimeInterval = 0.25) { self.interval = interval }
+
+    func shouldReport(key: AnyHashable = 0, done: Bool = false) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        lock.lock(); defer { lock.unlock() }
+        if !done, let previous = last[key], now - previous < interval { return false }
+        last[key] = now
+        return true
     }
 }
 
