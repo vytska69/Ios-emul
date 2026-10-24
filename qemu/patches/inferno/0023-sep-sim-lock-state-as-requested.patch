@@ -1,0 +1,12 @@
+diff --git a/hw/arm/apple-silicon/sep-sim.c b/hw/arm/apple-silicon/sep-sim.c
+index 8951398..22b36d5 100644
+--- a/hw/arm/apple-silicon/sep-sim.c
++++ b/hw/arm/apple-silicon/sep-sim.c
+@@ -802,7 +802,6 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+         *selector = 0;
+         uint32_t *lock_state = selector + 1;
+         *lock_state = *(uint32_t *)(msg_buf + 0x60);
+-        *lock_state |= (1 << 22);
+         uint64_t *device_state = (uint64_t *)(lock_state + 1);
+         *device_state = 0x1 | 0x2;
+         apple_sep_sim_keystore_send_ipc_resp(s, msg, resp_buf, resp_size);
