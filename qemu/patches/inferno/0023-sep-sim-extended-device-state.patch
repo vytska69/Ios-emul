@@ -1,8 +1,22 @@
 diff --git a/hw/arm/apple-silicon/sep-sim.c b/hw/arm/apple-silicon/sep-sim.c
-index 8951398..d8eadce 100644
+index 8951398..3f74d13 100644
 --- a/hw/arm/apple-silicon/sep-sim.c
 +++ b/hw/arm/apple-silicon/sep-sim.c
-@@ -939,7 +939,40 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+@@ -803,6 +803,13 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+         uint32_t *lock_state = selector + 1;
+         *lock_state = *(uint32_t *)(msg_buf + 0x60);
+         *lock_state |= (1 << 22);
++        /*
++         * libaks keybag_state: no passcode (1 << 1), unlocked since boot (1 << 2), not
++         * locked. MKBDeviceUnlockedSinceBoot (aks_get_lock_state) tests bit 2; without it
++         * daemons that wait for first unlock (assetsd during data migration) never go on.
++         */
++        *lock_state &= ~1u;
++        *lock_state |= (1 << 1) | (1 << 2);
+         uint64_t *device_state = (uint64_t *)(lock_state + 1);
+         *device_state = 0x1 | 0x2;
+         apple_sep_sim_keystore_send_ipc_resp(s, msg, resp_buf, resp_size);
+@@ -939,7 +946,40 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
                        " 0x%X 0x%X\n",
                        *word0, *lword, *word1, *word2);
  
@@ -44,7 +58,7 @@ index 8951398..d8eadce 100644
          uint8_t *resp_buf = g_new0(uint8_t, resp_size);
  
          KeystoreIPCHeader *resp_hdr = (KeystoreIPCHeader *)resp_buf;
-@@ -952,13 +985,11 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+@@ -952,13 +992,11 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
          memcpy(resp_hdr->ipc_digest, msg_hdr->ipc_digest,
                 sizeof(resp_hdr->ipc_digest));
  
