@@ -49,7 +49,9 @@ fi
 # With CRASH=<process>, also the newest crash report of that process, symbolicated by ipsw.
 if [ -f "$work/crash.ips" ]; then
     echo "== crash report"
-    "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | head -220
+    # iOS 14 reports are text after a one-line JSON header; show the lines that say why it died.
+    grep -E -A3 '^(Exception Type|Exception Codes|Exception Note|Termination Reason|Termination Description|Triggered by Thread|Crashed Thread|Application Specific Information)' "$work/crash.ips" | head -60
+    "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -220
 fi
 
 [ -f "$work/stackshot.ips" ] || exit 0
