@@ -231,11 +231,21 @@ public struct InfernoBackend: EmulatorBackend {
             tree.files["db/com.apple.xpc.launchd/disabled.plist"] = disabled
             tree.attributes["db/com.apple.xpc.launchd/disabled.plist"] = APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o644)
         }
-        if let migration = try? PropertyListSerialization.data(fromPropertyList: ["lastBuildVersion": build],
-                                                               format: .binary, options: 0) {
+        let migrated: [String: Any] = [
+            "lastBuildVersion": build, "LastSystemVersion": build,
+            "DMUserDataDisposition": ["SyntheticDidUpgrade": false, "buildVersion": build],
+        ]
+        if let migration = try? PropertyListSerialization.data(fromPropertyList: migrated, format: .binary, options: 0) {
             tree.files["mobile/Library/Preferences/com.apple.migration.plist"] = migration
             tree.attributes["mobile/Library/Preferences/com.apple.migration.plist"] =
                 APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
+        }
+        // Under emulation SpringBoard and the apps it launches start many times slower than on a
+        // device; backboardd's watchdogs would kill them before they finish launching.
+        let springboard = "mobile/Library/Preferences/com.apple.springboard.plist"
+        if let data = try? PropertyListSerialization.data(fromPropertyList: ["BKNoWatchdogs": true], format: .binary, options: 0) {
+            tree.files[springboard] = data
+            tree.attributes[springboard] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
         }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
@@ -299,7 +309,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw+nowatchdog"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)

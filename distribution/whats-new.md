@@ -14,6 +14,7 @@ published with each build (scripts/make-sidestore-source.py).
 - iPhone 11 iOS 14: the emulated Secure Enclave now reports the phone as unlocked (no passcode), which the Photos service waits for on the first start (experimental).
 - iPhone 11 iOS 14: the phone (cellular) service is switched off, as the emulated phone has no modem; it kept crashing and held up the first start (experimental).
 - iPhone 11 iOS 14: the installed system is marked as already migrated to its version (part of the work on the black screen after the first start).
+- iPhone 11 iOS 14: iOS no longer kills the home screen and apps for starting too slowly, which they always do under emulation (new installs).
 
 ## 2026-10-23
 

@@ -341,6 +341,7 @@ final class IPSWKitTests: XCTestCase {
     func testGuestTweaksPreferences() throws {
         let plain = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373")
         XCTAssertEqual(Set(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist",
+                                               "mobile/Library/Preferences/com.apple.springboard.plist",
                                                "db/com.apple.xpc.launchd/disabled.plist"])
         let disabled = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
@@ -348,6 +349,10 @@ final class IPSWKitTests: XCTestCase {
         let migration = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["mobile/Library/Preferences/com.apple.migration.plist"]!, format: nil) as? [String: Any])
         XCTAssertEqual(migration["lastBuildVersion"] as? String, "18A373")
+        XCTAssertEqual(migration["LastSystemVersion"] as? String, "18A373")
+        let springboard = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: plain.files["mobile/Library/Preferences/com.apple.springboard.plist"]!, format: nil) as? [String: Any])
+        XCTAssertEqual(springboard["BKNoWatchdogs"] as? Bool, true)
 
         var tweaks = GuestTweaks()
         tweaks.voiceOver = true
