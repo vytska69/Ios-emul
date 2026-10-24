@@ -51,7 +51,40 @@ if [ -f "$work/crash.ips" ]; then
     echo "== crash report"
     # iOS 14 reports are text after a one-line JSON header; show the lines that say why it died.
     grep -E -A3 '^(Exception Type|Exception Codes|Exception Note|Termination Reason|Termination Description|Triggered by Thread|Crashed Thread|Application Specific Information)' "$work/crash.ips" | head -60
-    "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -220
+    if grep -q '"threads"' "$work/crash.ips"; then
+        # A JSON body (the format ipsw cannot parse for some reports): print why it died and the
+        # crashed thread's frames, symbolicating the shared-cache ones with `ipsw dyld a2s`.
+        python3 - "$work/crash.ips" > "$work/frames.txt" <<'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+body = json.loads(text[text.index("\n") + 1:])
+for key in ("exception", "termination", "asi", "ktriageinfo", "lastExceptionBacktrace"):
+    if key in body:
+        print(key, json.dumps(body[key])[:600])
+images = body.get("usedImages", [])
+cache = body.get("sharedCache", {})
+slide = cache.get("base", 0x180000000) - 0x180000000 if cache.get("base") else 0
+thread = next((t for t in body.get("threads", []) if t.get("triggered")), body.get("threads", [{}])[0])
+print("thread", thread.get("name", ""), thread.get("queue", ""))
+for f in thread.get("frames", []):
+    img = images[f["imageIndex"]] if f.get("imageIndex", -1) < len(images) else {}
+    addr = img.get("base", 0) + f.get("imageOffset", 0)
+    name = img.get("name") or img.get("path", "?").rsplit("/", 1)[-1]
+    unslid = addr - slide if addr - slide >= 0x180000000 else 0
+    print(f"FRAME {name} +{f.get('imageOffset', 0):#x} {f.get('symbol', '')} @{unslid:#x}")
+PY
+        while read -r line; do
+            a=$(printf '%s' "$line" | grep -o '@0x[0-9a-f]*' | tr -d @)
+            if [ -n "$a" ] && [ "$a" != 0x0 ]; then
+                sym=$("$ipsw" dyld a2s "$dsc" "$a" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-200)
+                echo "$line   $sym"
+            else
+                echo "$line"
+            fi
+        done < "$work/frames.txt" | head -80
+    else
+        "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -220
+    fi
 fi
 
 [ -f "$work/stackshot.ips" ] || exit 0
