@@ -3,7 +3,7 @@
 # iPhone's Data volume, with the dyld shared cache from its System volume (macOS CI, after QEMU has
 # stopped). Uses blacktop's `ipsw` tool.
 #
-#     scripts/ci-symbolicate-stackshot.sh vm/nvme.1 locationd [more process words]
+#     [CRASH=CommCenter] scripts/ci-symbolicate-stackshot.sh vm/nvme.1 locationd [more process words]
 set -u
 disk=${1:?usage: ci-symbolicate-stackshot.sh nvme.1 words...}
 shift
@@ -14,6 +14,8 @@ bash "$here/ci-mount-volume.sh" "$disk" Data "
     ls \"\$MNT/mobile/Library/Logs/CrashReporter\"
     f=\$(ls -t \"\$MNT\"/mobile/Library/Logs/CrashReporter/stacks+*.ips 2>/dev/null | head -1)
     [ -n \"\$f\" ] && cp \"\$f\" '$work/stackshot.ips'
+    c=\$(ls -t \"\$MNT\"/mobile/Library/Logs/CrashReporter/${CRASH:-none}-*.ips 2>/dev/null | head -1)
+    [ -n \"\$c\" ] && cp \"\$c\" '$work/crash.ips'
     find \"\$MNT/mobile/Library/Logs/CrashReporter/Panics\" \"\$MNT/mobile/Library/Logs/CrashReporter/Assistant\" -type f | head -10 | while read -r p; do
         echo \"---- \$p\"; head -c 3000 \"\$p\"; echo
     done
@@ -43,6 +45,12 @@ if [ -z "$ipsw" ]; then
     done
 fi
 [ -x "$ipsw" ] || { echo "== ipsw tool not available; release assets:"; gh release view -R blacktop/ipsw --json assets -q ".assets[].name" 2>&1 | head -20; exit 0; }
+
+# With CRASH=<process>, also the newest crash report of that process, symbolicated by ipsw.
+if [ -f "$work/crash.ips" ]; then
+    echo "== crash report"
+    "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | head -220
+fi
 
 python3 "$here/stackshot-summary.py" "$work/stackshot.ips" "$@" --addresses > "$work/summary.txt"
 grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -150 > "$work/addrs.txt"
