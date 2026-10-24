@@ -27,7 +27,8 @@ for candidate in $(find "$work/ipsw" -type f -perm -u+x); do
 done
 [ -n "$ipsw" ] || { echo "== ipsw tool not available"; exit 0; }
 
+"$ipsw" dyld disass --help 2>&1 | sed -n '/Flags:/,$p' | head -40
 for sym in "$@"; do
     echo "==== $sym"
-    "$ipsw" dyld disass "$dsc" --symbol "$sym" --symbolicate 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -160
+    "$ipsw" dyld disass "$dsc" --symbol "$sym" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -160
 done
