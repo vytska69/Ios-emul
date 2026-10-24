@@ -66,8 +66,16 @@ cache = body.get("sharedCache", {})
 slide = cache.get("base", 0x180000000) - 0x180000000 if cache.get("base") else 0
 thread = next((t for t in body.get("threads", []) if t.get("triggered")), body.get("threads", [{}])[0])
 print("thread", thread.get("name", ""), thread.get("queue", ""))
+def image(i):
+    img = images[i] if 0 <= i < len(images) else {}
+    if isinstance(img, list):  # older reports: [uuid, base, type]
+        ints = [v for v in img if isinstance(v, int)]
+        img = {"base": ints[0] if ints else 0, "name": next((v for v in img if isinstance(v, str) and "/" in v), "?")}
+    return img
 for f in thread.get("frames", []):
-    img = images[f["imageIndex"]] if f.get("imageIndex", -1) < len(images) else {}
+    if isinstance(f, list):  # older reports: [imageIndex, imageOffset]
+        f = {"imageIndex": f[0], "imageOffset": f[1]}
+    img = image(f.get("imageIndex", -1))
     addr = img.get("base", 0) + f.get("imageOffset", 0)
     name = img.get("name") or img.get("path", "?").rsplit("/", 1)[-1]
     unslid = addr - slide if addr - slide >= 0x180000000 else 0
