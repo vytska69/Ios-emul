@@ -212,9 +212,9 @@ public struct InfernoBackend: EmulatorBackend {
 
     /// The Data volume with the preference files for `tweaks` (see GuestTweaks).
     ///
-    /// It also records data migration as done for `build`: after the first-boot obliteration iOS
-    /// runs every DataClassMigrator before it starts SpringBoard, which under emulation takes most
-    /// of an hour and then hangs in CoreLocationMigrator, leaving the screen black.
+    /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
+    /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
+    /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
     static func dataVolumeTree(tweaks: GuestTweaks, build: String) -> APFSContainer.Tree {
         var tree = dataVolumeTree
         if let migration = try? PropertyListSerialization.data(fromPropertyList: ["lastBuildVersion": build],
