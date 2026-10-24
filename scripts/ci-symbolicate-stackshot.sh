@@ -39,7 +39,7 @@ fi
 [ -x "$ipsw" ] || { echo "== ipsw tool not available"; exit 0; }
 
 python3 "$here/stackshot-summary.py" "$work/stackshot.ips" "$@" --addresses > "$work/summary.txt"
-grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -400 > "$work/addrs.txt"
+grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -150 > "$work/addrs.txt"
 echo "== $(wc -l < "$work/addrs.txt") shared-cache addresses"
 while read -r a; do
     sym=$("$ipsw" dyld a2s "$dsc" "$a" 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
