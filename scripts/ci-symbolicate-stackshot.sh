@@ -35,7 +35,7 @@ if [ -z "$ipsw" ]; then
     for t in "$work"/ipsw/*.tar.gz; do tar -xzf "$t" -C "$work/ipsw"; done
     ipsw=$(find "$work/ipsw" -type f -name ipsw | head -1)
 fi
-[ -x "$ipsw" ] || { echo "== ipsw tool not available"; exit 0; }
+[ -x "$ipsw" ] || { echo "== ipsw tool not available; release assets:"; gh release view -R blacktop/ipsw --json assets -q ".assets[].name" 2>&1 | head -20; exit 0; }
 
 python3 "$here/stackshot-summary.py" "$work/stackshot.ips" "$@" --addresses > "$work/summary.txt"
 grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -150 > "$work/addrs.txt"
