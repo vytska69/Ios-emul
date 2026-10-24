@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-24
 
+- The emulated display now refreshes on its own at 60 Hz, so iOS keeps drawing even when no screen is watching (for example with the app in the background).
 - iPhone 11 iOS 14: the emulated Secure Enclave now reports the phone as unlocked (no passcode), which the Photos service waits for on the first start (experimental).
 - iPhone 11 iOS 14: the phone (cellular) service is switched off, as the emulated phone has no modem; it kept crashing and held up the first start (experimental).
 - iPhone 11 iOS 14: the installed system is marked as already migrated to its version (part of the work on the black screen after the first start).

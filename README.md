@@ -228,6 +228,7 @@ Pagalbiniai įrankiai:
 | 0021 | SEP simuliatoriaus žurnale – AppleSEPKeyStore užklausų baitai |
 | 0022 | `nvram-vars` galioja tik pirmam startui: guest perkrovus jie pašalinami |
 | 0023 | SEP simuliatorius: užrakto ir išplėstinė įrenginio būsena – „atrakintas nuo paleidimo, be kodo“ |
+| 0024 | Ekrano valdiklis (ADP v4): 60 Hz vsync ir be prisijungusio VNC kliento |
 
 ### Pakeitimai programoje
 

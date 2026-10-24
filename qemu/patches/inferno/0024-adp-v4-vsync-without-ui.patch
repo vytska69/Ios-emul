@@ -1,0 +1,58 @@
+diff --git a/hw/display/apple_displaypipe_v4.c b/hw/display/apple_displaypipe_v4.c
+index 1f292ad..20fdc90 100644
+--- a/hw/display/apple_displaypipe_v4.c
++++ b/hw/display/apple_displaypipe_v4.c
+@@ -177,6 +177,8 @@ struct AppleDisplayPipeV4State {
+     QemuConsole *console;
+     QEMUBH *update_disp_image_bh;
+     QEMUTimer *boot_splash_timer;
++    /* Refreshes the display and raises OUTPUT_READY at 60 Hz (see adp_v4_vsync). */
++    QEMUTimer *vsync_timer;
+ };
+ 
+ static const VMStateDescription vmstate_adp_v4 = {
+@@ -676,6 +678,26 @@ static void adp_v4_gfx_update(void *opaque)
+     adp_v4_update_irqs(adp);
+ }
+ 
++/*
++ * The display refresh above, which raises OUTPUT_READY, normally runs only while a UI
++ * listens: QEMU's VNC server skips it without a connected client. iOS's window server
++ * waits for that interrupt after each swap (IOMobileFramebuffer SwapWait), so with
++ * nobody watching, or the app in the background, backboardd stalls and SpringBoard
++ * never comes up. Refresh at 60 Hz of virtual time whatever the UI does.
++ */
++#define ADP_V4_VSYNC_NS (NANOSECONDS_PER_SECOND / 60)
++
++static void adp_v4_vsync(void *opaque)
++{
++    AppleDisplayPipeV4State *adp = opaque;
++
++    if (adp->vram_mr != NULL) {
++        adp_v4_gfx_update(adp);
++    }
++    timer_mod(adp->vsync_timer,
++              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ADP_V4_VSYNC_NS);
++}
++
+ static const GraphicHwOps adp_v4_ops = {
+     .invalidate = adp_v4_invalidate,
+     .gfx_update = adp_v4_gfx_update,
+@@ -858,6 +880,9 @@ static void adp_v4_reset_hold(Object *obj, ResetType type)
+     adp_v4_blend_reset(&adp->blend_unit);
+ 
+     adp_v4_read_and_draw_boot_splash(adp);
++
++    timer_mod(adp->vsync_timer,
++              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ADP_V4_VSYNC_NS);
+ }
+ 
+ static void adp_v4_realize(DeviceState *dev, Error **errp)
+@@ -865,6 +890,7 @@ static void adp_v4_realize(DeviceState *dev, Error **errp)
+     AppleDisplayPipeV4State *adp = APPLE_DISPLAY_PIPE_V4(dev);
+ 
+     adp->console = graphic_console_init(dev, 0, &adp_v4_ops, adp);
++    adp->vsync_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, adp_v4_vsync, adp);
+ }
+ 
+ static const Property adp_v4_props[] = {
