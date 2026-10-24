@@ -20,7 +20,7 @@ bash "$here/ci-mount-volume.sh" "$disk" Data "
         echo \"---- \$p\"; head -c 3000 \"\$p\"; echo
     done
     chmod a+r '$work'/* 2>/dev/null"
-[ -f "$work/stackshot.ips" ] || { echo "== no stackshot"; exit 0; }
+[ -f "$work/stackshot.ips" ] || [ -f "$work/crash.ips" ] || { echo "== no stackshot or crash report"; exit 0; }
 
 bash "$here/ci-mount-volume.sh" "$disk" System "
     ls -la \"\$MNT/System/Library/Caches/com.apple.dyld/\"
@@ -52,6 +52,7 @@ if [ -f "$work/crash.ips" ]; then
     "$ipsw" symbolicate "$work/crash.ips" "$dsc" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | head -220
 fi
 
+[ -f "$work/stackshot.ips" ] || exit 0
 python3 "$here/stackshot-summary.py" "$work/stackshot.ips" "$@" --addresses > "$work/summary.txt"
 grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -150 > "$work/addrs.txt"
 echo "== $(wc -l < "$work/addrs.txt") shared-cache addresses; ipsw $("$ipsw" version 2>&1 | head -1)"
