@@ -31,7 +31,11 @@ dsc=$(ls "$work"/dyld_shared_cache_arm64e 2>/dev/null)
 ipsw=$(command -v ipsw)
 if [ -z "$ipsw" ]; then
     mkdir -p "$work/ipsw"
-    gh release download -R blacktop/ipsw --pattern '*_macOS_universal.tar.gz' -D "$work/ipsw" 2>&1 | tail -2
+    # Some releases carry only the ipswd daemon; use the newest one with the ipsw CLI.
+    for tag in $(gh release list -R blacktop/ipsw -L 15 --json tagName -q '.[].tagName'); do
+        gh release download "$tag" -R blacktop/ipsw --pattern 'ipsw_*_macOS_universal.tar.gz' -D "$work/ipsw" \
+            >/dev/null 2>&1 && { echo "== ipsw $tag"; break; }
+    done
     for t in "$work"/ipsw/*.tar.gz; do tar -xzf "$t" -C "$work/ipsw"; done
     # The archive also holds the ipswd daemon; take the binary that has the dyld commands.
     for candidate in $(find "$work/ipsw" -type f -perm -u+x); do
