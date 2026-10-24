@@ -46,8 +46,12 @@ for str in ${XREFS:-}; do
         "$ipsw" dyld xref "$dsc" "$a" ${XREF_IMAGE:+--image "$XREF_IMAGE"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -20
     done
 done
-"$ipsw" dyld str --help 2>&1 | sed -n '/Usage/,/Flags/p' | head -8
-"$ipsw" dyld xref --help 2>&1 | sed -n '/Usage/,$p' | head -25
+# SYMBOLS_IMAGE=QuartzCore SYMBOLS_PATTERN=regex: that image's symbols matching the pattern.
+if [ -n "${SYMBOLS_IMAGE:-}" ]; then
+    echo "==== symbols $SYMBOLS_IMAGE /${SYMBOLS_PATTERN:-.}/"
+    "$ipsw" dyld symaddr "$dsc" --image "$SYMBOLS_IMAGE" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+        | grep -E "${SYMBOLS_PATTERN:-.}" | head -150
+fi
 
 "$ipsw" dyld disass --help 2>&1 | sed -n '/Flags:/,$p' | head -40
 for sym in "$@"; do
