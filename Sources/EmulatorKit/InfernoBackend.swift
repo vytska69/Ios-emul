@@ -309,7 +309,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw+nowatchdog"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw+nowatchdog+swrender"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -350,6 +350,15 @@ public struct InfernoBackend: EmulatorBackend {
                 try GPT.write(to: handle, layout: layout)
                 try image.expand(apfs, into: handle, at: layout.partitionOffset) { ctx.progress("OS", $0) }
                 let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
+                // Without a GPU iOS draws with QuartzCore's CPU renderer only after these patches
+                // (SharedCachePatches). The outcome goes next to the disk; a failure leaves the
+                // system as the IPSW has it.
+                let report: [String]
+                do { report = try SharedCachePatches.apply(build: ctx.ipsw.build, container: container) }
+                catch { report = ["not patched: \(error)"] }
+                try? (report.joined(separator: "\n") + "\n").write(
+                    to: disk.deletingLastPathComponent().appendingPathComponent("shared-cache-patches.txt"),
+                    atomically: true, encoding: .utf8)
                 // mount-phase-2 mounts the Data volume (found by its role) on /private/var. It goes
                 // in the slot after System, as on a restored iPhone: the first-boot obliteration
                 // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the

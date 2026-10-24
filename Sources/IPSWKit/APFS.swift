@@ -924,3 +924,122 @@ extension Data {
         put64(oid, at: 8); put64(xid, at: 16); put32(type, at: 24); put32(subtype, at: 28)
     }
 }
+
+// MARK: - Reading files
+
+extension APFSContainer {
+    /// A run of a file's data: `length` bytes at file offset `logical`, stored at byte `offset`
+    /// of the container.
+    public struct Extent: Equatable {
+        public let logical: UInt64
+        public let offset: UInt64
+        public let length: UInt64
+    }
+
+    /// The volumes in the container: virtual oid, name and role.
+    public func volumes() throws -> [(oid: UInt64, name: String, role: UInt16)] {
+        try volumeOIDs.map { oid in
+            let sb = try volumeSuperblock(oid)
+            let name = String(decoding: sb.slice(704, 256).prefix { $0 != 0 }, as: UTF8.self)
+            return (oid, name, ByteReader(sb).u16(at: 964))
+        }
+    }
+
+    /// Where the data of the file at `path` (relative to the volume root) is stored, in file order.
+    /// Reads unencrypted volumes with uncompressed files only.
+    public func fileExtents(volume oid: UInt64, path: String) throws -> [Extent] {
+        let sb = ByteReader(try volumeSuperblock(oid))
+        guard sb.u64(at: 264) & 0x1 != 0 else { throw Error.unsupported("encrypted volume") }
+        let omapTree = ByteReader(try read(block: sb.u64(at: 128))).u64(at: 48)
+        let fs = FSReader(container: self, omapTree: omapTree, root: sb.u64(at: 136),
+                          hashedNames: sb.u64(at: 56) & 0x9 != 0)
+
+        var id = FSTree.rootID
+        for name in path.split(separator: "/") {
+            guard let hit = try fs.records(id: id, type: FSTree.typeDirRecord)
+                .first(where: { fs.directoryEntryName($0.key) == String(name) }) else {
+                throw Error.unsupported("\(path): no \(name)")
+            }
+            id = ByteReader(hit.value).u64(at: 0)
+        }
+        guard let inode = try fs.records(id: id, type: FSTree.typeInode).first else {
+            throw Error.unsupported("\(path): no inode")
+        }
+        let stream = ByteReader(inode.value).u64(at: 8)                     // private_id
+        return try fs.records(id: stream, type: FSTree.typeFileExtent).map { record in
+            let k = ByteReader(record.key), v = ByteReader(record.value)
+            return Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize,
+                          length: v.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF)
+        }.sorted { $0.logical < $1.logical }
+    }
+
+    /// Reads `count` bytes at byte `offset` of the container.
+    public func readBytes(at offset: UInt64, count: Int) throws -> Data {
+        try handle.seek(toOffset: base + offset)
+        guard let d = try handle.read(upToCount: count), d.count == count else {
+            throw Error.unsupported("short read at \(offset)")
+        }
+        return d
+    }
+
+    /// Overwrites bytes at byte `offset` of the container in place.
+    public func writeBytes(_ data: Data, at offset: UInt64) throws {
+        try handle.seek(toOffset: base + offset)
+        handle.write(data)
+    }
+}
+
+/// Looks up records in a volume's file-system tree (variable-size keys, virtual node oids).
+struct FSReader {
+    let container: APFSContainer
+    let omapTree: UInt64
+    let root: UInt64
+    let hashedNames: Bool
+
+    /// Every record whose key has this object id and type.
+    func records(id: UInt64, type: UInt64) throws -> [(key: Data, value: Data)] {
+        var out: [(key: Data, value: Data)] = []
+        try collect(oid: root, target: (id, type), into: &out, depth: 0)
+        return out
+    }
+
+    func directoryEntryName(_ key: Data) -> String {
+        let k = ByteReader(key)
+        let (start, length) = hashedNames ? (12, Int(k.u32(at: 8) & 0x3FF)) : (10, Int(k.u16(at: 8)))
+        return String(decoding: key.slice(start, max(0, length - 1)), as: UTF8.self)   // drop the NUL
+    }
+
+    private static func idType(_ key: Data) -> (UInt64, UInt64) {
+        let v = ByteReader(key).u64(at: 0)
+        return (v & 0x0FFF_FFFF_FFFF_FFFF, v >> 60)
+    }
+
+    private func collect(oid: UInt64, target: (UInt64, UInt64), into out: inout [(key: Data, value: Data)],
+                         depth: Int) throws {
+        guard depth < 16 else { throw APFSContainer.Error.unsupported("file-system tree deeper than 16 levels") }
+        let node = try container.read(block: container.omapLookup(tree: omapTree, oid: oid))
+        let n = ByteReader(node)
+        let flags = n.u16(at: 32)
+        guard flags & 0x4 == 0 else { throw APFSContainer.Error.unsupported("fixed-size file-system tree node") }
+        let tocOff = 56 + Int(n.u16(at: 40))
+        let keyStart = tocOff + Int(n.u16(at: 42))
+        let valEnd = Int(container.blockSize) - (flags & 0x1 != 0 ? FixedNode.infoSize : 0)
+        let entries: [(key: Data, value: Data)] = (0..<Int(n.u32(at: 36))).map { i in
+            let t = tocOff + i * 8
+            let key = node.slice(keyStart + Int(n.u16(at: t)), Int(n.u16(at: t + 2)))
+            let vLen = Int(n.u16(at: t + 6))
+            return (key, vLen == 0 ? Data() : node.slice(valEnd - Int(n.u16(at: t + 4)), vLen))
+        }
+        if flags & 0x2 != 0 {                                                // leaf
+            out += entries.filter { Self.idType($0.key) == target }
+            return
+        }
+        // Child i holds keys from its own first key up to the next child's first key.
+        for (i, e) in entries.enumerated() {
+            let first = Self.idType(e.key)
+            guard first <= target else { break }
+            if i + 1 < entries.count, Self.idType(entries[i + 1].key) < target { continue }
+            try collect(oid: ByteReader(e.value).u64(at: 0), target: target, into: &out, depth: depth + 1)
+        }
+    }
+}
