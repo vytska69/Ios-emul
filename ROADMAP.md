@@ -36,8 +36,8 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 ### Artimiausi žingsniai
 
-1. iPhone 11 iOS 14: nuo juodo ekrano iki SpringBoard. Sistema dirba, bet nieko nepiešia; reikia pamatyti, kurie
-   userland procesai stringa (SEP raktų saugyklos komandos 0x22/0x2A/0x4D/0x0B, Data be Data Protection).
+1. iPhone 11 iOS 14: sąrankos ekranas „Hello“ jau matyti (CPU renderis per `SharedCachePatches`). Toliau –
+   jutiklinis ekranas ir mygtukai sąrankai praeiti, didesnės raiškos ekrano nuotraukos CI'e, bandymas telefone.
 2. iPhone XR (A12, atidėta): kernelis panikuoja `rtclock` inicializacijoje dar prieš serial išvestį,
    nors patch 0014 grąžino CPU mazgus su `timebase-frequency`. Kita – `-d exec,nochain,int` kelias iki
    pirmos išimties (įrankiai: `scripts/xref.py`, `scripts/adt.py`, boot testo `after` įvestis);
@@ -84,5 +84,8 @@ Kelias, kuriuo tiesioginis įdiegimas pasiekia userland'ą (iOS 14.0, 2026-10-23
   disko nepasiekia, todėl QEMU žymę pašalina pats.
 - **Spinlock'ai**: `slto_us=100000000`, kitaip userland'e „Ticket spinlock timeout“ panika.
 
-Toliau: ekranas juodas. Tikras sprendimas Data šifravimui – AKS ref-key ir media raktų įgyvendinimas
+Ekranas: be AGX GPU nėra Metal ir OpenGL ES renderio, todėl QuartzCore piešia `CA::OGL::SWContext`.
+Kad tai veiktų, įdiegimas pataiso dyld shared cache (`Sources/EmulatorKit/SharedCachePatches.swift`):
+MobileIcons ikonų mažinimas be CoreImage, CoreImage be OpenGL ES, AsynchronousDispatcher be `stop_timer`,
+ir ekrano paviršiai be AGX suspaudimo (`&BGA`, kurio programinis renderis nemoka). Kita: Data šifravimui tikras sprendimas Data šifravimui – AKS ref-key ir media raktų įgyvendinimas
 simuliuotame SEP (ECDH su SEP raktų pora), kad iOS sukurtų ir atrakintų šifruotą Data tomą.

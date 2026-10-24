@@ -13,8 +13,8 @@ programai įdiegti, nei iOS į virtualų įrenginį įrašyti.
 [Kas naujo](distribution/whats-new.md)
 
 > **Dabar.** iPhone 11 su iOS 14.0 įsidiegia be restore, praeina pirmo paleidimo trynimą ir sistemos
-> keybag'ą ir paleidžia pilną iOS userland'ą (macOS CI'e): įsijungia ekrano apšvietimas, sistema dirba
-> be panikų, bet ekranas kol kas juodas. Telefone (iPhone 16e, iOS 27.2) tai dar neišbandyta su naujausiu
+> keybag'ą ir paleidžia pilną iOS userland'ą (macOS CI'e). Be GPU iOS piešia QuartzCore programiniu
+> renderiu (įdiegimas pataiso 5 instrukcijas dyld shared cache), ir ekrane matyti sąrankos „Hello“. Telefone (iPhone 16e, iOS 27.2) tai dar neišbandyta su naujausiu
 > build'u. iPhone 6s su iOS 15.8 pasiekia IOKit.
 > Plačiau: [Būsena](#būsena).
 
@@ -71,7 +71,7 @@ workflow tai daro macOS CI'e su tikrais IPSW, programa telefone eina tuo pačiu 
 
 | Įrenginys ir iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | Pilnas userland: trynimas, `keybag` („System Keybag loaded“), „Early boot complete“, IOMFB ir ekrano apšvietimas; 30 min be panikos | Ekranas juodas. Data tomas nešifruotas („not content protected“), simuliuotas SEP neatsako į dalį AppleSEPKeyStore komandų (0x22 ref-key, 0x2A, 0x4D, 0x0B) |
+| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | Pilnas userland: trynimas, `keybag` („System Keybag loaded“), „Early boot complete“, IOMFB ir ekrano apšvietimas; 30 min be panikos; sąrankos ekranas „Hello“ (CPU renderis) | Liesti dar netikrinta. Data tomas nešifruotas („not content protected“), simuliuotas SEP neatsako į dalį AppleSEPKeyStore komandų (0x22 ref-key, 0x2A, 0x4D, 0x0B) |
 | iPhone 11, iOS 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB-over-TCP, ROADMAP 4 etapas) |
 | iPhone 6s / 6s Plus (A9), iOS 15.8 | IOKit (AIC, AES, SPI, I2C, PCIe, NVMe) | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
 | iPhone XR (A12), iOS 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įjungiamas | Panika `rtclock` inicializacijoje dar prieš serial išvestį. Atidėta, kol tvarkomas iPhone 11 |
