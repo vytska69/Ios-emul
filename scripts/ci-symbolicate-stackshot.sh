@@ -39,9 +39,11 @@ fi
 
 python3 "$here/stackshot-summary.py" "$work/stackshot.ips" "$@" --addresses > "$work/summary.txt"
 grep -o '@0x[0-9a-f]*' "$work/summary.txt" | tr -d @ | sort -u | head -150 > "$work/addrs.txt"
-echo "== $(wc -l < "$work/addrs.txt") shared-cache addresses"
+echo "== $(wc -l < "$work/addrs.txt") shared-cache addresses; ipsw $("$ipsw" version 2>&1 | head -1)"
+"$ipsw" dyld a2s "$dsc" "$(head -1 "$work/addrs.txt")" 2>&1 | head -20
 while read -r a; do
-    sym=$("$ipsw" dyld a2s "$dsc" "$a" 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
+    # ipsw logs its answer on stderr; keep the last lines, without colour codes.
+    sym=$("$ipsw" dyld a2s "$dsc" "$a" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^[[:space:]]*$' | tail -2 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-220)
     echo "$a $sym"
 done < "$work/addrs.txt" > "$work/symbols.txt"
 python3 - "$work/summary.txt" "$work/symbols.txt" <<'EOF'
