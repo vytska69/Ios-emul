@@ -3,7 +3,7 @@
 for each process whose name contains one of the given words, every thread's state, what it waits
 on, and its user and kernel frames as image+offset.
 
-    stackshot-summary.py report.ips locationd migrat
+    stackshot-summary.py report.ips locationd migrat [--addresses]
 """
 import json
 import sys
@@ -15,12 +15,20 @@ print("reason:", body.get("reason"))
 images = body.get("binaryImages", [])
 
 
+addresses = "--addresses" in words
+words = [w for w in words if w != "--addresses"]
+
+
 def frame(f):
     index, offset = f[0], f[1]
     if 0 <= index < len(images):
         image = images[index]
         name = image[2] if len(image) > 2 and image[2] else image[0]
-        return f"{name.split('/')[-1]}+{offset:#x}"
+        text = f"{name.split('/')[-1]}+{offset:#x}"
+        # With --addresses, shared-cache frames also as unslid addresses (for `ipsw dyld a2s`).
+        if addresses and name == "S" and len(image) > 1 and isinstance(image[1], int):
+            text += f" @{image[1] + offset:#x}"
+        return text
     return f"?{index}+{offset:#x}"
 
 
