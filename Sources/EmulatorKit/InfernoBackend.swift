@@ -247,6 +247,18 @@ public struct InfernoBackend: EmulatorBackend {
                 return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["sepfw-loaded"]),
                                       children: node.children)
             }
+            // The emulated machine has no cellular modem. With the baseband node and chipset in the
+            // DeviceTree iOS treats it as present: CommCenter aborts every few seconds (an uncaught
+            // exception in its DesenseController) and locationd waits forever on CoreTelephony
+            // calls to it, so the post-erase data migration never ends and SpringBoard never
+            // starts. Without them iOS runs as on a Wi-Fi-only device.
+            if node.path == "/baseband" { return nil }
+            if node.path == "/product", node.properties["baseband-chipset"] != nil {
+                var props = node.properties
+                props["baseband-chipset"] = nil
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["baseband-chipset"]),
+                                      children: node.children)
+            }
             guard node.parent?.name == "fstab", node.parent?.parent?.name == "filesystems" else { return node }
             guard Self.directInstallVolumes.contains(node.name) else { return nil }
             if dataInFirstMountPhase, node.name == "data-vol" {

@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-24
 
+- iPhone 11 iOS 14: the emulated phone now presents itself as having no cellular modem, so the crashing phone service no longer blocks the first start (experimental).
 - iPhone 11 iOS 14: the installed system is marked as already migrated to its version (part of the work on the black screen after the first start).
 
 ## 2026-10-23
