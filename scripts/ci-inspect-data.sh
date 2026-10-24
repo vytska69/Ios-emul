@@ -9,10 +9,33 @@ set -u
 disk=${1:?usage: ci-inspect-data.sh nvme.1 [paths]}
 shift
 
-dev=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$disk" | awk 'NR==1{print $1}')
-echo "== attached $disk as $dev"
-diskutil list | sed -n "/^\/dev\/disk/,\$p" | grep -A12 "synthesized" | head -40
-data=$(diskutil list | awk '/APFS Volume Data /{print $NF}' | head -1)
+# The namespace has 4 KiB blocks, so macOS (512-byte sectors) does not see its GPT. Attach just the
+# APFS container: find its superblock ("NXSB" at byte 32 of a block) in the first 16 MiB.
+offset=$(python3 -c '
+import sys
+f = open(sys.argv[1], "rb")
+for o in range(0, 16 << 20, 4096):
+    f.seek(o + 32)
+    if f.read(4) == b"NXSB":
+        print(o); break
+' "$disk")
+[ -n "$offset" ] || { echo "== no APFS container in $disk"; exit 0; }
+echo "== APFS container at byte $offset"
+image=$disk
+if ! dev=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount -section "$((offset / 512))" "$disk" 2>/dev/null | awk 'NR==1{print $1}') || [ -z "$dev" ]; then
+    image=$(mktemp -d)/container.img
+    dd if="$disk" of="$image" bs=1m skip=$((offset >> 20)) conv=sparse 2>/dev/null
+    dev=$(hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount "$image" | awk 'NR==1{print $1}')
+fi
+echo "== attached as $dev"
+sleep 2
+# Only the container whose physical store is the attached image, never the runner's own disks.
+container=$(diskutil list | awk -v store="${dev#/dev/}" '
+    /^\/dev\/disk[0-9]+ \(synthesized\)/ { cur = $1 }
+    /Physical Store/ && $NF ~ "^" store "(s[0-9]+)?$" { print cur; exit }')
+echo "== container ${container:-not found}"
+[ -n "$container" ] && diskutil list "$container"
+data=$([ -n "$container" ] && diskutil list "$container" | awk '/APFS Volume Data /{print $NF}' | head -1)
 mnt=$(mktemp -d)
 if [ -z "$data" ] || ! sudo mount -t apfs -o rdonly "/dev/$data" "$mnt"; then
     echo "== could not mount the Data volume (${data:-not found})"
