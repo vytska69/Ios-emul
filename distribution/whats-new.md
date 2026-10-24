@@ -8,6 +8,10 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-24
+
+- iPhone 11 iOS 14: the first start no longer runs the long data migration that kept the screen black (experimental).
+
 ## 2026-10-23
 
 - iPhone 11 iOS 14 now starts past the first-start setup into the system: the display backlight comes on. Fixed a crash ("spinlock timeout") that came soon after.

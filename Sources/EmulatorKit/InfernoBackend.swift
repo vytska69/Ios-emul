@@ -211,8 +211,18 @@ public struct InfernoBackend: EmulatorBackend {
     }()
 
     /// The Data volume with the preference files for `tweaks` (see GuestTweaks).
-    static func dataVolumeTree(tweaks: GuestTweaks) -> APFSContainer.Tree {
+    ///
+    /// It also records data migration as done for `build`: after the first-boot obliteration iOS
+    /// runs every DataClassMigrator before it starts SpringBoard, which under emulation takes most
+    /// of an hour and then hangs in CoreLocationMigrator, leaving the screen black.
+    static func dataVolumeTree(tweaks: GuestTweaks, build: String) -> APFSContainer.Tree {
         var tree = dataVolumeTree
+        if let migration = try? PropertyListSerialization.data(fromPropertyList: ["lastBuildVersion": build],
+                                                               format: .binary, options: 0) {
+            tree.files["mobile/Library/Preferences/com.apple.migration.plist"] = migration
+            tree.attributes["mobile/Library/Preferences/com.apple.migration.plist"] =
+                APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
+        }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
             tree.attributes[path] = file.attributes
@@ -263,7 +273,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+preboot+xart6m+data2+oblit+sepfw"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+preboot+xart6m+data2+oblit+sepfw"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
@@ -308,7 +318,7 @@ public struct InfernoBackend: EmulatorBackend {
                 // in the slot after System, as on a restored iPhone: the first-boot obliteration
                 // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the
                 // rootfs fstab says), which fails while another volume holds that slot.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks))
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build))
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.

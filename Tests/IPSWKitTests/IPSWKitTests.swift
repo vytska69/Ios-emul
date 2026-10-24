@@ -339,7 +339,11 @@ final class IPSWKitTests: XCTestCase {
     }
 
     func testGuestTweaksPreferences() throws {
-        XCTAssertTrue(InfernoBackend.dataVolumeTree(tweaks: GuestTweaks()).files.isEmpty)
+        let plain = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373")
+        XCTAssertEqual(Array(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist"])
+        let migration = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: plain.files["mobile/Library/Preferences/com.apple.migration.plist"]!, format: nil) as? [String: Any])
+        XCTAssertEqual(migration["lastBuildVersion"] as? String, "18A373")
 
         var tweaks = GuestTweaks()
         tweaks.voiceOver = true
@@ -349,7 +353,7 @@ final class IPSWKitTests: XCTestCase {
         tweaks.region = "lt_LT"
         tweaks.skipSetupAssistant = true
         tweaks.deviceName = "Emulated iPhone"
-        let tree = InfernoBackend.dataVolumeTree(tweaks: tweaks)
+        let tree = InfernoBackend.dataVolumeTree(tweaks: tweaks, build: "18A373")
 
         func plist(_ path: String) throws -> [String: Any] {
             let data = try XCTUnwrap(tree.files[path], path)
