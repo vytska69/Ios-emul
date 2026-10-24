@@ -51,6 +51,14 @@ for f in $(sudo find "$mnt/mobile/Library/Logs/CrashReporter" -type f \( -name '
     sudo head -c 2500 "$f"; echo
 done
 
+if [ -n "${STACKSHOT_WORDS:-}" ]; then
+    for f in $(sudo find "$mnt/mobile/Library/Logs/CrashReporter" -name 'stacks+*.ips' 2>/dev/null | sort | tail -2); do
+        echo "---- stackshot $f"
+        sudo cat "$f" > /tmp/stackshot.ips
+        python3 "$(dirname "$0")/stackshot-summary.py" /tmp/stackshot.ips $STACKSHOT_WORDS | head -400
+    done
+fi
+
 echo "== log files"
 sudo find "$mnt/log" "$mnt/logs" -type f 2>/dev/null | head -60
 for f in $(sudo find "$mnt/log" "$mnt/logs" -type f -size -2000k 2>/dev/null | grep -v '\.tracev3$' | head -20); do
