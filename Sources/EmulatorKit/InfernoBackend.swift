@@ -140,6 +140,11 @@ public struct InfernoBackend: EmulatorBackend {
         // vCPU can take longer than that ("Ticket spinlock timeout" panics once userland runs).
         // 100 s, which still fits XNU's 32-bit LockTimeOut at the 24 MHz timebase.
         bootArgs += " slto_us=100000000"
+        // AppleSEPKeyStore normally reads the device lock state from memory the SEP keeps up to
+        // date, which the simulated SEP does not; with the cache off it asks the SEP each time
+        // (qemu/patches/inferno/0023 answers). Without it iOS never sees the device as unlocked
+        // since boot, and daemons that wait for that (assetsd, during data migration) hang.
+        bootArgs += " aks-cache-device-state=0"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
         let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
         if !extra.isEmpty { bootArgs += " " + extra }

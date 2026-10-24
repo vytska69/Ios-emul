@@ -1,0 +1,62 @@
+diff --git a/hw/arm/apple-silicon/sep-sim.c b/hw/arm/apple-silicon/sep-sim.c
+index 8951398..d8eadce 100644
+--- a/hw/arm/apple-silicon/sep-sim.c
++++ b/hw/arm/apple-silicon/sep-sim.c
+@@ -939,7 +939,40 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+                       " 0x%X 0x%X\n",
+                       *word0, *lword, *word1, *word2);
+ 
+-        const uint32_t resp_size = KEYSTORE_IPC_HEADER_SIZE + 0x4 + 0x4 + 0x8;
++        /*
++         * The extended device state, as AppleSEPKeyStore decodes it: a DER set of
++         * {UTF8String key, INTEGER value} pairs ("ss" state, "sls", "sb", "sfa" failed
++         * attempts, "sgs", "sas", "sgpe", "srcd", "sr"). The state is libaks's
++         * keybag_state: no passcode (1 << 1) and unlocked since boot (1 << 2), as on a
++         * device without a passcode once the system keybag is loaded; without the
++         * latter, daemons waiting for first unlock (e.g. assetsd) never proceed.
++         */
++        static const struct {
++            const char *key;
++            uint8_t value;
++        } fields[] = {
++            { "ss", 0x6 }, { "sls", 0 }, { "sb", 0 }, { "sfa", 0 }, { "sgs", 0 },
++            { "sas", 0 }, { "sgpe", 0 }, { "srcd", 0 }, { "sr", 0 },
++        };
++        uint8_t der[128];
++        uint32_t der_len = 2;
++        for (size_t i = 0; i < ARRAY_SIZE(fields); i++) {
++            uint8_t key_len = strlen(fields[i].key);
++            der[der_len++] = 0x30;
++            der[der_len++] = 2 + key_len + 3;
++            der[der_len++] = 0x0C;
++            der[der_len++] = key_len;
++            memcpy(der + der_len, fields[i].key, key_len);
++            der_len += key_len;
++            der[der_len++] = 0x02;
++            der[der_len++] = 1;
++            der[der_len++] = fields[i].value;
++        }
++        der[0] = 0x31;
++        der[1] = der_len - 2;
++
++        const uint32_t resp_size =
++            KEYSTORE_IPC_HEADER_SIZE + 0x4 + 0x4 + ROUND_UP(der_len, 4);
+         uint8_t *resp_buf = g_new0(uint8_t, resp_size);
+ 
+         KeystoreIPCHeader *resp_hdr = (KeystoreIPCHeader *)resp_buf;
+@@ -952,13 +985,11 @@ static void apple_sep_sim_handle_keystore_msg(AppleSEPSimState *s,
+         memcpy(resp_hdr->ipc_digest, msg_hdr->ipc_digest,
+                sizeof(resp_hdr->ipc_digest));
+ 
+-        // Again, guessing.
+         uint32_t *selector = (uint32_t *)(resp_hdr + 1);
+         *selector = 0;
+-        // FIXME: This is a DER! See `_decode_extended_state`.
+         uint32_t *state_blob = selector + 1;
+-        *state_blob = 0x8;
+-        memcpy(state_blob + 1, "applehax", *state_blob);
++        *state_blob = der_len;
++        memcpy(state_blob + 1, der, der_len);
+ 
+         apple_sep_sim_keystore_send_ipc_resp(s, msg, resp_buf, resp_size);
+         g_free(resp_buf);

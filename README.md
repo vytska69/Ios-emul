@@ -227,6 +227,7 @@ Pagalbiniai įrankiai:
 | 0020 | Branduolio pataisa: tuščia effaceable saugykla laikoma suformatuota (iOS 14) |
 | 0021 | SEP simuliatoriaus žurnale – AppleSEPKeyStore užklausų baitai |
 | 0022 | `nvram-vars` galioja tik pirmam startui: guest perkrovus jie pašalinami |
+| 0023 | SEP simuliatorius: tikra įrenginio būsena (DER) – „atrakintas nuo paleidimo, be kodo“ |
 
 ### Pakeitimai programoje
 
