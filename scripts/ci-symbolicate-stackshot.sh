@@ -33,7 +33,10 @@ if [ -z "$ipsw" ]; then
     mkdir -p "$work/ipsw"
     gh release download -R blacktop/ipsw --pattern '*_macOS_universal.tar.gz' -D "$work/ipsw" 2>&1 | tail -2
     for t in "$work"/ipsw/*.tar.gz; do tar -xzf "$t" -C "$work/ipsw"; done
-    ipsw=$(find "$work/ipsw" -type f -name ipsw | head -1)
+    # The archive also holds the ipswd daemon; take the binary that has the dyld commands.
+    for candidate in $(find "$work/ipsw" -type f -perm -u+x); do
+        if "$candidate" dyld --help >/dev/null 2>&1; then ipsw=$candidate; break; fi
+    done
 fi
 [ -x "$ipsw" ] || { echo "== ipsw tool not available; release assets:"; gh release view -R blacktop/ipsw --json assets -q ".assets[].name" 2>&1 | head -20; exit 0; }
 
