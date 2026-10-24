@@ -51,6 +51,13 @@ for a in ${XREF_ADDRS:-}; do
     echo "==== xrefs $a"
     "$ipsw" dyld xref "$dsc" "$a" ${XREF_IMAGE:+--image "$XREF_IMAGE"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -20
 done
+# GREP_IMAGE=QuartzCore GREP_ASM=regex: lines of that image's disassembly matching the regex, with
+# the 12 instructions before and 6 after each (e.g. 'movk\tw[0-9]+, #0x2642' for a four-char code).
+if [ -n "${GREP_IMAGE:-}" ]; then
+    echo "==== grep $GREP_IMAGE /${GREP_ASM:-}/"
+    "$ipsw" dyld disass "$dsc" --image "$GREP_IMAGE" 2>/dev/null | LC_ALL=C sed 's/\x1b\[[0-9;]*m//g' \
+        | LC_ALL=C grep -E -B12 -A6 "${GREP_ASM:?GREP_ASM}" | cut -c1-160 | head -${GREP_LINES:-400}
+fi
 # SYMBOLS_IMAGE=QuartzCore SYMBOLS_PATTERN=regex: that image's symbols matching the pattern.
 if [ -n "${SYMBOLS_IMAGE:-}" ]; then
     echo "==== symbols $SYMBOLS_IMAGE /${SYMBOLS_PATTERN:-.}/"
