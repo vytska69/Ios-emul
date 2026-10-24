@@ -46,6 +46,11 @@ for str in ${XREFS:-}; do
         "$ipsw" dyld xref "$dsc" "$a" ${XREF_IMAGE:+--image "$XREF_IMAGE"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -20
     done
 done
+# XREF_ADDRS="0x1836fe6bc ...": code that references these addresses.
+for a in ${XREF_ADDRS:-}; do
+    echo "==== xrefs $a"
+    "$ipsw" dyld xref "$dsc" "$a" ${XREF_IMAGE:+--image "$XREF_IMAGE"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -20
+done
 # SYMBOLS_IMAGE=QuartzCore SYMBOLS_PATTERN=regex: that image's symbols matching the pattern.
 if [ -n "${SYMBOLS_IMAGE:-}" ]; then
     echo "==== symbols $SYMBOLS_IMAGE /${SYMBOLS_PATTERN:-.}/"
