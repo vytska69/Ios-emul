@@ -5,7 +5,8 @@
 #     scripts/ci-dsc-disass.sh vm/nvme.1 _MKBDeviceUnlockedSinceBoot ...
 #
 # With STRINGS="CoreImage OpenGLES" (and an optional egrep PATTERN), also extracts those images and
-# prints their strings, e.g. to find environment variables and defaults keys.
+# prints their strings, e.g. to find environment variables and defaults keys. With
+# XREFS="CA_NO_ACCEL ..." it prints where each C string is and the code that references it.
 set -u
 disk=${1:?usage: ci-dsc-disass.sh nvme.1 symbols...}
 shift
@@ -37,6 +38,16 @@ for image in ${STRINGS:-}; do
     [ -n "$f" ] || { echo "(not extracted)"; continue; }
     strings -a "$f" | grep -E "${PATTERN:-.}" | sort -u | head -200
 done
+
+for str in ${XREFS:-}; do
+    echo "==== xrefs $str"
+    "$ipsw" dyld str "$dsc" "$str" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -10
+    for a in $("$ipsw" dyld str "$dsc" "$str" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -o '0x1[0-9a-f]\{8\}' | sort -u | head -3); do
+        "$ipsw" dyld xref "$dsc" "$a" ${XREF_IMAGE:+--image "$XREF_IMAGE"} 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -v 'failed to parse objc' | head -20
+    done
+done
+"$ipsw" dyld str --help 2>&1 | sed -n '/Usage/,/Flags/p' | head -8
+"$ipsw" dyld xref --help 2>&1 | sed -n '/Usage/,$p' | head -25
 
 "$ipsw" dyld disass --help 2>&1 | sed -n '/Flags:/,$p' | head -40
 for sym in "$@"; do
