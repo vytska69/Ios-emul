@@ -144,6 +144,7 @@ jobs:
         if: inputs.after != ''
         env:
           AFTER: ${{ inputs.after }}
+          GH_TOKEN: ${{ github.token }}
         run: bash -c "$AFTER" | tee after.txt || true
 
       - name: Summary

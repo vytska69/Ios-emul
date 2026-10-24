@@ -27,13 +27,12 @@ bash "$here/ci-mount-volume.sh" "$disk" System "
 dsc=$(ls "$work"/dyld_shared_cache_arm64e 2>/dev/null)
 [ -n "$dsc" ] || { echo "== no shared cache"; exit 0; }
 
-# blacktop/ipsw from its latest GitHub release (the macOS universal build).
+# blacktop/ipsw from its latest GitHub release (the macOS universal build; needs GH_TOKEN).
 ipsw=$(command -v ipsw)
 if [ -z "$ipsw" ]; then
-    url=$(curl -fsSL https://api.github.com/repos/blacktop/ipsw/releases/latest |
-          python3 -c 'import json,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if "macOS" in a["name"] and a["name"].endswith(".tar.gz") and "extras" not in a["name"]))')
-    echo "== ipsw from $url"
-    mkdir -p "$work/ipsw" && curl -fsSL "$url" | tar -xz -C "$work/ipsw"
+    mkdir -p "$work/ipsw"
+    gh release download -R blacktop/ipsw --pattern '*_macOS_universal.tar.gz' -D "$work/ipsw" 2>&1 | tail -2
+    for t in "$work"/ipsw/*.tar.gz; do tar -xzf "$t" -C "$work/ipsw"; done
     ipsw=$(find "$work/ipsw" -type f -name ipsw | head -1)
 fi
 [ -x "$ipsw" ] || { echo "== ipsw tool not available"; exit 0; }
