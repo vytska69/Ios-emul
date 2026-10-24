@@ -3,6 +3,9 @@
 # off the System volume and runs blacktop's `ipsw dyld disass` on each symbol.
 #
 #     scripts/ci-dsc-disass.sh vm/nvme.1 _MKBDeviceUnlockedSinceBoot ...
+#
+# With STRINGS="CoreImage OpenGLES" (and an optional egrep PATTERN), also extracts those images and
+# prints their strings, e.g. to find environment variables and defaults keys.
 set -u
 disk=${1:?usage: ci-dsc-disass.sh nvme.1 symbols...}
 shift
@@ -26,6 +29,14 @@ for candidate in $(find "$work/ipsw" -type f -perm -u+x); do
     if "$candidate" dyld --help >/dev/null 2>&1; then ipsw=$candidate; break; fi
 done
 [ -n "$ipsw" ] || { echo "== ipsw tool not available"; exit 0; }
+
+for image in ${STRINGS:-}; do
+    echo "==== strings $image"
+    "$ipsw" dyld extract "$dsc" "$image" --output "$work/x" >/dev/null 2>&1
+    f=$(find "$work/x" -type f -name "$image*" | head -1)
+    [ -n "$f" ] || { echo "(not extracted)"; continue; }
+    strings -a "$f" | grep -E "${PATTERN:-.}" | sort -u | head -200
+done
 
 "$ipsw" dyld disass --help 2>&1 | sed -n '/Flags:/,$p' | head -40
 for sym in "$@"; do
