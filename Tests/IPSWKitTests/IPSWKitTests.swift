@@ -340,7 +340,11 @@ final class IPSWKitTests: XCTestCase {
 
     func testGuestTweaksPreferences() throws {
         let plain = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373")
-        XCTAssertEqual(Array(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist"])
+        XCTAssertEqual(Set(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist",
+                                               "db/com.apple.xpc.launchd/disabled.plist"])
+        let disabled = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: plain.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
+        XCTAssertEqual(disabled["com.apple.CommCenter"], true)
         let migration = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["mobile/Library/Preferences/com.apple.migration.plist"]!, format: nil) as? [String: Any])
         XCTAssertEqual(migration["lastBuildVersion"] as? String, "18A373")
