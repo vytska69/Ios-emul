@@ -12,6 +12,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 - New Settings > Diagnostics page: shows whether the app was installed with everything the emulator needs (JIT permission, extra memory, large address space) and how much memory iOS allows it, with a button to copy the report. Some installers quietly leave these out, and then the emulator does not start.
 - While the emulated phone starts, the screen now shows how far it has got (machine built, kernel started, drivers, system disk, iOS starting, waiting for the first screen) with the time spent on each step, instead of a black screen that looks stuck. A kernel panic is shown there too.
+- Once the emulated screen shows the Apple logo, the start-up progress moves to a small bar at the top of the screen instead of covering the logo; tap it to see all the steps.
 - Installing iOS no longer piles up memory while it unpacks the system: the phone stays responsive and the app is no longer closed by iOS partway through the install.
 - Faster emulation: the translation cache now defaults to 512 MB. With 256 MB the emulator kept throwing away all translated code and starting over while iOS booted. A build earlier today used 1024 MB, which with 4 GB of guest memory was too much for the phone and the app closed right after "Building the machine"; reopen the app (through StikDebug) after updating.
 - iPhone 11 iOS 14: the first start reaches the setup screen several minutes sooner; the emulated phone no longer runs the data migration a new install does not need (new installs).

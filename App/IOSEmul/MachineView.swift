@@ -220,9 +220,10 @@ struct MachineView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: theme.colors.0.opacity(0.25), radius: 30)
                     .padding(.vertical, 56)
-                    .overlay {
+                    // At the top, small: the boot logo sits in the middle of the screen.
+                    .overlay(alignment: .top) {
                         if !display.screenLit && running {
-                            BootProgress(display: display).padding(32).allowsHitTesting(false)
+                            BootProgress(display: display, compact: true).padding(12)
                         }
                     }
             } else {
@@ -331,6 +332,9 @@ struct MachineView: View {
 /// while iOS starts read as progress rather than as a machine that hangs.
 private struct BootProgress: View {
     @ObservedObject var display: DisplayModel
+    /// Over the emulated screen: one line with the current step; tapping it lists the steps.
+    var compact = false
+    @State private var expanded = false
     @Environment(\.theme) private var theme
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var now = Date()
@@ -352,10 +356,54 @@ private struct BootProgress: View {
         ]
     }
 
+    private var timing: String {
+        let since = display.milestone == nil ? display.started : display.milestoneSince
+        return "This step \(Self.duration(now.timeIntervalSince(since))) · total \(Self.duration(now.timeIntervalSince(display.started)))"
+    }
+
     var body: some View {
+        Group {
+            if compact { compactBody } else { list(hints: true) }
+        }
+        .onReceive(timer) { now = $0 }
+    }
+
+    private var compactBody: some View {
         let steps = self.steps
         let current = steps.firstIndex { !$0.done }
-        VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(.spring(response: 0.3)) { expanded.toggle() } } label: {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(theme.accent)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(current.map { "Step \($0 + 1) of \(steps.count): \(steps[$0].title)" } ?? "Starting")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                        Text(timing).font(.caption2.monospacedDigit()).foregroundStyle(theme.accent).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold)).foregroundStyle(.white.opacity(0.5))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded { list(hints: false, padded: false) }
+            if let panic = display.panicLine {
+                Label("Kernel panic: \(panic)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2).foregroundStyle(.orange).lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .frame(maxWidth: 340, alignment: .leading)
+        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.1)))
+    }
+
+    @ViewBuilder
+    private func list(hints: Bool, padded: Bool = true) -> some View {
+        let steps = self.steps
+        let current = steps.firstIndex { !$0.done }
+        let content = VStack(alignment: .leading, spacing: hints ? 10 : 7) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 HStack(alignment: .top, spacing: 10) {
                     Group {
@@ -369,27 +417,30 @@ private struct BootProgress: View {
                     }
                     .frame(width: 18, height: 18)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(step.title).font(.subheadline.weight(index == current ? .semibold : .regular))
+                        Text(step.title).font((hints ? Font.subheadline : .caption).weight(index == current ? .semibold : .regular))
                             .foregroundStyle(.white.opacity(step.done || index == current ? 1 : 0.4))
-                        if index == current {
+                        if index == current && hints {
                             Text(step.hint).font(.caption).foregroundStyle(.white.opacity(0.55))
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("This step \(Self.duration(now.timeIntervalSince(display.milestone == nil ? display.started : display.milestoneSince))) · total \(Self.duration(now.timeIntervalSince(display.started)))")
-                                .font(.caption2.monospacedDigit()).foregroundStyle(theme.accent)
+                            Text(timing).font(.caption2.monospacedDigit()).foregroundStyle(theme.accent)
                         }
                     }
                 }
             }
-            if let panic = display.panicLine {
+            if hints, let panic = display.panicLine {
                 Label("The kernel panicked: \(panic)", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.orange).lineLimit(3)
             }
         }
-        .padding(16)
-        .frame(maxWidth: 360, alignment: .leading)
-        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.1)))
-        .onReceive(timer) { now = $0 }
+        if padded {
+            content
+                .padding(16)
+                .frame(maxWidth: 360, alignment: .leading)
+                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.1)))
+        } else {
+            content
+        }
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
