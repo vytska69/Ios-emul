@@ -12,6 +12,15 @@ final class DisplayModel: ObservableObject {
     @Published var vmState: QEMURunner.State = .running
     /// Display frames received in the last second (experimental frame counter).
     @Published var fps = 0
+    /// How far the boot has got, read from the kernel's serial output, until the screen shows
+    /// something: after the display connects it stays black for minutes while iOS starts.
+    @Published var milestone: BootMilestone?
+    @Published var milestoneSince = Date()
+    @Published var panicLine: String?
+    @Published var screenLit = false
+    private var serialOffset: UInt64 = 0
+    private var serialCarry = ""
+    private var scanning = false
     private var framesThisSecond = 0
     private var fpsTimer: Timer?
     private var waitTimer: Timer?
@@ -21,9 +30,9 @@ final class DisplayModel: ObservableObject {
     private var connected = false
     /// QEMU answers its monitor only once machine creation (loading and patching the kernel,
     /// building the device tree) is done and the main loop runs; until then it prints nothing.
-    private var machineBuilt = false
+    @Published private(set) var machineBuilt = false
     private var checking = false
-    private let started = Date()
+    let started = Date()
 
     init(runner: QEMURunner) {
         self.runner = runner
@@ -36,12 +45,18 @@ final class DisplayModel: ObservableObject {
         connect()
         waitTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, !self.connected, case .running = self.vmState else { return }
+                guard let self, !self.screenLit, case .running = self.vmState else { return }
                 let seconds = Int(Date().timeIntervalSince(self.started))
-                self.status = self.machineBuilt
-                    ? "Machine running, waiting for the display · \(seconds) s"
-                    : "Building the machine · \(seconds) s"
-                if seconds % 3 == 0 { self.checkMachine() }
+                if !self.connected {
+                    self.status = self.machineBuilt
+                        ? "Machine running, waiting for the display · \(seconds) s"
+                        : "Building the machine · \(seconds) s"
+                }
+                if let frame = self.frame, Self.isLit(frame) { self.screenLit = true }
+                if seconds % 3 == 0 {
+                    self.checkMachine()
+                    self.scanSerial()
+                }
             }
         }
         if Pref.experimentalBool(Pref.fpsCounter) {
@@ -64,7 +79,6 @@ final class DisplayModel: ObservableObject {
             switch event {
             case .connected(let w, let h, _):
                 self.connected = true
-                self.waitTimer?.invalidate()
                 self.status = "\(w)×\(h)"
             case .frame(let image):
                 self.frame = image
@@ -99,6 +113,61 @@ final class DisplayModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Reads what the kernel printed since the last look and moves the boot milestone forward.
+    private func scanSerial() {
+        guard !scanning else { return }
+        scanning = true
+        let url = runner.configuration.workingDirectory.appendingPathComponent("serial.log")
+        let start = serialOffset
+        let carry = serialCarry
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var offset = start
+            var text = ""
+            if let handle = try? FileHandle(forReadingFrom: url) {
+                let size = (try? handle.seekToEnd()) ?? 0
+                if size < offset { offset = 0 }      // a new boot started the log over
+                try? handle.seek(toOffset: offset)
+                let data = (try? handle.read(upToCount: 4 << 20)) ?? Data()
+                try? handle.close()
+                offset += UInt64(data.count)
+                text = String(decoding: data, as: UTF8.self)
+            }
+            // Markers can straddle two reads.
+            let chunk = carry + text
+            let reached = BootMilestone.furthest(in: chunk)
+            let panic = BootMilestone.panic(in: chunk)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.scanning = false
+                self.serialOffset = offset
+                self.serialCarry = String(chunk.suffix(256))
+                if let reached, self.milestone.map({ reached > $0 }) ?? true {
+                    self.milestone = reached
+                    self.milestoneSince = Date()
+                }
+                if let panic, self.panicLine == nil { self.panicLine = panic }
+            }
+        }
+    }
+
+    /// Whether a frame shows more than a black screen (a few lit pixels do not count).
+    static func isLit(_ image: CGImage) -> Bool {
+        let w = 18, h = 39
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8,
+                                          bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+            context.interpolationQuality = .low
+            context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return true }
+        var lit = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) where max(pixels[i], pixels[i + 1], pixels[i + 2]) > 24 { lit += 1 }
+        return lit * 10 > w * h
     }
 
     func touch(at point: CGPoint, in size: CGSize, pressed: Bool) {
@@ -151,6 +220,11 @@ struct MachineView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: theme.colors.0.opacity(0.25), radius: 30)
                     .padding(.vertical, 56)
+                    .overlay {
+                        if !display.screenLit && running {
+                            BootProgress(display: display).padding(32).allowsHitTesting(false)
+                        }
+                    }
             } else {
                 VStack(spacing: 18) {
                     ZStack {
@@ -162,8 +236,7 @@ struct MachineView: View {
                         Text(trace).font(.caption.monospaced()).foregroundStyle(theme.accent)
                             .textSelection(.enabled)
                     }
-                    Text("Building the machine (unpacking and patching the kernel) can take several minutes on a phone, and QEMU prints nothing meanwhile. Then the kernel's serial output appears here, and the screen once iOS turns the display on.")
-                        .font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
+                    if running { BootProgress(display: display) }
                     if !consoleVisible {
                         SerialConsole(directory: display.runner.configuration.workingDirectory)
                     }
@@ -251,6 +324,77 @@ struct MachineView: View {
         .padding(8)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+    }
+}
+
+/// The steps of a boot, ticked off as the kernel reports them, so the minutes of black screen
+/// while iOS starts read as progress rather than as a machine that hangs.
+private struct BootProgress: View {
+    @ObservedObject var display: DisplayModel
+    @Environment(\.theme) private var theme
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var now = Date()
+
+    private struct Step { let title: String; let hint: String; let done: Bool }
+
+    private var steps: [Step] {
+        let m = display.milestone
+        func past(_ stage: BootMilestone) -> Bool { m.map { $0 >= stage } ?? false }
+        return [
+            Step(title: "Building the machine", hint: "Unpacking and patching the kernel; QEMU prints nothing meanwhile. Can take several minutes on a phone.",
+                 done: display.machineBuilt || m != nil),
+            Step(title: "Kernel started", hint: "Waiting for the kernel's first output.", done: past(.kernel)),
+            Step(title: "Loading drivers", hint: "The kernel is starting the emulated hardware.", done: past(.iokit)),
+            Step(title: "System disk mounted", hint: "Mounting the iOS system volume.", done: past(.rootMounted)),
+            Step(title: "iOS starting", hint: "The kernel is handing over to launchd.", done: past(.launchd)),
+            Step(title: "Waiting for the first screen", hint: "iOS draws its screen on the emulated processor, which is slow: after a fresh install this takes 20 minutes or more, after a restart several minutes. The machine is working; leave it running.",
+                 done: display.screenLit),
+        ]
+    }
+
+    var body: some View {
+        let steps = self.steps
+        let current = steps.firstIndex { !$0.done }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 10) {
+                    Group {
+                        if step.done {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.accent)
+                        } else if index == current {
+                            ProgressView().controlSize(.small).tint(theme.accent)
+                        } else {
+                            Image(systemName: "circle").foregroundStyle(.white.opacity(0.25))
+                        }
+                    }
+                    .frame(width: 18, height: 18)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(step.title).font(.subheadline.weight(index == current ? .semibold : .regular))
+                            .foregroundStyle(.white.opacity(step.done || index == current ? 1 : 0.4))
+                        if index == current {
+                            Text(step.hint).font(.caption).foregroundStyle(.white.opacity(0.55))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("This step \(Self.duration(now.timeIntervalSince(display.milestone == nil ? display.started : display.milestoneSince))) · total \(Self.duration(now.timeIntervalSince(display.started)))")
+                                .font(.caption2.monospacedDigit()).foregroundStyle(theme.accent)
+                        }
+                    }
+                }
+            }
+            if let panic = display.panicLine {
+                Label("The kernel panicked: \(panic)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(3)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: 360, alignment: .leading)
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.1)))
+        .onReceive(timer) { now = $0 }
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds))
+        return s < 60 ? "\(s) s" : "\(s / 60) min \(s % 60) s"
     }
 }
 
