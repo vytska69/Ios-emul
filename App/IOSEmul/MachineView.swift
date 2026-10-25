@@ -5,10 +5,11 @@ import EmulatorKit
 final class DisplayModel: ObservableObject {
     @Published var frame: CGImage?
     @Published var status = "Starting QEMU…"
-    /// Where the emulated CPU 0 is, sampled every few seconds while the display is not up, so a
-    /// guest that is running can be told apart from one that is stuck (e.g. "0xfffffff007a1b2c4 · moving").
+    /// What the emulated CPUs are doing, sampled every few seconds while the display is not up, so a
+    /// guest that is running can be told apart from one that is stuck (e.g. "3 of 4 CPUs working · running").
+    /// A CPU waiting for work (wfi) keeps its PC, so only the working ones count as moving.
     @Published var cpuTrace: String?
-    private var lastPC: String?
+    private var lastPCs: [Int: String] = [:]
     @Published var vmState: QEMURunner.State = .running
     /// Display frames received in the last second (experimental frame counter).
     @Published var fps = 0
@@ -103,17 +104,33 @@ final class DisplayModel: ObservableObject {
         let monitor = QEMUMonitor(port: runner.configuration.monitorPort)
         let built = machineBuilt
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let answer = monitor.query(built ? "info registers" : "info status") ?? ""
-            // "info registers" starts with CPU 0: " PC=fffffff0071c3a58 X00=..."
-            let pc = answer.range(of: #"PC=[0-9a-f]+"#, options: .regularExpression).map { String(answer[$0].dropFirst(3)) }
+            let status = built ? "" : monitor.query("info status") ?? ""
+            // " CPU #0: thread_id=… (halted)" per vCPU, then "CPU#0\n PC=fffffff0071c3a58 …" blocks.
+            let cpus = built ? monitor.query("info cpus") ?? "" : ""
+            let registers = built ? monitor.query("info registers -a") ?? "" : ""
+            var halted = Set<Int>()
+            for line in cpus.split(separator: "\n") where line.contains("CPU #") && line.contains("(halted)") {
+                if let n = line.split(separator: "#").last?.split(separator: ":").first.flatMap({ Int($0) }) { halted.insert(n) }
+            }
+            var pcs: [Int: String] = [:]
+            for block in registers.components(separatedBy: "CPU#").dropFirst() {
+                guard let n = Int(block.prefix { $0.isNumber }),
+                      let r = block.range(of: #"PC=[0-9a-f]+"#, options: .regularExpression) else { continue }
+                pcs[n] = String(block[r].dropFirst(3))
+            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.checking = false
-                if answer.contains("VM status") { self.machineBuilt = true }
-                if let pc {
-                    let moving = self.lastPC.map { $0 != pc } ?? true
-                    self.cpuTrace = "CPU 0 at 0x\(pc) · " + (moving ? "running" : "not moving")
-                    self.lastPC = pc
+                if status.contains("VM status") { self.machineBuilt = true }
+                guard !pcs.isEmpty else { return }
+                let working = pcs.keys.filter { !halted.contains($0) }
+                let moved = working.contains { self.lastPCs[$0].map { old in old != pcs[$0] } ?? true }
+                self.lastPCs = pcs
+                let pc0 = pcs[0].map { "CPU 0 at 0x\($0)" } ?? ""
+                if working.isEmpty {
+                    self.cpuTrace = "\(pcs.count) CPUs idle, waiting · \(pc0)"
+                } else {
+                    self.cpuTrace = "\(working.count) of \(pcs.count) CPUs working · " + (moved ? "running" : "not moving")
                 }
             }
         }
