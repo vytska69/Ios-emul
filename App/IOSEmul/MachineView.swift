@@ -204,6 +204,27 @@ final class DisplayModel: ObservableObject {
 
     func key(_ keysym: UInt32) { vnc?.key(keysym) }
 
+    /// The emulated phone's buttons. Inferno's buttons device reads them from F-keys only
+    /// (hw/misc/apple-silicon/buttons.c): F3/F4 volume, F5 side (hold), F6 home.
+    enum Button: UInt32 {
+        case volumeDown = 0xFFC0, volumeUp = 0xFFC1, side = 0xFFC2, home = 0xFFC3
+    }
+
+    func press(_ button: Button) { vnc?.key(button.rawValue) }
+
+    /// Home: a swipe up from the bottom edge on a Face ID iPhone (tall screen), the home button otherwise.
+    func goHome() {
+        guard let vnc, let frame else { return }
+        guard frame.height * 10 > frame.width * 20 else { return press(.home) }
+        let x = frame.width / 2, bottom = frame.height - 4, travel = frame.height * 45 / 100, steps = 12
+        vnc.pointer(x: x, y: bottom, pressed: true)
+        for i in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03 * Double(i)) {
+                vnc.pointer(x: x, y: bottom - i * travel / steps, pressed: i < steps)
+            }
+        }
+    }
+
     func shutdown() {
         fpsTimer?.invalidate()
         waitTimer?.invalidate()
@@ -328,8 +349,10 @@ struct MachineView: View {
     private var controls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ControlButton(symbol: "circle.circle", title: "Home") { display.key(0xFF50) }
-                ControlButton(symbol: "lock.fill", title: "Lock") { display.key(0xFF1B) }
+                ControlButton(symbol: "circle.circle", title: "Home") { display.goHome() }
+                ControlButton(symbol: "lock.fill", title: "Lock") { display.press(.side) }
+                ControlButton(symbol: "speaker.minus.fill", title: "Vol −") { display.press(.volumeDown) }
+                ControlButton(symbol: "speaker.plus.fill", title: "Vol +") { display.press(.volumeUp) }
                 if Pref.experimentalBool(Pref.machineTools) {
                     ControlButton(symbol: "wrench.and.screwdriver", title: "Tools") {
                         withAnimation(.spring(response: 0.3)) { toolsVisible.toggle() }
