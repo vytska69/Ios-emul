@@ -28,5 +28,5 @@ for addr in "$@"; do
     start=$(printf '0x%x' $(( addr - 0x40 )))
     echo "==== $addr"
     "$ipsw" macho info "$macho" --fileset-entry-for "$addr" 2>/dev/null | head -3
-    "$ipsw" macho disass "$macho" --vaddr "$start" --count "${COUNT:-48}" --symbolicate 2>&1 | head -"${COUNT:-48}"
+    "$ipsw" macho disass "$macho" --vaddr "$start" --count "${COUNT:-48}" 2>&1 | head -"${COUNT:-48}"
 done
