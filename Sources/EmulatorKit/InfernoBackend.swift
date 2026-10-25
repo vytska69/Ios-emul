@@ -226,7 +226,7 @@ public struct InfernoBackend: EmulatorBackend {
         // locationd's synchronous CoreTelephony calls to it never return, so the post-erase data
         // migration hangs in CoreLocationMigrator. Disabled in launchd's overrides, the service
         // is not started and those calls fail at once.
-        if let disabled = try? PropertyListSerialization.data(fromPropertyList: ["com.apple.CommCenter": true],
+        if let disabled = try? PropertyListSerialization.data(fromPropertyList: ["com.apple.CommCenter": true, "com.apple.datamigrator": true],
                                                               format: .xml, options: 0) {
             tree.files["db/com.apple.xpc.launchd/disabled.plist"] = disabled
             tree.attributes["db/com.apple.xpc.launchd/disabled.plist"] = APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o644)
@@ -309,7 +309,7 @@ public struct InfernoBackend: EmulatorBackend {
     func installRootFilesystem(_ ctx: PrepareContext, disk: URL, size: UInt64) throws -> String {
         let dir = disk.deletingLastPathComponent()
         let marker = dir.appendingPathComponent("installed-build")
-        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw+nowatchdog+swrender"
+        let build = "\(ctx.ipsw.build) \(ctx.identity.deviceClass) data-slot1+premigrated+nocommcenter+preboot+xart6m+data2+oblit+sepfw+nowatchdog+swrender+nodm"
         if let installed = try? String(contentsOf: marker, encoding: .utf8),
            installed.hasPrefix(build + " "), let root = installed.split(separator: " ").last {
             return String(root)
