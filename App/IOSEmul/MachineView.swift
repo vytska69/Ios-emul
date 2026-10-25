@@ -126,12 +126,16 @@ final class DisplayModel: ObservableObject {
         let url = runner.configuration.workingDirectory.appendingPathComponent("serial.log")
         let start = serialOffset
         let carry = serialCarry
+        let bootStarted = started
         DispatchQueue.global(qos: .utility).async { [weak self] in
             var offset = start
             var text = ""
-            if let handle = try? FileHandle(forReadingFrom: url) {
+            var restarted = false
+            // Until QEMU builds the machine and opens it afresh, serial.log is the last boot's.
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, modified >= bootStarted.addingTimeInterval(-1), let handle = try? FileHandle(forReadingFrom: url) {
                 let size = (try? handle.seekToEnd()) ?? 0
-                if size < offset { offset = 0 }      // a new boot started the log over
+                if size < offset { offset = 0; restarted = true }      // the guest rebooted or QEMU reopened the log
                 try? handle.seek(toOffset: offset)
                 let data = (try? handle.read(upToCount: 4 << 20)) ?? Data()
                 try? handle.close()
@@ -139,7 +143,7 @@ final class DisplayModel: ObservableObject {
                 text = String(decoding: data, as: UTF8.self)
             }
             // Markers can straddle two reads.
-            let chunk = carry + text
+            let chunk = (restarted ? "" : carry) + text
             let reached = BootMilestone.furthest(in: chunk)
             let panic = BootMilestone.panic(in: chunk)
             DispatchQueue.main.async {
@@ -147,6 +151,7 @@ final class DisplayModel: ObservableObject {
                 self.scanning = false
                 self.serialOffset = offset
                 self.serialCarry = String(chunk.suffix(256))
+                if restarted { self.milestone = nil; self.milestoneSince = Date() }
                 if let reached, self.milestone.map({ reached > $0 }) ?? true {
                     self.milestone = reached
                     self.milestoneSince = Date()
