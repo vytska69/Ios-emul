@@ -481,7 +481,7 @@ private struct EmulatorPage: View {
                         ForEach([128, 256, 512, 1024], id: \.self) { Text("\($0) MB").tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    Hint(text: "Larger is faster: when the cache fills, QEMU throws away all translated code and starts over. iOS guests need at least 512 MB. It counts against the memory iOS allows the app; if a machine does not fit, it starts with 256 MB.")
+                    Hint(text: "Larger is faster: when the cache fills, QEMU throws away all translated code and starts over. For iOS guests 1024 MB is best. It counts against the memory iOS allows the app; if a machine does not fit, it starts with a smaller cache.")
                 }
             }
             VStack(alignment: .leading, spacing: 8) {

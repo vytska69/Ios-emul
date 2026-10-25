@@ -52,9 +52,10 @@ public final class QEMURunner {
 
     /// Default TCG translation cache for in-process runs on iOS (`-accel tcg,tb-size=`); the app's
     /// settings can change it per boot (PrepareContext.translationCacheMB).
-    /// Booting iOS translates more code than 256 MB holds: QEMU then flushes the whole cache and
-    /// translates everything again, about twice a minute in a CI boot of iOS 14.
-    public static let defaultTranslationCacheMB = 512
+    /// Booting iOS translates more code than a small cache holds: QEMU then flushes the whole cache
+    /// and translates everything again. In 15 minutes of an iOS 14 CI boot that happened 29 times
+    /// with 256 MB and 6 times with 512 MB.
+    public static let defaultTranslationCacheMB = 1024
 
     /// Memory an in-process VM needs besides guest RAM: the translation cache plus QEMU's own
     /// allocations (device models, display buffers, block caches).

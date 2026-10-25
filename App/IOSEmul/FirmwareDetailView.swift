@@ -81,8 +81,8 @@ final class FirmwareModel: ObservableObject {
         let availableMB = Int(os_proc_available_memory() / 1_048_576)
         // A smaller translation cache is slower (QEMU throws all translated code away each time
         // it fills) but better than not starting at all.
-        if availableMB > 0 && availableMB < neededMB && cacheMB > 256 && QEMURunner.preparedJITMB == 0 {
-            cacheMB = 256
+        while availableMB > 0 && availableMB < neededMB && cacheMB > 256 && QEMURunner.preparedJITMB == 0 {
+            cacheMB = max(256, cacheMB / 2)
             neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB, translationCacheMB: cacheMB)
         }
         if availableMB > 0 && availableMB < neededMB {
