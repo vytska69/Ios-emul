@@ -1,5 +1,6 @@
 import SwiftUI
 import EmulatorKit
+import os
 
 /// UserDefaults keys for everything on the Settings tab.
 enum Pref {
@@ -230,6 +231,9 @@ struct SettingsView: View {
                         Card(padding: 6) {
                             SettingsLink(symbol: "info.circle", title: "About iOS Emul",
                                          detail: "Version \(AppInfo.version) (\(AppInfo.build))") { AboutPage() }
+                            RowDivider()
+                            SettingsLink(symbol: "stethoscope", title: "Diagnostics",
+                                         detail: DiagnosticsPage.summary) { DiagnosticsPage() }
                         }
                     }
                 }
@@ -562,6 +566,93 @@ private struct StoragePage: View {
 }
 
 // MARK: - About
+
+/// What the installer signed this copy with and what the emulator can use, so a machine that
+/// will not start after installing the IPA some other way can be explained.
+private struct DiagnosticsPage: View {
+    @Environment(\.theme) private var theme
+    @State private var copied = false
+    private let info = SigningInfo.current
+
+    private struct Check: Identifiable {
+        let title: String
+        let value: String
+        let ok: Bool?
+        let help: String?
+        var id: String { title }
+    }
+
+    static var summary: String {
+        let info = SigningInfo.current
+        let missing = [info.getTaskAllow, info.increasedMemoryLimit, info.extendedVirtualAddressing].filter { !$0 }.count
+        return missing == 0 ? "Signing looks right" : "\(missing) entitlement\(missing == 1 ? "" : "s") missing"
+    }
+
+    private var checks: [Check] {
+        let availableMB = Int(os_proc_available_memory() / 1_048_576)
+        let expiry = info.profileExpiry.map { $0.formatted(date: .abbreviated, time: .omitted) }
+        return [
+            Check(title: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "?", ok: nil, help: nil),
+            Check(title: "Provisioning profile",
+                  value: info.profileKind.map { [$0, info.profileTeam, expiry.map { "until \($0)" }].compactMap { $0 }.joined(separator: " · ") } ?? "none",
+                  ok: info.profileKind.map { $0 == "Development" },
+                  help: info.profileKind == "Development" ? nil : "Only a development profile allows JIT. Re-install the IPA signed with a development certificate and profile, not a distribution (ad hoc, App Store or enterprise) one."),
+            Check(title: "get-task-allow (JIT)", value: info.getTaskAllow ? "present" : "missing", ok: info.getTaskAllow,
+                  help: info.getTaskAllow ? nil : "Without it no JIT enabler (StikDebug, SideStore) can turn on JIT, and the app falls back to the much slower interpreter."),
+            Check(title: "Increased memory limit", value: info.increasedMemoryLimit ? "present" : "missing", ok: info.increasedMemoryLimit,
+                  help: info.increasedMemoryLimit ? nil : "Without it iOS ends the app when the emulated phone's memory is set up. With a paid developer account, enable \"Increased Memory Limit\" for this App ID, or let the installer keep the IPA's entitlements."),
+            Check(title: "Extended virtual addressing", value: info.extendedVirtualAddressing ? "present" : "missing", ok: info.extendedVirtualAddressing,
+                  help: info.extendedVirtualAddressing ? nil : "Without it the app cannot reserve address space for a 4 GB guest and QEMU fails to start. It needs a paid developer account with \"Extended Virtual Address Space\" enabled for this App ID."),
+            Check(title: "JIT enabled now", value: QEMURunner.jitAvailable ? "yes" : "no", ok: QEMURunner.jitAvailable,
+                  help: QEMURunner.jitAvailable ? nil : "Launch the app through StikDebug (or another JIT enabler) for the fast engine."),
+            Check(title: "Engine for the next boot",
+                  value: QEMURunner.activeEngine == .jit ? "JIT" : "interpreter", ok: nil, help: nil),
+            Check(title: "Emulator cores in the IPA",
+                  value: [QEMURunner.jitBundled ? "JIT" : nil, QEMURunner.interpreterBundled ? "interpreter" : nil].compactMap { $0 }.joined(separator: " + ").nilIfEmpty ?? "none",
+                  ok: QEMURunner.jitBundled || QEMURunner.interpreterBundled, help: nil),
+            Check(title: "Memory iOS allows now", value: "\(availableMB) MB", ok: availableMB == 0 ? nil : availableMB >= 3000,
+                  help: availableMB > 0 && availableMB < 3000 ? "A 4 GB machine needs more; check the memory entitlements above or lower the machine's memory." : nil),
+            Check(title: "Phone", value: "\(AppInfo.hardware) · iOS \(UIDevice.current.systemVersion)", ok: nil, help: nil),
+        ]
+    }
+
+    private var report: String {
+        (["iOS Emul \(AppInfo.version) (\(AppInfo.build))"] + checks.map { "\($0.title): \($0.value)" }).joined(separator: "\n")
+    }
+
+    var body: some View {
+        SettingsPage(symbol: "stethoscope", title: "Diagnostics", subtitle: "How this copy was signed and what the emulator can use") {
+            Card(padding: 14) {
+                ForEach(checks) { check in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: check.ok == nil ? "info.circle" : check.ok! ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                            .foregroundStyle(check.ok == nil ? .white.opacity(0.4) : check.ok! ? theme.accent : .orange)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(check.title).font(.subheadline.weight(.semibold))
+                            Text(check.value).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.7)).textSelection(.enabled)
+                            if let help = check.help { Hint(text: help) }
+                        }
+                    }
+                }
+            }
+            Button {
+                UIPasteboard.general.string = report
+                copied = true
+            } label: {
+                Label(copied ? "Copied" : "Copy report", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(12)
+                    .background(theme.accent.opacity(0.18), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            Hint(text: "Installers re-sign the IPA and some leave out entitlements the emulator needs without saying so. SideStore keeps them.")
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
 
 private struct AboutPage: View {
     @Environment(\.theme) private var theme
