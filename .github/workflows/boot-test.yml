@@ -33,6 +33,10 @@ on:
       after:
         description: "Shell commands run after the boot (e.g. scripts/xref.py on a pmemsave dump)"
         default: ""
+      tci:
+        description: "Build QEMU's TCG interpreter instead of the JIT, as the iOS app runs without JIT"
+        type: boolean
+        default: false
 
 jobs:
   qemu:
@@ -47,7 +51,7 @@ jobs:
         run: |
           rev=$(sed -n 's/^INFERNO_REV="${INFERNO_REV:-\([0-9a-f]*\)}"$/\1/p' scripts/build-qemu-ios.sh)
           echo "rev=$rev" >> "$GITHUB_OUTPUT"
-          echo "key=${rev:0:12}-${{ hashFiles('qemu/patches/**') }}" >> "$GITHUB_OUTPUT"
+          echo "key=${rev:0:12}-${{ hashFiles('qemu/patches/**') }}${{ inputs.tci && '-tci' || '' }}" >> "$GITHUB_OUTPUT"
       - id: cache
         uses: actions/cache@v4
         with:
@@ -55,7 +59,7 @@ jobs:
           key: inferno-macos-v2-${{ steps.rev.outputs.key }}
       - name: Build Inferno
         if: steps.cache.outputs.cache-hit != 'true'
-        run: scripts/build-inferno-macos.sh "${{ steps.rev.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin"
+        run: scripts/build-inferno-macos.sh "${{ steps.rev.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin" ${{ inputs.tci && '--tci' || '' }}
 
   matrix:
     runs-on: ubuntu-latest
@@ -89,7 +93,7 @@ jobs:
       # egress limit), so build it here then rather than giving up on the boot.
       - name: Build Inferno (cache unavailable)
         if: steps.cache.outputs.cache-hit != 'true'
-        run: scripts/build-inferno-macos.sh "${{ needs.qemu.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin"
+        run: scripts/build-inferno-macos.sh "${{ needs.qemu.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin" ${{ inputs.tci && '--tci' || '' }}
       - name: Runtime libraries
         run: brew install glib pixman nettle libtasn1 lzfse gnutls libslirp
 

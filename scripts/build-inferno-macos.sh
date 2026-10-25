@@ -1,12 +1,15 @@
 #!/bin/bash
 # Builds the Inferno QEMU fork for macOS with this repo's patches into a prefix, for boot tests.
 #
-#   scripts/build-inferno-macos.sh <inferno revision> <install prefix>
+#   scripts/build-inferno-macos.sh <inferno revision> <install prefix> [--tci]
 #
+# --tci builds the TCG interpreter, as the iOS app runs without JIT (qemu-aarch64-softmmu-tci).
 # Same pinned revision and patches as the iOS build (scripts/build-qemu-ios.sh).
 set -euo pipefail
 rev="$1"
 prefix="$2"
+tci=()
+[ "${3:-}" = --tci ] && tci=(--enable-tcg-interpreter)
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 
@@ -19,7 +22,7 @@ for p in "$root"/qemu/patches/inferno/*.patch; do git -C "$work/inferno" apply -
 mkdir "$work/inferno/build" && cd "$work/inferno/build"
 ../configure --prefix="$prefix" \
   --target-list=aarch64-softmmu --disable-werror --enable-lzfse --enable-slirp --disable-gcrypt --enable-nettle \
-  --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib"
+  --extra-cflags="-I$(brew --prefix)/include" --extra-ldflags="-L$(brew --prefix)/lib" ${tci[@]+"${tci[@]}"}
 ninja
 # A full install puts QEMU's data files (VNC keymaps, firmware) in <prefix>/share/qemu,
 # where the relocatable binary in <prefix>/bin looks for them.
