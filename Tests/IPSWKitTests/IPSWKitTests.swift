@@ -346,6 +346,7 @@ final class IPSWKitTests: XCTestCase {
         let disabled = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
         XCTAssertEqual(disabled["com.apple.CommCenter"], true)
+        XCTAssertEqual(disabled["com.apple.datamigrator"], true)
         let migration = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["mobile/Library/Preferences/com.apple.migration.plist"]!, format: nil) as? [String: Any])
         XCTAssertEqual(migration["lastBuildVersion"] as? String, "18A373")
