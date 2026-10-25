@@ -9,7 +9,7 @@ import EmulatorKit
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--monitor "x /32wx 0xfffffff007000000; info mtree -f"]  (run at the time limit)
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
-//                 [--force-backend inferno-t8030] [--qemu-debug guest_errors]
+//                 [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1]
 //   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--role preboot|data|xart]
 //                            [--dirs a/b,c] [--files a/f=text] [--owners a/b=501:501:755]
 //
@@ -129,11 +129,15 @@ case "boot":
     guard let identity = ipsw.identity(forProduct: row.device.productType) else { fail("no build identity") }
 
     let work = URL(fileURLWithPath: options["work"] ?? "vm")
+    // Settings written into a direct install, as the app's "Setup" options do.
+    var tweaks = GuestTweaks()
+    tweaks.skipSetupAssistant = options["skip-setup"] == "1"
     let ctx = PrepareContext(
         ipsw: ipsw, identity: identity, device: row.device, workDirectory: work, externalAssets: assets,
         bootMode: BootMode(rawValue: options["mode"] ?? "auto") ?? .auto,
         memoryMB: Int(options["memory"] ?? "") ?? backend.defaultMemoryMB,
-        cpuCount: Int(options["cpus"] ?? "") ?? backend.defaultCPUCount)
+        cpuCount: Int(options["cpus"] ?? "") ?? backend.defaultCPUCount,
+        guestTweaks: tweaks)
     print("==> \(row.device.name) iOS \(ipsw.version) on \(backend.displayName) [\(row.compatibility.summary)]")
 
     var config: MachineConfiguration
