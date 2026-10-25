@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-25
 
+- The emulated phone now keeps running when you leave the app or lock your phone, so a long first start can go on while you do something else (Settings > Emulator > Run in background, on by default). It uses battery and warms the phone, and iOS can still close the app if memory runs short.
 - New Settings > Diagnostics page: shows whether the app was installed with everything the emulator needs (JIT permission, extra memory, large address space) and how much memory iOS allows it, with a button to copy the report. Some installers quietly leave these out, and then the emulator does not start.
 - While the emulated phone starts, the screen now shows how far it has got (machine built, kernel started, drivers, system disk, iOS starting, waiting for the first screen) with the time spent on each step, instead of a black screen that looks stuck. A kernel panic is shown there too.
 - Once the emulated screen shows the Apple logo, the start-up progress moves to a small bar at the top of the screen instead of covering the logo; tap it to see all the steps. It also says whether the emulated processor is moving, so a slow start can be told apart from a stuck one.

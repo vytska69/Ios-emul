@@ -16,6 +16,7 @@ enum Pref {
     static let verifyDownloads = "verifyDownloads"
     static let cellularDownloads = "cellularDownloads"
     static let keepAwake = "keepScreenAwake"
+    static let runInBackground = "runInBackground"
 
     /// Unlocked by tapping the version number in About.
     static let experimental = "experimentalUnlocked"
@@ -89,6 +90,7 @@ enum Pref {
             verifyDownloads: true,
             cellularDownloads: false,
             keepAwake: true,
+            runInBackground: true,
             experimental: false,
             forceBackend: "",
             qemuDebugFlags: "",
@@ -423,6 +425,7 @@ private struct EmulatorPage: View {
     @AppStorage(Pref.translationCacheMB) private var cacheMB = QEMURunner.defaultTranslationCacheMB
     @AppStorage(Pref.verboseBoot) private var verboseBoot = true
     @AppStorage(Pref.keepAwake) private var keepAwake = true
+    @AppStorage(Pref.runInBackground) private var runInBackground = true
 
     @AppStorage(Pref.engine) private var engine = QEMURunner.Engine.automatic.rawValue
 
@@ -494,6 +497,10 @@ private struct EmulatorPage: View {
                     ToggleRow(title: "Verbose boot", detail: "Kernel text on screen instead of the Apple logo.", isOn: $verboseBoot)
                     Divider().overlay(.white.opacity(0.08))
                     ToggleRow(title: "Keep screen awake", detail: "While a machine is running.", isOn: $keepAwake)
+                    Divider().overlay(.white.opacity(0.08))
+                    ToggleRow(title: "Run in background",
+                              detail: "The machine keeps running when you leave the app or lock the phone (plays silent audio, as UTM does). Uses battery and warms the phone; iOS can still close the app when memory runs short. Applies to the next boot.",
+                              isOn: $runInBackground)
                 }
             }
         }
