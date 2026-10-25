@@ -110,7 +110,7 @@ final class DisplayModel: ObservableObject {
             let registers = built ? monitor.query("info registers -a") ?? "" : ""
             var halted = Set<Int>()
             for line in cpus.split(separator: "\n") where line.contains("CPU #") && line.contains("(halted)") {
-                if let n = line.split(separator: "#").last?.split(separator: ":").first.flatMap({ Int($0) }) { halted.insert(n) }
+                if let field = line.split(separator: "#").last?.split(separator: ":").first, let n = Int(field) { halted.insert(n) }
             }
             var pcs: [Int: String] = [:]
             for block in registers.components(separatedBy: "CPU#").dropFirst() {
@@ -124,7 +124,7 @@ final class DisplayModel: ObservableObject {
                 if status.contains("VM status") { self.machineBuilt = true }
                 guard !pcs.isEmpty else { return }
                 let working = pcs.keys.filter { !halted.contains($0) }
-                let moved = working.contains { self.lastPCs[$0].map { old in old != pcs[$0] } ?? true }
+                let moved = working.contains { cpu in self.lastPCs[cpu].map { $0 != pcs[cpu] } ?? true }
                 self.lastPCs = pcs
                 let pc0 = pcs[0].map { "CPU 0 at 0x\($0)" } ?? ""
                 if working.isEmpty {
