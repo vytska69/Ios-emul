@@ -379,6 +379,10 @@ private struct BootProgress: View {
                         Text(current.map { "Step \($0 + 1) of \(steps.count): \(steps[$0].title)" } ?? "Starting")
                             .font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
                         Text(timing).font(.caption2.monospacedDigit()).foregroundStyle(theme.accent).lineLimit(1)
+                        // Whether the guest is doing anything while the logo stays up.
+                        if let trace = display.cpuTrace {
+                            Text(trace).font(.caption2.monospaced()).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 4)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
