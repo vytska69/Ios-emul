@@ -8,6 +8,11 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-25
+
+- iPhone 11 iOS 14: the first start reaches the setup screen several minutes sooner; the emulated phone no longer runs the data migration a new install does not need (new installs).
+- iOS no longer keeps re-saving its encryption keys several times a second in the background, which left less of the processor for everything else.
+
 ## 2026-10-24
 
 - iPhone 11 iOS 14: the screen now shows iOS instead of staying black. The emulated phone has no graphics chip, so the installer adjusts a few spots in iOS so it draws everything on the processor (new installs; first start takes about 20 minutes).
