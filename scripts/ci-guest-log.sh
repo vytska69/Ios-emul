@@ -4,6 +4,8 @@
 # and reads it with `log show`.
 #
 #     scripts/ci-guest-log.sh vm/nvme.1 'process == "backboardd"' [lines]
+#
+# LOG_HEAD=1 prints the first lines instead of the last.
 set -u
 disk=${1:?usage: ci-guest-log.sh nvme.1 predicate [lines]}
 predicate=${2:-}
@@ -24,7 +26,8 @@ echo "== $(find "$archive" -type f | wc -l | tr -d ' ') files in the log archive
 <plist version="1.0"><dict><key>OSArchiveVersion</key><integer>4</integer></dict></plist>
 EOF
 if [ -n "$predicate" ]; then
-    log show --archive "$archive" --info --debug --style compact --predicate "$predicate" 2>&1 | tail -n "$lines"
+    log show --archive "$archive" --info --debug --style compact --predicate "$predicate" 2>&1 \
+        | if [ -n "${LOG_HEAD:-}" ]; then head -n "$lines"; else tail -n "$lines"; fi
 else
     log show --archive "$archive" --info --style compact 2>&1 | tail -n "$lines"
 fi
