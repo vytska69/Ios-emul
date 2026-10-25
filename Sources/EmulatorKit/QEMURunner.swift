@@ -54,8 +54,9 @@ public final class QEMURunner {
     /// settings can change it per boot (PrepareContext.translationCacheMB).
     /// Booting iOS translates more code than a small cache holds: QEMU then flushes the whole cache
     /// and translates everything again. In 15 minutes of an iOS 14 CI boot that happened 29 times
-    /// with 256 MB and 6 times with 512 MB.
-    public static let defaultTranslationCacheMB = 1024
+    /// with 256 MB and 6 times with 512 MB. 1024 MB next to a 4 GiB guest went over the memory iOS
+    /// allows the app on an iPhone 16e (with StikDebug's JIT region prepared at launch).
+    public static let defaultTranslationCacheMB = 512
 
     /// Memory an in-process VM needs besides guest RAM: the translation cache plus QEMU's own
     /// allocations (device models, display buffers, block caches).
