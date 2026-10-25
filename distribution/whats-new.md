@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-25
 
+- Installing iOS no longer piles up memory while it unpacks the system: the phone stays responsive and the app is no longer closed by iOS partway through the install.
 - Faster emulation: the translation cache now defaults to 1024 MB (smaller when the phone does not allow that much memory). With 256 MB the emulator kept throwing away all translated code and starting over while iOS booted. If you picked a size in Settings yourself, switch to 1024 MB.
 - iPhone 11 iOS 14: the first start reaches the setup screen several minutes sooner; the emulated phone no longer runs the data migration a new install does not need (new installs).
 - iOS no longer keeps re-saving its encryption keys several times a second in the background, which left less of the processor for everything else.

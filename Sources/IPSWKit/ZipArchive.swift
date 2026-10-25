@@ -142,12 +142,14 @@ public final class ZipArchive {
             var offset = dataOffset
             while remaining > 0 {
                 let n = Int(min(UInt64(Self.chunkSize), remaining))
-                guard let chunk = try read(at: offset, count: n), chunk.count == n else {
-                    throw Error.truncated(entry.path)
+                try drainingPool {
+                    guard let chunk = try read(at: offset, count: n), chunk.count == n else {
+                        throw Error.truncated(entry.path)
+                    }
+                    crc.update(chunk)
+                    try sink(chunk)
                 }
                 offset += UInt64(n)
-                crc.update(chunk)
-                try sink(chunk)
                 remaining -= UInt64(n)
             }
         case 8:
@@ -156,15 +158,18 @@ public final class ZipArchive {
             var offset = dataOffset
             while remaining > 0 {
                 let n = Int(min(UInt64(Self.chunkSize), remaining))
-                guard let chunk = try read(at: offset, count: n), chunk.count == n else {
-                    throw Error.truncated(entry.path)
+                let final = remaining == UInt64(n)
+                try drainingPool {
+                    guard let chunk = try read(at: offset, count: n), chunk.count == n else {
+                        throw Error.truncated(entry.path)
+                    }
+                    try inflater.process(chunk, final: final) { out in
+                        crc.update(out)
+                        try sink(out)
+                    }
                 }
                 offset += UInt64(n)
                 remaining -= UInt64(n)
-                try inflater.process(chunk, final: remaining == 0) { out in
-                    crc.update(out)
-                    try sink(out)
-                }
             }
         default:
             throw Error.unsupportedMethod(entry.method)
@@ -293,4 +298,16 @@ struct CRC32 {
         }
         value = ~c
     }
+}
+
+/// Runs `body` in its own autorelease pool where there is one (Darwin). Foundation's file reads
+/// return autoreleased buffers there; a loop over a multi-GiB file that never drains its pool
+/// keeps every chunk alive until it returns, and iOS ends the app for the memory.
+@inline(__always)
+public func drainingPool<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool { try body() }
+    #else
+    return try body()
+    #endif
 }

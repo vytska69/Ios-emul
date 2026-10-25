@@ -104,9 +104,11 @@ public struct UDIFImage {
         let total = max(1, chunks.reduce(0) { $0 + $1.sectorCount })
         var done: UInt64 = 0
         for chunk in chunks {
-            if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
-                try out.seek(toOffset: chunk.sector * Self.sectorSize)
-                out.write(payload)
+            try drainingPool {
+                if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
+                    try out.seek(toOffset: chunk.sector * Self.sectorSize)
+                    out.write(payload)
+                }
             }
             done += chunk.sectorCount
             progress?(Double(done) / Double(total))
@@ -125,9 +127,11 @@ public struct UDIFImage {
         let total = max(1, chunks.reduce(0) { $0 + $1.sectorCount })
         var done: UInt64 = 0
         for chunk in chunks {
-            if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
-                try handle.seek(toOffset: offset + (chunk.sector - start) * Self.sectorSize)
-                handle.write(payload)
+            try drainingPool {
+                if let payload = try decodeChunk(chunk), payload.contains(where: { $0 != 0 }) {
+                    try handle.seek(toOffset: offset + (chunk.sector - start) * Self.sectorSize)
+                    handle.write(payload)
+                }
             }
             done += chunk.sectorCount
             progress?(Double(done) / Double(total))

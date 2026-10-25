@@ -162,9 +162,11 @@ final class DownloadManager: ObservableObject {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         var hasher = Insecure.SHA1()
-        while let chunk = try? handle.read(upToCount: 8 << 20), !chunk.isEmpty {
+        while autoreleasepool(invoking: { () -> Bool in
+            guard let chunk = try? handle.read(upToCount: 8 << 20), !chunk.isEmpty else { return false }
             hasher.update(data: chunk)
-        }
+            return true
+        }) {}
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
