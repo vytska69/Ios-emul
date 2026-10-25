@@ -63,7 +63,7 @@ final class FirmwareModel: ObservableObject {
     func boot(item: FirmwareItem, row: CompatibilityReport.Row, mode: BootMode, memoryMB: Int, cpus: Int) {
         guard let ipsw, let backend = row.backend else { return }
         runError = nil
-        let cacheMB = Pref.defaults.integer(forKey: Pref.translationCacheMB)
+        var cacheMB = Pref.defaults.integer(forKey: Pref.translationCacheMB)
         guard let identity = ipsw.manifest.identity(for: Self.boardConfig(for: row.device, in: ipsw)) else {
             runError = "\(IPSWError.noIdentity)"
             return
@@ -77,8 +77,14 @@ final class FirmwareModel: ObservableObject {
         // iOS ends an app that goes over its memory limit without a message, so refuse up front
         // when the VM cannot fit (os_proc_available_memory is what is left before that limit).
         let guestMB = min(max(memoryMB, backend.memoryRangeMB.lowerBound), backend.memoryRangeMB.upperBound)
-        let neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB, translationCacheMB: cacheMB)
+        var neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB, translationCacheMB: cacheMB)
         let availableMB = Int(os_proc_available_memory() / 1_048_576)
+        // A smaller translation cache is slower (QEMU throws all translated code away each time
+        // it fills) but better than not starting at all.
+        if availableMB > 0 && availableMB < neededMB && cacheMB > 256 && QEMURunner.preparedJITMB == 0 {
+            cacheMB = 256
+            neededMB = QEMURunner.requiredMemoryMB(guestMB: guestMB, translationCacheMB: cacheMB)
+        }
         if availableMB > 0 && availableMB < neededMB {
             runError = "This VM needs about \(neededMB) MB (\(guestMB) MB guest RAM plus the emulator), "
                 + "but iOS lets this app use only \(availableMB) MB more right now. "
