@@ -106,7 +106,12 @@ public struct InfernoBackend: EmulatorBackend {
         if direct {
             rootDevice = try installRootFilesystem(ctx, disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
             let marker = dir.appendingPathComponent(Self.firstBootMarker)
+            // A first boot that was cut short (the app closed or the machine was stopped before
+            // the erase ran) used up the marker but left no system keybag, and every later boot
+            // then ends in "Can't load the keybag... Time to die" and reboots in a loop. So the
+            // erase is due again whenever the keybag is missing.
             firstBoot = fm.fileExists(atPath: marker.path)
+                || Self.systemKeybagMissing(disk: dir.appendingPathComponent("nvme.1"), size: namespaces[0].size)
             try? fm.removeItem(at: marker)
             deviceTree = try directDeviceTree(from: deviceTree, dataInFirstMountPhase: firstBoot && ctx.firstBootErase)
         }
@@ -190,6 +195,18 @@ public struct InfernoBackend: EmulatorBackend {
 
     /// Written by a direct install; the next boot asks iOS to finish an obliteration (see prepare).
     static let firstBootMarker = "first-boot"
+
+    /// Whether the installed system's Data volume lacks the system keybag that the first boot's
+    /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
+    static func systemKeybagMissing(disk: URL, size: UInt64) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: disk) else { return false }
+        defer { try? handle.close() }
+        let layout = GPT.layout(diskSize: size, blockSize: nvmeBlockSize)
+        guard let container = try? APFSContainer(handle: handle, offset: layout.partitionOffset),
+              let data = (try? container.volumes())?.first(where: { $0.role == APFSContainer.Role.data.rawValue })
+        else { return false }
+        return (try? container.fileExtents(volume: data.oid, path: "keybags/systembag.kb")) == nil
+    }
 
     /// The gigalocker init_data_protection looks for on the emulated iPhone 11 (from its boot log).
     static let gigalockerName = "81879F33-B0F2-573A-AE12-6B517C322E33.gl"
