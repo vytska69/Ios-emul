@@ -335,14 +335,12 @@ public struct InfernoBackend: EmulatorBackend {
             // touch controller; the emulated machine has none, so it launches agm-secondary,
             // AppleGenericMultitouchHIDSPI, which fails to start against Inferno's multitouch
             // model, and the screen ignores every touch. Name the primary driver in both.
-            // That driver then leaves the controller powered off until its HBPP bootloader has
-            // loaded the touch firmware, which needs mtmergeprops to merge the firmware from the
-            // restore-installed mtprops. Without a bootloader (no `bootloader-type` or
-            // `hbpp-version`) and with `use-static-config` it powers the controller on straight
-            // away and talks HID to it, which Inferno's model answers without firmware. The static
-            // config names the protocol (AppleHIDTransportProtocolHIDSPI, Inferno's link layer);
-            // the firmware's personality would otherwise supply it, and without one power-on is
-            // ignored. So does the transfer layout (`touchProtocolConfig`).
+            // That driver then waits for someone to ask for power before it boots the controller
+            // (and its HBPP bootloader, which mtmergeprops feeds the touch firmware's personality:
+            // the HID interfaces among it); nothing does here. With `use-static-config` it powers
+            // the controller on by itself, using the protocol this config names
+            // (AppleHIDTransportProtocolHIDSPI, the link layer of Inferno's multitouch model;
+            // without one power-on is ignored) and its transfer layout (`touchProtocolConfig`).
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
@@ -350,10 +348,7 @@ public struct InfernoBackend: EmulatorBackend {
                 props["use-static-config"] = Data()
                 props["protocol"] = Data("HIDSPI\0".utf8)
                 props["protocol-config"] = Self.touchProtocolConfig
-                props["bootloader-type"] = nil
-                props["hbpp-version"] = nil
-                return DeviceTreeNode(properties: props,
-                                      placeholders: node.placeholders.subtracting(["agm-secondary", "bootloader-type", "hbpp-version"]),
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
                                       children: node.children)
             }
             if node.path == "/product", node.properties["baseband-chipset"] != nil {
