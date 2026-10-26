@@ -198,6 +198,24 @@ public struct InfernoBackend: EmulatorBackend {
 
     /// Whether the installed system's Data volume lacks the system keybag that the first boot's
     /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
+    /// AppleHIDTransportProtocolHIDSPI's binary DeviceConfig, as the touch firmware's personality
+    /// would give it: 512-byte transfers led by 4 bytes of padding, which the driver fills with
+    /// 0xDEADBEEF, the preamble Inferno's multitouch model expects. Without it the driver clocks
+    /// 2048-byte frames with no preamble and the model never answers. Layout (cacheProtocolConfig):
+    /// +4 transfer length, +8 inter-stage µs, +12 inter-transaction µs, +16 padding length,
+    /// +18 max retries, +19 busy delay ms.
+    static let touchProtocolConfig: Data = {
+        var d = Data(count: 20)
+        func put32(_ v: UInt32, at o: Int) { withUnsafeBytes(of: v.littleEndian) { d.replaceSubrange(o..<o + 4, with: $0) } }
+        put32(512, at: 4)
+        put32(200, at: 8)
+        put32(250, at: 12)
+        d[16] = 4
+        d[18] = 3
+        d[19] = 1
+        return d
+    }()
+
     static func systemKeybagMissing(disk: URL, size: UInt64) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: disk) else { return false }
         defer { try? handle.close() }
@@ -324,13 +342,14 @@ public struct InfernoBackend: EmulatorBackend {
             // away and talks HID to it, which Inferno's model answers without firmware. The static
             // config names the protocol (AppleHIDTransportProtocolHIDSPI, Inferno's link layer);
             // the firmware's personality would otherwise supply it, and without one power-on is
-            // ignored.
+            // ignored. So does the transfer layout (`touchProtocolConfig`).
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
                 props["agm-secondary"] = primary
                 props["use-static-config"] = Data()
                 props["protocol"] = Data("HIDSPI\0".utf8)
+                props["protocol-config"] = Self.touchProtocolConfig
                 props["bootloader-type"] = nil
                 props["hbpp-version"] = nil
                 return DeviceTreeNode(properties: props,
