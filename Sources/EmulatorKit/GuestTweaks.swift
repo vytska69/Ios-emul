@@ -77,8 +77,14 @@ public struct GuestTweaks: Equatable {
         add("mobile/Library/Preferences/.GlobalPreferences.plist", global, mobile)
 
         if skipSetupAssistant {
-            add("mobile/Library/Preferences/com.apple.purplebuddy.plist",
-                ["SetupDone": true, "SetupFinishedAllSteps": true], mobile)
+            // SetupDone alone is not enough: on a phone that is not activated (an emulated one never
+            // is) iOS 14 runs Setup anyway. BYSetupAssistantNeedsToRun (SetupAssistant.framework)
+            // returns NO first thing when the buddy preferences have ForceNoBuddy; it reads them
+            // through -[BYPreferencesController buddyPreferencesInternal], so the key goes in both
+            // of the setup assistant's preference domains.
+            let setup: [String: Any] = ["SetupDone": true, "SetupFinishedAllSteps": true, "ForceNoBuddy": true]
+            add("mobile/Library/Preferences/com.apple.purplebuddy.plist", setup, mobile)
+            add("mobile/Library/Preferences/com.apple.purplebuddy.notbackedup.plist", ["ForceNoBuddy": true], mobile)
         }
 
         if let deviceName, !deviceName.isEmpty {

@@ -8,6 +8,10 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-26
+
+- "Skip setup" now also tells iOS 14 not to run the setup assistant at all: before, iOS showed the Hello screen anyway because the emulated phone is never activated (new installs; not yet tried on a phone).
+
 ## 2026-10-25
 
 - The Home and Lock buttons now work: Lock presses the emulated phone's side button, and Home swipes up from the bottom edge as on a Face ID iPhone (the home button on older models). Before, both did nothing. New volume down and up buttons next to them.

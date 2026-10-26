@@ -381,6 +381,8 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertEqual(global["AppleLanguages"] as? [String], ["lt"])
         XCTAssertEqual(global["AppleLocale"] as? String, "lt_LT")
         XCTAssertEqual(try plist(prefs + "com.apple.purplebuddy.plist")["SetupDone"] as? Bool, true)
+        XCTAssertEqual(try plist(prefs + "com.apple.purplebuddy.plist")["ForceNoBuddy"] as? Bool, true)
+        XCTAssertEqual(try plist(prefs + "com.apple.purplebuddy.notbackedup.plist")["ForceNoBuddy"] as? Bool, true)
         let system = try plist("preferences/SystemConfiguration/preferences.plist")
         let names = ((system["System"] as? [String: Any])?["System"] as? [String: Any])
         XCTAssertEqual(names?["ComputerName"] as? String, "Emulated iPhone")
