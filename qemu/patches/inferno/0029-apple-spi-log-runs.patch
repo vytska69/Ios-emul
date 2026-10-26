@@ -1,0 +1,86 @@
+diff --git a/hw/ssi/apple_spi.c b/hw/ssi/apple_spi.c
+index e7d7175..64c95c1 100644
+--- a/hw/ssi/apple_spi.c
++++ b/hw/ssi/apple_spi.c
+@@ -272,7 +272,47 @@ static void apple_spi_cs_set(void *opaque, int pin, int level)
+     apple_spi_update_cs(spi);
+ }
+ 
++/* Bytes of one run, for -d guest_errors ("SPI-RUN:"), first runs only. */
++static unsigned apple_spi_log_runs;
++static GString *apple_spi_log_tx;
++static GString *apple_spi_log_rx;
++
++static void apple_spi_log_byte(GString *s, uint8_t b)
++{
++    if (s->len < 3 * 48) {
++        g_string_append_printf(s, "%02x", b);
++    }
++}
++
++static void apple_spi_run_logged(AppleSPIState *spi);
++
+ static void apple_spi_run(AppleSPIState *spi)
++{
++    bool log = apple_spi_log_runs < 3000 &&
++               qemu_loglevel_mask(LOG_GUEST_ERROR);
++    uint32_t txcnt = REG(spi, REG_TXCNT);
++    uint32_t rxcnt = REG(spi, REG_RXCNT);
++
++    if (log) {
++        if (!apple_spi_log_tx) {
++            apple_spi_log_tx = g_string_new(NULL);
++            apple_spi_log_rx = g_string_new(NULL);
++        }
++        g_string_truncate(apple_spi_log_tx, 0);
++        g_string_truncate(apple_spi_log_rx, 0);
++    }
++    apple_spi_run_logged(spi);
++    if (log && (apple_spi_log_tx->len || apple_spi_log_rx->len)) {
++        apple_spi_log_runs++;
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "SPI-RUN: %s cfg 0x%x word %u txcnt %u rxcnt %u tx %s rx %s\n",
++                      object_get_canonical_path_component(OBJECT(spi)),
++                      REG(spi, REG_CFG), apple_spi_word_size(spi), txcnt,
++                      rxcnt, apple_spi_log_tx->str, apple_spi_log_rx->str);
++    }
++}
++
++static void apple_spi_run_logged(AppleSPIState *spi)
+ {
+     uint32_t tx;
+     uint32_t rx;
+@@ -298,8 +338,17 @@ static void apple_spi_run(AppleSPIState *spi)
+         tx = fifo32_pop(&spi->tx_fifo);
+         rx = 0;
+         for (int i = 0; i < word_size; i++) {
++            uint8_t in;
++
+             rx <<= 8;
+-            rx |= ssi_transfer(spi->ssi_bus, tx & 0xff);
++            if (apple_spi_log_tx) {
++                apple_spi_log_byte(apple_spi_log_tx, tx & 0xff);
++            }
++            in = ssi_transfer(spi->ssi_bus, tx & 0xff);
++            if (apple_spi_log_rx) {
++                apple_spi_log_byte(apple_spi_log_rx, in);
++            }
++            rx |= in;
+             tx >>= 8;
+         }
+         REG(spi, REG_TXCNT)--;
+@@ -328,8 +377,13 @@ static void apple_spi_run(AppleSPIState *spi)
+            (REG(spi, REG_CFG) & REG_CFG_AGD)) {
+         rx = 0;
+         for (int i = 0; i < word_size; i++) {
++            uint8_t in = ssi_transfer(spi->ssi_bus, 0xff);
++
+             rx <<= 8;
+-            rx |= ssi_transfer(spi->ssi_bus, 0xff);
++            if (apple_spi_log_rx) {
++                apple_spi_log_byte(apple_spi_log_rx, in);
++            }
++            rx |= in;
+         }
+         if (fifo32_is_full(&spi->rx_fifo)) {
+             apple_spi_flush_rx(spi);
