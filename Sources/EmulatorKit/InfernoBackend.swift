@@ -339,9 +339,9 @@ public struct InfernoBackend: EmulatorBackend {
             // nothing does here. With `use-static-config` it powers the controller on by itself,
             // using the protocol this config names (AppleHIDTransportProtocolHIDSPI, the link
             // layer of Inferno's multitouch model; without one power-on is ignored) and its
-            // transfer layout (`touchProtocolConfig`). Without `bootloader-type` and
-            // `hbpp-version` it skips the HBPP bootloader, whose chip OTP reads the model cannot
-            // answer ("Couldn't talk to chip").
+            // transfer layout (`touchProtocolConfig`). Its HBPP bootloader first reads the chip's
+            // serial number from OTP, which the model cannot answer ("Couldn't talk to chip"); an
+            // `otp-sn` of size 0 skips that.
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
@@ -349,10 +349,8 @@ public struct InfernoBackend: EmulatorBackend {
                 props["use-static-config"] = Data()
                 props["protocol"] = Data("HIDSPI\0".utf8)
                 props["protocol-config"] = Self.touchProtocolConfig
-                props["bootloader-type"] = nil
-                props["hbpp-version"] = nil
-                return DeviceTreeNode(properties: props,
-                                      placeholders: node.placeholders.subtracting(["agm-secondary", "bootloader-type", "hbpp-version"]),
+                props["otp-sn"] = Data(count: 8)
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
                                       children: node.children)
             }
             if node.path == "/product", node.properties["baseband-chipset"] != nil {
