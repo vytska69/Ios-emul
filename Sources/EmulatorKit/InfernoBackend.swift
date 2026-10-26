@@ -317,10 +317,15 @@ public struct InfernoBackend: EmulatorBackend {
             // touch controller; the emulated machine has none, so it launches agm-secondary,
             // AppleGenericMultitouchHIDSPI, which fails to start against Inferno's multitouch
             // model, and the screen ignores every touch. Name the primary driver in both.
+            // That driver then leaves the controller powered off until its HBPP bootloader has
+            // loaded the touch firmware, which needs mtmergeprops to merge the firmware from the
+            // restore-installed mtprops; with `use-static-config` it powers the controller on
+            // straight away and talks HID to it, which Inferno's model answers without firmware.
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
                 props["agm-secondary"] = primary
+                props["use-static-config"] = Data()
                 return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
                                       children: node.children)
             }
