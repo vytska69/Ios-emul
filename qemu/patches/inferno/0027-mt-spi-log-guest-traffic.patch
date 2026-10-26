@@ -1,0 +1,53 @@
+diff --git a/hw/arm/apple-silicon/mt-spi.c b/hw/arm/apple-silicon/mt-spi.c
+index 20e0d9e..753283e 100644
+--- a/hw/arm/apple-silicon/mt-spi.c
++++ b/hw/arm/apple-silicon/mt-spi.c
+@@ -28,6 +28,7 @@
+ #include "qemu/crc16.h"
+ #include "qemu/error-report.h"
+ #include "qemu/lockable.h"
++#include "qemu/log.h"
+ #include "qemu/main-loop.h"
+ #include "qemu/timer.h"
+ #include "ui/console.h"
+@@ -379,6 +380,7 @@ static void apple_mt_spi_push_pending_hbpp_dword(AppleMTSPIState *s,
+ 
+ static inline uint16_t apple_mt_spi_hbpp_packet_hdr_len(uint8_t val)
+ {
++    qemu_log_mask(LOG_GUEST_ERROR, "MT-SPI: HBPP packet 0x%x\n", val);
+     switch (val) {
+     case HBPP_PACKET_RESET:
+         return 0x4;
+@@ -575,6 +577,7 @@ static void apple_mt_spi_handle_get_feature(AppleMTSPIState *s)
+     report_id = apple_mt_spi_ll_read_payload_byte(&s->rx, sizeof(uint8_t));
+     frame_number =
+         apple_mt_spi_ll_read_payload_byte(&s->rx, sizeof(uint8_t) * 3);
++    qemu_log_mask(LOG_GUEST_ERROR, "MT-SPI: get feature report 0x%x\n", report_id);
+ 
+     packet = g_new0(AppleMTSPILLPacket, 1);
+     packet->type = LL_PACKET_CONTROL;
+@@ -670,6 +673,7 @@ static void apple_mt_spi_handle_set_feature(AppleMTSPIState *s)
+     report_id = apple_mt_spi_ll_read_payload_byte(&s->rx, sizeof(uint8_t));
+     frame_number =
+         apple_mt_spi_ll_read_payload_byte(&s->rx, sizeof(uint8_t) * 3);
++    qemu_log_mask(LOG_GUEST_ERROR, "MT-SPI: set feature report 0x%x\n", report_id);
+ 
+     packet = g_new0(AppleMTSPILLPacket, 1);
+     packet->type = LL_PACKET_CONTROL;
+@@ -711,6 +715,8 @@ static void apple_mt_spi_handle_fw_packet(AppleMTSPIState *s)
+         } else {
+             packet = QTAILQ_FIRST(&s->pending_fw);
+             assert_nonnull(packet);
++            qemu_log_mask(LOG_GUEST_ERROR, "MT-SPI: guest reads packet type 0x%x len %u\n",
++                          packet->type, (unsigned)packet->buf.len);
+             apple_mt_spi_push_ll_hdr(&buf, packet->type, 0, 0, 0,
+                                      packet->buf.len);
+             apple_mt_spi_buf_append(&buf, &packet->buf);
+@@ -814,6 +820,7 @@ static void apple_mt_spi_send_path_update(AppleMTSPIState *s, uint64_t ts,
+     int32_t y_delta;
+ 
+     packet = g_new0(AppleMTSPILLPacket, 1);
++    qemu_log_mask(LOG_GUEST_ERROR, "MT-SPI: path stage %u at %d,%d\n", path_stage, s->x, s->y);
+ 
+     ts_delta = ts - s->prev_ts;
+     ts_delta = MAX(ts_delta, 1); // Prevent div-by-zero
