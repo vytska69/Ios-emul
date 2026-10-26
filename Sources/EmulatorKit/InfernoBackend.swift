@@ -335,12 +335,13 @@ public struct InfernoBackend: EmulatorBackend {
             // touch controller; the emulated machine has none, so it launches agm-secondary,
             // AppleGenericMultitouchHIDSPI, which fails to start against Inferno's multitouch
             // model, and the screen ignores every touch. Name the primary driver in both.
-            // That driver then waits for someone to ask for power before it boots the controller
-            // (and its HBPP bootloader, which mtmergeprops feeds the touch firmware's personality:
-            // the HID interfaces among it); nothing does here. With `use-static-config` it powers
-            // the controller on by itself, using the protocol this config names
-            // (AppleHIDTransportProtocolHIDSPI, the link layer of Inferno's multitouch model;
-            // without one power-on is ignored) and its transfer layout (`touchProtocolConfig`).
+            // That driver then waits for someone to ask for power before it boots the controller;
+            // nothing does here. With `use-static-config` it powers the controller on by itself,
+            // using the protocol this config names (AppleHIDTransportProtocolHIDSPI, the link
+            // layer of Inferno's multitouch model; without one power-on is ignored) and its
+            // transfer layout (`touchProtocolConfig`). Without `bootloader-type` and
+            // `hbpp-version` it skips the HBPP bootloader, whose chip OTP reads the model cannot
+            // answer ("Couldn't talk to chip").
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
@@ -348,7 +349,10 @@ public struct InfernoBackend: EmulatorBackend {
                 props["use-static-config"] = Data()
                 props["protocol"] = Data("HIDSPI\0".utf8)
                 props["protocol-config"] = Self.touchProtocolConfig
-                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
+                props["bootloader-type"] = nil
+                props["hbpp-version"] = nil
+                return DeviceTreeNode(properties: props,
+                                      placeholders: node.placeholders.subtracting(["agm-secondary", "bootloader-type", "hbpp-version"]),
                                       children: node.children)
             }
             if node.path == "/product", node.properties["baseband-chipset"] != nil {
