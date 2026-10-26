@@ -209,6 +209,24 @@ public struct InfernoBackend: EmulatorBackend {
 
     /// Whether the installed system's Data volume lacks the system keybag that the first boot's
     /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
+    /// AppleHIDTransportProtocolHIDSPI's binary DeviceConfig, as the touch firmware's personality
+    /// would give it: 512-byte transfers led by 4 bytes of padding, which the driver fills with
+    /// 0xDEADBEEF, the preamble Inferno's multitouch model expects. Without it the driver clocks
+    /// 2048-byte frames with no preamble and the model never answers. Layout (cacheProtocolConfig):
+    /// +4 transfer length, +8 inter-stage µs, +12 inter-transaction µs, +16 padding length,
+    /// +18 max retries, +19 busy delay ms.
+    static let touchProtocolConfig: Data = {
+        var d = Data(count: 20)
+        func put32(_ v: UInt32, at o: Int) { withUnsafeBytes(of: v.littleEndian) { d.replaceSubrange(o..<o + 4, with: $0) } }
+        put32(512, at: 4)
+        put32(200, at: 8)
+        put32(250, at: 12)
+        d[16] = 4
+        d[18] = 3
+        d[19] = 2
+        return d
+    }()
+
     static func systemKeybagMissing(disk: URL, size: UInt64) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: disk) else { return false }
         defer { try? handle.close() }
@@ -349,12 +367,19 @@ public struct InfernoBackend: EmulatorBackend {
             // model, and the screen ignores every touch. Name the primary driver in both.
             // That driver expects iBoot to have loaded the controller's firmware; without it the
             // HBPP bootloader takes it from the firmware personality that mtmergeprops merges
-            // (KernelPatches). The bootloader first reads the chip's serial number from OTP, which
-            // the model cannot answer ("Couldn't talk to chip"); an `otp-sn` of size 0 skips that.
+            // (KernelPatches). Until then the driver has no configuration of its own and ignores
+            // power-on; with `use-static-config` it takes the protocol from here
+            // (AppleHIDTransportProtocolHIDSPI, the link layer of Inferno's multitouch model) and
+            // its transfer layout (`touchProtocolConfig`). The bootloader first reads the chip's
+            // serial number from OTP, which the model cannot answer ("Couldn't talk to chip"); an
+            // `otp-sn` of size 0 skips that.
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
                 props["agm-secondary"] = primary
+                props["use-static-config"] = Data()
+                props["protocol"] = Data("HIDSPI\0".utf8)
+                props["protocol-config"] = Self.touchProtocolConfig
                 props["otp-sn"] = Data(count: 8)
                 return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
                                       children: node.children)
