@@ -261,30 +261,35 @@ public struct InfernoBackend: EmulatorBackend {
                          "root": APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o750)])
     }()
 
+    /// The IPSW's Multitouch payload as mtmergeprops reads it. The payload maps each personality
+    /// (mt-merge-personality, e.g. "C1FC2,2") to the controller's boot sequence, an array of steps
+    /// (payloads to load, register writes, and last the driver configuration: protocol, HIDSPI
+    /// and interface configuration), in IOKit's XML dialect (ID/IDREF sharing), which
+    /// CFPropertyList cannot read. mtmergeprops merges a dictionary per personality into the
+    /// touch bootloader, which takes the sequence as "Constructed Firmware" and the driver
+    /// configuration as serialized "Firmware Config" (each with a version) and rejects anything
+    /// else.
+    static func mtprops(fromMultitouch payload: Data) -> Data? {
+        guard let root = IOKitXML.parse(payload) as? [String: Any] else { return nil }
+        var personalities: [String: Any] = [:]
+        for (name, value) in root {
+            guard let steps = value as? [Any] else { personalities[name] = value; continue }
+            var personality: [String: Any] = ["Constructed Firmware": steps, "Constructed Firmware Version": name]
+            if let config = steps.compactMap({ ($0 as? [String: Any])?["Config"] as? [String: Any] }).first,
+               let xml = try? PropertyListSerialization.data(fromPropertyList: config, format: .xml, options: 0) {
+                personality["Firmware Config"] = xml
+                personality["Firmware Config Version"] = name
+            }
+            personalities[name] = personality
+        }
+        return try? PropertyListSerialization.data(fromPropertyList: personalities, format: .xml, options: 0)
+    }
+
     /// The Data volume with the preference files for `tweaks` (see GuestTweaks).
     ///
     /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
     /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
-    /// The IPSW's Multitouch payload as mtmergeprops reads it. The payload maps each personality
-    /// (mt-merge-personality, e.g. "C1FC2,2") to the controller's boot sequence, an array of steps
-    /// (payloads to load, register writes, the HIDSPI and interface configuration), in IOKit's XML
-    /// dialect (ID/IDREF sharing), which CFPropertyList cannot read. mtmergeprops merges a
-    /// dictionary per personality into the touch bootloader, which takes the sequence as
-    /// "Constructed Firmware" (with a "Constructed Firmware Version") and rejects anything else.
-    static func mtprops(fromMultitouch payload: Data) -> Data? {
-        guard let root = IOKitXML.parse(payload) as? [String: Any] else { return nil }
-        var personalities: [String: Any] = [:]
-        for (name, value) in root {
-            if let steps = value as? [Any] {
-                personalities[name] = ["Constructed Firmware": steps, "Constructed Firmware Version": name]
-            } else {
-                personalities[name] = value
-            }
-        }
-        return try? PropertyListSerialization.data(fromPropertyList: personalities, format: .xml, options: 0)
-    }
-
     static func dataVolumeTree(tweaks: GuestTweaks, build: String, multitouch: Data? = nil) -> APFSContainer.Tree {
         var tree = dataVolumeTree
         // The touch controller's firmware and settings ("Multitouch" in the BuildManifest, a plist
@@ -298,8 +303,10 @@ public struct InfernoBackend: EmulatorBackend {
             tree.directories += ["mobile/Library/Application Support", dir]
             tree.attributes["mobile/Library/Application Support"] = mobile
             tree.attributes[dir] = mobile
-            tree.files[dir + "/Multitouch.mtprops"] = mtprops(fromMultitouch: multitouch) ?? multitouch
-            tree.attributes[dir + "/Multitouch.mtprops"] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
+            // mtmergeprops reads *.mtprops only from /usr/share/firmware/multitouch on the system
+            // volume, and *.dycal, merged the same way, from here.
+            tree.files[dir + "/Multitouch.dycal"] = mtprops(fromMultitouch: multitouch) ?? multitouch
+            tree.attributes[dir + "/Multitouch.dycal"] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
         }
         // CommCenter (the cellular service) aborts every few seconds without a modem, and
         // locationd's synchronous CoreTelephony calls to it never return, so the post-erase data

@@ -343,16 +343,20 @@ final class IPSWKitTests: XCTestCase {
         let payload = Data("""
         <dict><key>C1FC2,2</key><array><dict><key>Address</key><integer ID="0" size="64">0x1</integer>\
         <key>Type</key><string ID="1">Payload</string></dict><dict><key>Address</key><integer IDREF="0"/>\
-        <key>Type</key><string IDREF="1"/></dict></array></dict>
+        <key>Type</key><string IDREF="1"/></dict><dict><key>Type</key><string>Config</string>\
+        <key>Config</key><dict><key>Protocol</key><string>HIDSPI</string></dict></dict></array></dict>
         """.utf8)
         let mtprops = try XCTUnwrap(InfernoBackend.mtprops(fromMultitouch: payload))
         let root = try XCTUnwrap(PropertyListSerialization.propertyList(from: mtprops, format: nil) as? [String: Any])
         let personality = try XCTUnwrap(root["C1FC2,2"] as? [String: Any])
         let steps = try XCTUnwrap(personality["Constructed Firmware"] as? [[String: Any]])
-        XCTAssertEqual(steps.count, 2)
+        XCTAssertEqual(steps.count, 3)
         XCTAssertEqual(steps[1]["Address"] as? Int, 1)
         XCTAssertEqual(steps[1]["Type"] as? String, "Payload")
         XCTAssertEqual(personality["Constructed Firmware Version"] as? String, "C1FC2,2")
+        let config = try XCTUnwrap(personality["Firmware Config"] as? Data)
+        let decoded = try XCTUnwrap(PropertyListSerialization.propertyList(from: config, format: nil) as? [String: Any])
+        XCTAssertEqual(decoded["Protocol"] as? String, "HIDSPI")
     }
 
     func testGuestTweaksPreferences() throws {
