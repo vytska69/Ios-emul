@@ -14,11 +14,13 @@ sukompiliuotomis kaip biblioteka ir paleidžiamomis programos viduje.
 
 Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be restore. Po įdiegimo
 iOS pasileidžia iki sąrankos ekrano „Hello“: tai pavyksta ir macOS CI, ir telefone (iPhone 16e su
-JIT, po perkrovimo apie 2 min.). Pagrindinio ekrano dar nėra, nes nepavyksta praeiti sąrankos.
+JIT, po perkrovimo apie 2 min.). Su „Skip setup“ CI pasiekiamas užrakinimo ekranas: pirmas startas
+trunka apie 8 min. Pagrindinio ekrano dar nėra: perbraukimas aukštyn, kuriuo atrakinamas telefonas,
+emuliuotame iPhone dar neveikia.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|
-| iPhone 11 | 14.0 | Sąrankos ekranas „Hello“ |
+| iPhone 11 | 14.0 | Užrakinimo ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“ |
 | iPhone 6s / 6s Plus | 15.8 | Branduolys sustoja ties ekrano valdikliu |
 | iPhone XR | 14.0 | Branduolys sustoja prieš pirmą išvestį |
 | iPod touch 1G / 2G | 1.x–2.x | Tik macOS, į programą neįdėta |

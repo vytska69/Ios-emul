@@ -8,7 +8,7 @@ pačiu keliu.
 
 | Įrenginys, iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Sąrankos ekranas „Hello“. Pirmas startas trunka apie 20 min., po perkrovimo – 2–20 min. | Sąranka (žr. žemiau) |
+| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Su „Skip setup“: užrakinimo ekranas (pirmas startas apie 8 min.). Be jo: sąrankos ekranas „Hello“ (pirmas startas apie 20 min., po perkrovimo – 2–20 min.) | Perbraukimas aukštyn (žr. žemiau) |
 | iPhone 11, 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB per TCP) |
 | iPhone 6s / 6s Plus (A9), 15.8 | IOKit: AIC, AES, SPI, I2C, PCIe, NVMe | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` |
 | iPhone XR (A12), 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įsijungia | Panika `rtclock` inicializacijoje, dar prieš serial išvestį |
@@ -31,7 +31,8 @@ kaip CI.
   `Internal_BYSetupAssistantNeedsToRun` rodo „upgrade mini buddy“, t. y. tą patį „Hello“.
   `ForceNoBuddy` skaitomas tik vidiniuose Apple build'uose. Todėl „Skip setup“ įrašo
   `SetupVersion = 11` ir pataiso tris SetupAssistant funkcijas, kad jos grąžintų NO
-  (`SharedCachePatches.skipSetupByBuild`). Patikrinimas CI vyksta.
+  (`SharedCachePatches.skipSetupByBuild`). CI tai veikia: iOS išsiunčia
+  `com.apple.purplebuddy.setupdone`, ir rodomas užrakinimo ekranas.
 - **Lietimai.** Lietimo ekranas (Inferno `mt-spi`) prijungtas, ir QEMU jį laiko absoliučia pele.
   Telefone bakstelėjimai veikia. CI matavime perbraukimas aukštyn „Hello“ ekrano dar nepakeitė
   (`scripts/ci-touch-test.py`).

@@ -33,8 +33,8 @@ jų `compatible` vardais, MMIO adresais ir pertraukimais. Todėl:
 ## Artimiausi žingsniai
 
 1. **iPhone 11, iOS 14: nuo „Hello“ iki pagrindinio ekrano.**
-   - Patikrinti, ar `ForceNoBuddy` praleidžia sąranką.
-   - Gauti veikiantį perbraukimą aukštyn.
+   - Sąranka praleidžiama, rodomas užrakinimo ekranas. Patikrinti telefone.
+   - Gauti veikiantį perbraukimą aukštyn, kad būtų galima atrakinti.
    - Rasti retos NVMe panikos priežastį.
 2. **Greitis telefone.**
    - Išbandyti 30 Hz ekrano atnaujinimą ir mažiau vCPU.
