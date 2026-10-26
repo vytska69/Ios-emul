@@ -38,6 +38,10 @@ on:
         type: boolean
         default: false
 
+# `after` commands may upload research files (a decompressed kernelcache, logs) to a draft release.
+permissions:
+  contents: write
+
 jobs:
   qemu:
     runs-on: macos-15
