@@ -216,10 +216,10 @@ final class DisplayModel: ObservableObject {
     func goHome() {
         guard let vnc, let frame else { return }
         guard frame.height * 10 > frame.width * 20 else { return press(.home) }
-        let x = frame.width / 2, bottom = frame.height - 4, travel = frame.height * 45 / 100, steps = 12
+        let x = frame.width / 2, bottom = frame.height - 4, travel = frame.height * 45 / 100, steps = 20
         vnc.pointer(x: x, y: bottom, pressed: true)
         for i in 1...steps {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03 * Double(i)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04 * Double(i)) {
                 vnc.pointer(x: x, y: bottom - i * travel / steps, pressed: i < steps)
             }
         }

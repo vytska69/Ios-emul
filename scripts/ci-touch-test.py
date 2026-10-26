@@ -137,19 +137,42 @@ def main():
         print(f"== after {name}: {100 * changed(before, after):.1f} % of the screen changed, {100 * lit(after):.1f} % lit")
         before = after
 
-    report("idle", 20)                   # what changes on its own (the hello animation)
-    x, y = vnc.w // 2, vnc.h // 2
-    vnc.pointer(x, y, True); time.sleep(0.15); vnc.pointer(x, y, False)
-    report("tap", 20)
-    vnc.pointer(x, vnc.h - 10, True)
-    for i in range(1, 21):
-        time.sleep(0.03)
-        vnc.pointer(x, vnc.h - 10 - i * (vnc.h // 2) // 20, True)
-    vnc.pointer(x, vnc.h // 2, False)
-    report("swipe-up", 30)
-    vnc.key(0xFF50)                      # the app's Home button
-    report("home-key", 30)
+    def ascii(pixels, w, h, cols=48, rows=40):
+        """A coarse picture of the screen, dark to light."""
+        ramp = " .:-=+*#%@"
+        for r in range(rows):
+            line = ""
+            for c in range(cols):
+                i = (int((r + 0.5) * h / rows) * w + int((c + 0.5) * w / cols)) * 3
+                line += ramp[min(9, sum(pixels[i:i + 3]) * 10 // 766)]
+            print("  |" + line + "|")
 
+    def show(name):
+        w, h, px = read_ppm(dump(name))
+        ascii(px, w, h)
+
+    def swipe(x0, y0, x1, y1, seconds, steps=20):
+        vnc.pointer(x0, y0, True)
+        for i in range(1, steps + 1):
+            time.sleep(seconds / steps)
+            vnc.pointer(x0 + (x1 - x0) * i // steps, y0 + (y1 - y0) * i // steps, i < steps)
+
+    report("idle", 20)                   # what changes on its own (the hello animation)
+    show("start")
+    w, h = vnc.w, vnc.h
+    swipe(w // 2, h - 4, w // 2, h * 55 // 100, 0.4)
+    report("fast-swipe-up", 40)
+    swipe(w // 2, h - 4, w // 2, h * 40 // 100, 2.0)
+    report("slow-swipe-up", 40)
+    show("after-swipes")
+    # The accessibility (i) button at the bottom right of the Hello screen.
+    x, y = w * 895 // 1000, h * 953 // 1000
+    vnc.pointer(x, y, True); time.sleep(0.2); vnc.pointer(x, y, False)
+    report("tap-info", 40)
+    show("after-tap")
+    vnc.key(0xFFC2)                      # F5: the side button
+    report("side-button", 40)
+    show("end")
 
 if __name__ == "__main__":
     main()
