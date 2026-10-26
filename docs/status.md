@@ -33,9 +33,12 @@ kaip CI.
   `SetupVersion = 11` ir pataiso tris SetupAssistant funkcijas, kad jos grąžintų NO
   (`SharedCachePatches.skipSetupByBuild`). CI tai veikia: iOS išsiunčia
   `com.apple.purplebuddy.setupdone`, ir rodomas užrakinimo ekranas.
-- **Lietimai.** Lietimo ekranas (Inferno `mt-spi`) prijungtas, ir QEMU jį laiko absoliučia pele.
-  Telefone bakstelėjimai veikia. CI matavime perbraukimas aukštyn „Hello“ ekrano dar nepakeitė
-  (`scripts/ci-touch-test.py`).
+- **Lietimai.** iOS 14 `AppleGenericMultitouchDecider` be autentifikacijos koprocesoriaus
+  paleidžia `agm-secondary` tvarkyklę `AppleGenericMultitouchHIDSPI`, kurios startas su Inferno
+  `mt-spi` nepavyksta, todėl lietimai ignoruojami. Tiesioginis įdiegimas DeviceTree'e
+  `agm-secondary` pakeičia į `AppleHIDTransportDeviceSPI`. CI patikrinimas vyksta. VNC klientas
+  turi atsiųsti SetEncodings, kitaip QEMU pelę laiko santykine, o lietimo ekranas negauna
+  koordinačių.
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
   F6 – Home. Šoninis mygtukas iOS pasiekia.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties

@@ -281,6 +281,18 @@ public struct InfernoBackend: EmulatorBackend {
             // calls to it, so the post-erase data migration never ends and SpringBoard never
             // starts. Without them iOS runs as on a Wi-Fi-only device.
             if node.path == "/baseband" { return nil }
+            // AppleGenericMultitouchDecider (iOS 14) launches the DeviceTree's agm-primary driver,
+            // AppleHIDTransportDeviceSPI, only when the authentication coprocessor vouches for the
+            // touch controller; the emulated machine has none, so it launches agm-secondary,
+            // AppleGenericMultitouchHIDSPI, which fails to start against Inferno's multitouch
+            // model, and the screen ignores every touch. Name the primary driver in both.
+            if node.name == "multi-touch", let primary = node.properties["agm-primary"],
+               node.properties["agm-secondary"] != nil {
+                var props = node.properties
+                props["agm-secondary"] = primary
+                return DeviceTreeNode(properties: props, placeholders: node.placeholders.subtracting(["agm-secondary"]),
+                                      children: node.children)
+            }
             if node.path == "/product", node.properties["baseband-chipset"] != nil {
                 var props = node.properties
                 props["baseband-chipset"] = nil

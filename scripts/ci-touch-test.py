@@ -81,6 +81,10 @@ class VNC:
         self.w, self.h = struct.unpack(">HH", head[:4])
         name_len = struct.unpack(">I", head[20:24])[0]
         self.s.recv(name_len)
+        # SetEncodings (raw, DesktopSize): like the app. QEMU decides between absolute and
+        # relative pointer events only when a client sends it; without it every move is relative
+        # and an absolute device such as the multitouch screen never sees a position.
+        self.s.sendall(struct.pack(">BxHii", 2, 2, 0, -223))
         print(f"== VNC {self.w}x{self.h}")
 
     def pointer(self, x, y, pressed):
