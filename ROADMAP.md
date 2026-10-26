@@ -36,8 +36,14 @@ išvardinti visi įrenginiai su `compatible` vardais, MMIO adresais ir pertrauki
 
 ### Artimiausi žingsniai
 
-1. iPhone 11 iOS 14: sąrankos ekranas „Hello“ jau matyti (CPU renderis per `SharedCachePatches`). Toliau –
-   jutiklinis ekranas ir mygtukai sąrankai praeiti, didesnės raiškos ekrano nuotraukos CI'e, bandymas telefone.
+1. iPhone 11 iOS 14: sąrankos ekranas „Hello“ matyti ir CI'e, ir telefone (iPhone 16e su JIT, po
+   perkrovimo ~2 min). Toliau:
+   - sąrankos praleidimas: `SetupDone` nepakanka, nes emuliuotas iPhone neaktyvuotas;
+     `BYSetupAssistantNeedsToRun` (SetupAssistant.framework) pirmiausia tikrina `ForceNoBuddy`;
+   - gestai: bakstelėjimai ir šoninis mygtukas (F5) iOS pasiekia, perbraukimas aukštyn CI'e
+     „Hello“ dar nepakeitė (`scripts/ci-touch-test.py`);
+   - reta antro starto panika „Kernel data abort“ `AppleANS2NVMeController::start` (1 iš 8);
+   - greitis: ekrano atnaujinimas 30 Hz, mažiau vCPU, interpretatoriaus (TCI) uždarymas telefone.
 2. iPhone XR (A12, atidėta): kernelis panikuoja `rtclock` inicializacijoje dar prieš serial išvestį,
    nors patch 0014 grąžino CPU mazgus su `timebase-frequency`. Kita – `-d exec,nochain,int` kelias iki
    pirmos išimties (įrankiai: `scripts/xref.py`, `scripts/adt.py`, boot testo `after` įvestis);

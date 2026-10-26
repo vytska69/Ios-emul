@@ -13,10 +13,11 @@ programai įdiegti, nei iOS į virtualų įrenginį įrašyti.
 [Kas naujo](distribution/whats-new.md)
 
 > **Dabar.** iPhone 11 su iOS 14.0 įsidiegia be restore, praeina pirmo paleidimo trynimą ir sistemos
-> keybag'ą ir paleidžia pilną iOS userland'ą (macOS CI'e). Be GPU iOS piešia QuartzCore programiniu
-> renderiu (įdiegimas pataiso 5 instrukcijas dyld shared cache), ir ekrane matyti sąrankos „Hello“. Telefone (iPhone 16e, iOS 27.2) tai dar neišbandyta su naujausiu
-> build'u. iPhone 6s su iOS 15.8 pasiekia IOKit.
-> Plačiau: [Būsena](#būsena).
+> keybag'ą ir paleidžia pilną iOS userland'ą. Be GPU iOS piešia QuartzCore programiniu renderiu
+> (įdiegimas pataiso 5 instrukcijas dyld shared cache), ir ekrane matyti sąrankos „Hello“ – ir CI'e,
+> ir telefone (iPhone 16e su JIT: po perkrovimo apie 2 min). Bakstelėjimai ir šoninis mygtukas iOS
+> pasiekia; sąrankai praeiti dar tikrinami gestai ir sąrankos praleidimas. iPhone 6s su iOS 15.8
+> pasiekia IOKit. Plačiau: [Būsena](#būsena).
 
 ---
 
@@ -31,6 +32,14 @@ Kiekvienas sėkmingas IPA build'as atnaujina [Rolling release](https://github.co
 | **AltStore PAL** | Netinka: diegia tik Apple notarizuotas programas, o šis build'as nenotarizuotas. |
 
 Reikia iOS 16 ar naujesnės.
+
+**Kiti diegimo įrankiai** (Sideloadly, Feather, ESign ir pan.) pasirašydami gali tyliai išmesti
+teises, kurių reikia emuliatoriui: `get-task-allow` (be jos neįsijungia JIT),
+`increased-memory-limit` ir `extended-virtual-addressing` (be jų 4 GB mašina netelpa į atmintį ir
+QEMU nepasileidžia). *Settings → Diagnostics* parodo, kokiomis teisėmis programa iš tikrųjų
+pasirašyta, kokį provisioning profile ji turi ir kiek atminties iOS leidžia; „Copy report“
+nukopijuoja ataskaitą. SideStore šias teises išlaiko. AltStore klaida „HTTP 503“ ateina iš Apple
+prisijungimo serverių, ne iš programos – pabandyk vėliau.
 
 **IPSW gavimas.** *Download* skirtuke matyti visi iPhone, iPad ir iPod touch modeliai iš ipsw.me
 (emuliuojami viršuje), su IPSW dydžiu, data ir tuo, ar emuliatorius gali juos paleisti. Failas
@@ -71,12 +80,12 @@ workflow tai daro macOS CI'e su tikrais IPSW, programa telefone eina tuo pačiu 
 
 | Įrenginys ir iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | Pilnas userland: trynimas, `keybag` („System Keybag loaded“), „Early boot complete“, IOMFB ir ekrano apšvietimas; 30 min be panikos; sąrankos ekranas „Hello“ (CPU renderis) | Liesti dar netikrinta. Data tomas nešifruotas („not content protected“), simuliuotas SEP neatsako į dalį AppleSEPKeyStore komandų (0x22 ref-key, 0x2A, 0x4D, 0x0B) |
+| iPhone 11 (A13), iOS 14.0, tiesioginis įdiegimas | Pilnas userland: trynimas, `keybag` („System Keybag loaded“), „Early boot complete“, IOMFB ir ekrano apšvietimas; sąrankos ekranas „Hello“ (CPU renderis): pirmas startas ~20 min, po perkrovimo CI'e 2–20 min | Lietimo ekranas (Inferno `mt-spi`) prijungtas, bakstelėjimai telefone veikia, bet perbraukimas aukštyn CI matavime ekrano dar nepakeitė. Sąranka: emuliuotas iPhone neaktyvuotas, todėl `SetupDone` nepakanka; bandomas `ForceNoBuddy`. Retai (1 iš 8 CI startų) antras startas panikuoja „Kernel data abort“ `AppleANS2NVMeController::start`. Data tomas nešifruotas, simuliuotas SEP neatsako į dalį AppleSEPKeyStore komandų (0x22 ref-key, 0x2A, 0x4D, 0x0B) |
 | iPhone 11, iOS 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB-over-TCP, ROADMAP 4 etapas) |
 | iPhone 6s / 6s Plus (A9), iOS 15.8 | IOKit (AIC, AES, SPI, I2C, PCIe, NVMe) | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` (ekrano kelias) |
 | iPhone XR (A12), iOS 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įjungiamas | Panika `rtclock` inicializacijoje dar prieš serial išvestį. Atidėta, kol tvarkomas iPhone 11 |
-| Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) | Tas pats kaip CI: `launchd` per kelias sekundes, `fsck` … `fips`; VNC ekranas prisijungia (832×1792) | `keybag`: nėra `systembag.kb` („tears in rain… Time to die“), iOS persikrauna ratu |
-| SpringBoard | Dar nepasiekta | |
+| Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) | Sąrankos ekranas „Hello“; po perkrovimo apie 2 min | Tas pats kaip CI: sąranka. Interpretatoriaus variklis (be JIT) programą uždaro – tiriama |
+| SpringBoard (pagrindinis ekranas) | Dar nepasiekta: SpringBoard veikia, bet rodo sąranką | |
 
 **Emuliuojamos mašinos**
 
@@ -133,11 +142,24 @@ Trys skirtukai:
   (tiesioginis įdiegimas arba restore), RAM ir CPU, suderinamumas, hardware padengimas, įrenginiai.
 - **Download.** ipsw.me katalogas su filtrais iPhone / iPad / iPod ir paieška.
 - **Settings.** Temos (Aurora, Ember, Circuit, Mono), boot numatytieji, emuliatorius (variklis,
-  JIT, vertimo kešas, verbose boot, ekrano neužmigdymas), siuntimai, saugykla, *About*.
+  JIT, vertimo kešas, verbose boot, ekrano neužmigdymas, darbas fone), siuntimai, saugykla,
+  *Diagnostics* (pasirašymo teisės, profilis, JIT, atmintis), *About*.
 
-**Mašinos ekranas.** Lietimas siunčiamas kaip pelė, mygtukai Home ir Lock. Kol ekranas dar
-neįsijungė, rodoma, ar QEMU dar kuria mašiną, ar ji jau veikia, kur yra CPU 0 ir ar jis juda, o
-laukelyje – branduolio serial išvestis (arba QEMU žurnalas, kol branduolys nieko neišspausdino).
+**Mašinos ekranas.** Lietimas siunčiamas per VNC kaip absoliuti pelė; QEMU ją perduoda emuliuotam
+lietimo ekranui. Mygtukai: **Home** (Face ID iPhone – perbraukimas aukštyn nuo apačios, kitiems –
+Home mygtukas), **Lock** (šoninis mygtukas), **Vol −** ir **Vol +**. Inferno mygtukus skaito tik iš
+F klavišų: F3/F4 garsas, F5 šoninis, F6 Home (QEMU monitoriuje – `sendkey f5`).
+
+**Starto eiga.** Kol ekranas dar juodas arba rodo tik Apple logotipą, rodomi žingsniai: mašinos
+kūrimas, branduolys, tvarkyklės, sistemos diskas, iOS startas ir laukimas pirmo ekrano, su kiekvieno
+žingsnio ir viso starto laiku. Žingsniai skaitomi iš šio starto `serial.log`; panika rodoma
+oranžine eilute. Logotipui pasirodžius, eiga persikelia į siaurą juostelę ekrano viršuje
+(bakstelėjus – visi žingsniai), su eilute „3 of 4 CPUs working · running“: emuliuoti CPU tikrinami
+kas kelias sekundes, laukiantys (`wfi`) nelaikomi užstrigusiais.
+
+**Darbas fone.** *Settings → Emulator → Run in background* (įjungta pagal nutylėjimą): kol mašina
+veikia, programa groja tylų garsą (kaip UTM), todėl iOS jos nesustabdo išėjus ar užrakinus
+telefoną. Naudoja bateriją; iOS vis tiek gali programą uždaryti, kai trūksta atminties.
 
 **Eksperimentinės funkcijos.** *About* puslapyje 7 kartus paspausk versijos numerį:
 
@@ -192,7 +214,8 @@ ipsw-emu inspect firmware.ipsw                                  # identitetai, s
 ipsw-emu dt firmware.ipsw --product iPhone12,1 --path /arm-io   # DeviceTree mazgas
 ipsw-emu boot firmware.ipsw --work vm --product iPhone12,1 --mode direct \
   --seconds 600 [--force-backend inferno-t8030] [--qemu-debug guest_errors] \
-  [--monitor "info registers; x /16wx 0x…"] [--qemu-args "-accel tcg,split-wx=on"]
+  [--monitor "info registers; x /16wx 0x…"] [--qemu-args "-accel tcg,split-wx=on"] \
+  [--skip-setup 1]                                              # kaip programos „Skip setup“
 ipsw-emu apfs-add-volume disk.img --role data|preboot|xart …   # APFS tomų rašytuvas
 ipsw-emu apfs-dump disk.img
 ```
@@ -210,6 +233,14 @@ Pagalbiniai įrankiai:
 - `scripts/xref.py` – randa branduolio kodą, kuris skaito ar rašo globalų kintamąjį, `pmemsave` atminties kopijoje.
 - `scripts/adt.py` – išspausdina neapdorotą Apple DeviceTree (pvz. tą, kurį QEMU perdavė branduoliui).
 - `scripts/dt-survey.py`, `scripts/gen-inferno-coverage.py` – DeviceTree inventoriai ir padengimo lentelė.
+- `scripts/ci-guest-log.sh` – emuliuoto iOS unified log (`log show` su predikatu) iš Data tomo.
+- `scripts/ci-mount-volume.sh` – prijungia vieną emuliuoto disko APFS tomą (System, Data) tik skaitymui.
+- `scripts/ci-dsc-disass.sh` – dyld shared cache: funkcijų disasembleris, eilutės, xref'ai, simboliai.
+- `scripts/ci-patch-dsc.sh` – bandomieji shared cache instrukcijų pataisymai diske (prieš įrašant juos į `SharedCachePatches`).
+- `scripts/ci-kernel-disass.sh` – branduolio kodas aplink panikos adresus (`kaslr-off`, todėl adresai sutampa).
+- `scripts/ci-sample-pc.py` – per monitorių matuoja, kiek laiko CPU praleidžia EL0, EL1 ir laukdami, ir dažniausius PC.
+- `scripts/ci-touch-test.py` – siunčia lietimus per VNC kaip programa, daro `screendump` ir parodo, kiek ekrano pasikeitė (su ASCII vaizdu).
+- `scripts/ci-symbolicate-stackshot.sh` – iOS crash/stackshot ataskaitų simbolizavimas.
 
 ### QEMU patch'ai
 
@@ -249,6 +280,11 @@ rodoma SideStore „What's New“ ir Rolling release puslapyje (žr. [`CLAUDE.md
 - **Hipervizoriaus nėra.** iPhone programoms Apple nesuteikia virtualizacijos (EL2), todėl tai
   emuliacija su JIT; UTM HV versija veikia tik M1+ iPad su jailbreak ar TrollStore.
 - **Vienas VM per paleidimą.** QEMU laiko globalią būseną, o iOS neleidžia kurti procesų.
+- **Aktyvacija.** Emuliuotas iPhone niekada neaktyvuojamas, todėl iOS laiko jį naujai nustatomu;
+  sąrankos praleidimui reikia `ForceNoBuddy`, ne vien `SetupDone`.
+- **Greitis.** Matavimas (`ci-sample-pc.py`) parodė: ~78 % laiko branduolyje, ~22 % vartotojo
+  erdvėje, apie trečdalis mėginių – laukimas (`wfi`). Didžiausia kaina – iOS programinis ekrano
+  piešimas; hipervizoriaus tipo vykdymas atidėtas, nes laimėtų tik dalį užimto laiko.
 - **32 bitų era** reikalaus viešai žinomų ar vartotojo pateiktų firmware raktų.
 
 ## Licencija ir padėkos
