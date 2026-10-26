@@ -321,12 +321,16 @@ public struct InfernoBackend: EmulatorBackend {
             // loaded the touch firmware, which needs mtmergeprops to merge the firmware from the
             // restore-installed mtprops. Without a bootloader (no `bootloader-type` or
             // `hbpp-version`) and with `use-static-config` it powers the controller on straight
-            // away and talks HID to it, which Inferno's model answers without firmware.
+            // away and talks HID to it, which Inferno's model answers without firmware. The static
+            // config names the protocol (AppleHIDTransportProtocolHIDSPI, Inferno's link layer);
+            // the firmware's personality would otherwise supply it, and without one power-on is
+            // ignored.
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
                node.properties["agm-secondary"] != nil {
                 var props = node.properties
                 props["agm-secondary"] = primary
                 props["use-static-config"] = Data()
+                props["protocol"] = Data("HIDSPI\0".utf8)
                 props["bootloader-type"] = nil
                 props["hbpp-version"] = nil
                 return DeviceTreeNode(properties: props,
