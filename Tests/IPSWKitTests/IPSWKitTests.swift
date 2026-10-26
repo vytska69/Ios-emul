@@ -339,12 +339,13 @@ final class IPSWKitTests: XCTestCase {
     }
 
     func testMultitouchPersonalities() throws {
-        // As in the IPSW: a bare <dict> with CF's ID/IDREF sharing, each personality a boot sequence.
+        // As in the IPSW: a bare <dict> with CF's ID/IDREF sharing, each personality a boot sequence,
+        // ending in a NUL.
         let payload = Data("""
         <dict><key>C1FC2,2</key><array><dict><key>Address</key><integer ID="0" size="64">0x1</integer>\
         <key>Type</key><string ID="1">Payload</string></dict><dict><key>Address</key><integer IDREF="0"/>\
         <key>Type</key><string IDREF="1"/></dict><dict><key>Type</key><string>Config</string>\
-        <key>Config</key><dict><key>Protocol</key><string>HIDSPI</string></dict></dict></array></dict>
+        <key>Config</key><dict><key>Protocol</key><string>HIDSPI</string></dict></dict></array></dict>\0
         """.utf8)
         let mtprops = try XCTUnwrap(InfernoBackend.mtprops(fromMultitouch: payload))
         let root = try XCTUnwrap(PropertyListSerialization.propertyList(from: mtprops, format: nil) as? [String: Any])

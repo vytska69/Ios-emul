@@ -5,11 +5,14 @@ import FoundationXML
 
 /// Reads property lists in IOKit's XML dialect (OSUnserializeXML): plist elements without the
 /// <plist> wrapper, where an element with ID="n" may be repeated later as an empty element with
-/// IDREF="n", and integers carry a size attribute. CFPropertyList rejects both.
+/// IDREF="n", and integers carry a size attribute. CFPropertyList rejects both. Text serialized for
+/// the kernel ends in a NUL, which XMLParser rejects, so trailing NULs are dropped.
 enum IOKitXML {
     static func parse(_ data: Data) -> Any? {
         let reader = Reader()
-        let parser = XMLParser(data: data)
+        var end = data.endIndex
+        while end > data.startIndex, data[end - 1] == 0 { end -= 1 }
+        let parser = XMLParser(data: data[data.startIndex..<end])
         parser.delegate = reader
         guard parser.parse(), reader.failed == false else { return nil }
         return reader.root
