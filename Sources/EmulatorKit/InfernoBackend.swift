@@ -212,7 +212,7 @@ public struct InfernoBackend: EmulatorBackend {
         put32(250, at: 12)
         d[16] = 4
         d[18] = 3
-        d[19] = 1
+        d[19] = 2
         return d
     }()
 
