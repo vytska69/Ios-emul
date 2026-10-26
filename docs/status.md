@@ -27,9 +27,11 @@ kaip CI.
 
 ## iPhone 11, iOS 14: atviri klausimai
 
-- **Sąranka.** `SetupDone` sąrankos nepraleidžia, nes emuliuotas iPhone neaktyvuotas.
-  `BYSetupAssistantNeedsToRun` (SetupAssistant.framework) pirmiausia tikrina `ForceNoBuddy`, todėl
-  „Skip setup“ įrašo ir jį. CI patikrinimas dar vyksta.
+- **Sąranka.** Vien `SetupDone` sąrankos nepraleidžia: jei `SetupVersion` ≤ 10,
+  `Internal_BYSetupAssistantNeedsToRun` rodo „upgrade mini buddy“, t. y. tą patį „Hello“.
+  `ForceNoBuddy` skaitomas tik vidiniuose Apple build'uose. Todėl „Skip setup“ įrašo
+  `SetupVersion = 11` ir pataiso tris SetupAssistant funkcijas, kad jos grąžintų NO
+  (`SharedCachePatches.skipSetupByBuild`). Patikrinimas CI vyksta.
 - **Lietimai.** Lietimo ekranas (Inferno `mt-spi`) prijungtas, ir QEMU jį laiko absoliučia pele.
   Telefone bakstelėjimai veikia. CI matavime perbraukimas aukštyn „Hello“ ekrano dar nepakeitė
   (`scripts/ci-touch-test.py`).

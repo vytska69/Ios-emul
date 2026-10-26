@@ -36,11 +36,33 @@ public enum SharedCachePatches {
         ],
     ]
 
-    /// Applies the patches for `build` to the shared cache on the container's system volume.
-    /// Returns a line per patch saying what happened.
+    /// With "Skip setup": the setup assistant's checks answer "no need to run". An emulated phone is
+    /// never activated and SetupDone in the preferences does not cover every reason iOS has to show
+    /// Setup, so each check returns NO from its first instruction (mov w0, #0; ret, replacing
+    /// pacibsp and the stack frame setup).
+    public static let skipSetupByBuild: [String: [Patch]] = [
+        "18A373": [
+            Patch(address: 0x1_945D_77A4, original: 0xD503_237F, replacement: 0x5280_0000,
+                  reason: "SetupAssistant _BYSetupAssistantNeedsToRun: NO (mov w0, #0)"),
+            Patch(address: 0x1_945D_77A8, original: 0xD102_03FF, replacement: 0xD65F_03C0,
+                  reason: "SetupAssistant _BYSetupAssistantNeedsToRun: NO (ret)"),
+            Patch(address: 0x1_945D_7B8C, original: 0xD503_237F, replacement: 0x5280_0000,
+                  reason: "SetupAssistant _Daemon_BYSetupAssistantNeedsToRun: NO (mov w0, #0)"),
+            Patch(address: 0x1_945D_7B90, original: 0xD101_43FF, replacement: 0xD65F_03C0,
+                  reason: "SetupAssistant _Daemon_BYSetupAssistantNeedsToRun: NO (ret)"),
+            Patch(address: 0x1_945D_7E88, original: 0xD503_237F, replacement: 0x5280_0000,
+                  reason: "SetupAssistant _Internal_BYSetupAssistantNeedsToRun: NO (mov w0, #0)"),
+            Patch(address: 0x1_945D_7E8C, original: 0xD101_43FF, replacement: 0xD65F_03C0,
+                  reason: "SetupAssistant _Internal_BYSetupAssistantNeedsToRun: NO (ret)"),
+        ],
+    ]
+
+    /// Applies the patches for `build` (and with `skipSetup` the setup assistant ones) to the shared
+    /// cache on the container's system volume. Returns a line per patch saying what happened.
     @discardableResult
-    public static func apply(build: String, container: APFSContainer) throws -> [String] {
-        guard let patches = byBuild[build], !patches.isEmpty else { return [] }
+    public static func apply(build: String, container: APFSContainer, skipSetup: Bool = false) throws -> [String] {
+        let patches = (byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : [])
+        guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == 0x1 }) ?? volumes.first else { return [] }
         let extents = try container.fileExtents(volume: system.oid, path: cachePath)

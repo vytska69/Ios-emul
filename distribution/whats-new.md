@@ -10,7 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-26
 
-- "Skip setup" now also tells iOS 14 not to run the setup assistant at all: before, iOS showed the Hello screen anyway because the emulated phone is never activated (new installs; not yet tried on a phone).
+- "Skip setup" now really skips the setup assistant on iOS 14: before, iOS showed the Hello screen anyway. The installer marks setup as finished for this iOS version and turns off iOS's checks for it (new installs; not yet tried on a phone).
 
 ## 2026-10-25
 
