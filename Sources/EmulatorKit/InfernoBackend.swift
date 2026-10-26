@@ -237,8 +237,22 @@ public struct InfernoBackend: EmulatorBackend {
     /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
     /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
-    static func dataVolumeTree(tweaks: GuestTweaks, build: String) -> APFSContainer.Tree {
+    static func dataVolumeTree(tweaks: GuestTweaks, build: String, multitouch: Data? = nil) -> APFSContainer.Tree {
         var tree = dataVolumeTree
+        // The touch controller's firmware and settings ("Multitouch" in the BuildManifest, a plist
+        // keyed by the DeviceTree's mt-merge-personality). A restore installs it where
+        // mtmergeprops finds it; mtmergeprops then hands it to the touch driver, which loads it
+        // into the controller and only then powers the controller on. Without it every touch is
+        // ignored.
+        if let multitouch {
+            let mobile = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
+            let dir = "mobile/Library/Application Support/Multitouch"
+            tree.directories += ["mobile/Library/Application Support", dir]
+            tree.attributes["mobile/Library/Application Support"] = mobile
+            tree.attributes[dir] = mobile
+            tree.files[dir + "/Multitouch.mtprops"] = multitouch
+            tree.attributes[dir + "/Multitouch.mtprops"] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
+        }
         // CommCenter (the cellular service) aborts every few seconds without a modem, and
         // locationd's synchronous CoreTelephony calls to it never return, so the post-erase data
         // migration hangs in CoreLocationMigrator. Disabled in launchd's overrides, the service
@@ -397,7 +411,8 @@ public struct InfernoBackend: EmulatorBackend {
                 // in the slot after System, as on a restored iPhone: the first-boot obliteration
                 // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the
                 // rootfs fstab says), which fails while another volume holds that slot.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build))
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build,
+                                                                                  multitouch: try? ctx.ipsw.decodedComponent("Multitouch", identity: ctx.identity)))
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.

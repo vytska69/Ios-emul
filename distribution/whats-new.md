@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-26
 
+- iPhone 11 iOS 14: the installer now puts the touch screen's firmware where iOS looks for it, so the emulated touch screen can be switched on (new installs; work in progress, touches may not work yet).
 - iPhone 11 iOS 14: if the first start after installing was interrupted (the app closed or the machine was stopped), the emulated phone no longer restarts in an endless loop with a black screen; the next start finishes setting it up.
 - iPhone 11 iOS 14: the emulated touch screen is now picked up by iOS. Before, iOS started a touch driver that cannot work without Apple's authentication chip, and every touch was ignored (new installs).
 - Sound: the emulated phone's sound now plays through your phone's speaker (before, the app had no sound output at all, so for example VoiceOver was silent).
