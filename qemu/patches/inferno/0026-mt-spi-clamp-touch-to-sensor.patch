@@ -1,0 +1,18 @@
+diff --git a/hw/arm/apple-silicon/mt-spi.c b/hw/arm/apple-silicon/mt-spi.c
+index eb86618..20e0d9e 100644
+--- a/hw/arm/apple-silicon/mt-spi.c
++++ b/hw/arm/apple-silicon/mt-spi.c
+@@ -980,6 +980,13 @@ static void apple_mt_spi_mouse_event(void *opaque, int dx, int dy, int dz,
+     //         s->display_height, s->display_width);
+     s->y -= qemu_input_scale_axis(16, 0, s->display_height, 0,
+                                   MT_SENSOR_SURFACE_HEIGHT);
++    /*
++     * The calibration above takes the bottom 16 pixels below zero, and the path report
++     * carries the position as an unsigned 16-bit value, so a touch at the bottom edge
++     * (where the swipe up to unlock or go home starts) landed far outside the sensor.
++     */
++    s->x = MAX(0, MIN(s->x, MT_SENSOR_SURFACE_WIDTH - 1));
++    s->y = MAX(0, MIN(s->y, MT_SENSOR_SURFACE_HEIGHT - 1));
+     s->prev_btn_state = s->btn_state;
+     s->btn_state = buttons_state;
+ 

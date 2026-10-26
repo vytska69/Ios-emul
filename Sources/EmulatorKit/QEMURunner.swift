@@ -126,6 +126,9 @@ public final class QEMURunner {
     }
     #else
     private static var used = false
+    /// The QEMU library the machine runs in, once started in-process, for the extra functions the
+    /// iOS patches export (e.g. qemu_ios_audio_read).
+    public private(set) static var library: UnsafeMutableRawPointer?
 
     private typealias InitFn = @convention(c) (Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Void
     private typealias LoopFn = @convention(c) () -> Int32
@@ -213,6 +216,7 @@ public final class QEMURunner {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw RunnerError.binaryNotFound(String(cString: dlerror()))
         }
+        Self.library = handle
         func sym<T>(_ s: String, _: T.Type) throws -> T {
             guard let p = dlsym(handle, s) else { throw RunnerError.symbolMissing(s) }
             return unsafeBitCast(p, to: T.self)

@@ -10,6 +10,8 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-26
 
+- Sound: the emulated phone's sound now plays through your phone's speaker (before, the app had no sound output at all, so for example VoiceOver was silent).
+- Touches at the very bottom edge of the emulated screen now register, so swiping up from the bottom to unlock or go home can work (before, they landed outside the screen).
 - "Skip setup" now really skips the setup assistant on iOS 14: before, iOS showed the Hello screen anyway. The installer marks setup as finished for this iOS version and turns off iOS's checks for it (new installs; not yet tried on a phone).
 
 ## 2026-10-25

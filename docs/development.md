@@ -105,3 +105,5 @@ Bazė: QEMUAppleSilicon, `INFERNO_REV` iš `scripts/build-qemu-ios.sh`.
 | 0022 | `nvram-vars` galioja tik pirmam startui |
 | 0023 | SEP simuliatorius: įrenginys „atrakintas nuo paleidimo, be kodo“, be keybag'o įrašymo ciklo |
 | 0024 | Ekrano valdiklis (ADP v4): 60 Hz vsync ir be prisijungusio VNC kliento |
+| 0025 | „none“ garso išvestis kaupia guest'o garsą žiede, iš kurio programa groja per AVAudioEngine (`qemu_ios_audio_read`) |
+| 0026 | Lietimo ekranas: koordinatės apribojamos jutiklio ribomis (apatinio krašto lietimai buvo už ekrano) |

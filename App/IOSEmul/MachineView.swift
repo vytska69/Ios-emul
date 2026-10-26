@@ -42,12 +42,12 @@ final class DisplayModel: ObservableObject {
                 self?.vmState = state
                 if case .stopped(let code) = state {
                     self?.status = "Machine stopped (exit \(code))"
-                    BackgroundRunner.shared.stop()
+                    MachineAudio.shared.stop()
                 }
             }
         }
         connect()
-        if Pref.defaults.bool(forKey: Pref.runInBackground) { BackgroundRunner.shared.start() }
+        MachineAudio.shared.start(keepInBackground: Pref.defaults.bool(forKey: Pref.runInBackground))
         waitTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.screenLit, case .running = self.vmState else { return }
@@ -230,7 +230,7 @@ final class DisplayModel: ObservableObject {
         waitTimer?.invalidate()
         vnc?.disconnect()
         runner.stop()
-        BackgroundRunner.shared.stop()
+        MachineAudio.shared.stop()
     }
 }
 

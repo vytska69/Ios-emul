@@ -1,0 +1,84 @@
+diff --git a/audio/noaudio.c b/audio/noaudio.c
+index 1b60d85..af597bd 100644
+--- a/audio/noaudio.c
++++ b/audio/noaudio.c
+@@ -41,10 +41,78 @@ typedef struct NoVoiceIn {
+     RateCtl rate;
+ } NoVoiceIn;
+ 
++/*
++ * The iOS build has no CoreAudio driver (UTM plays sound through SPICE, which the iOS
++ * app does not use), so the guest's sound ends up here. Keep what is played, paced in
++ * real time as before, in a ring the app pulls from with qemu_ios_audio_read() and
++ * plays through AVAudioEngine. Nothing is kept until the app first reads.
++ */
++#define IOS_AUDIO_RING (1 << 18)        /* ~1.5 s of 44.1 kHz stereo S16 */
++static uint8_t ios_ring[IOS_AUDIO_RING];
++static size_t ios_head, ios_used;
++static pthread_mutex_t ios_lock = PTHREAD_MUTEX_INITIALIZER;
++static struct audio_pcm_info ios_info;
++static bool ios_have_info, ios_reader;
++
++static void ios_audio_put(const struct audio_pcm_info *info, const void *buf, size_t len)
++{
++    pthread_mutex_lock(&ios_lock);
++    ios_info = *info;
++    ios_have_info = true;
++    if (ios_reader) {
++        const uint8_t *src = buf;
++        size_t room = IOS_AUDIO_RING - ios_used;
++        len = MIN(len, room);           /* a reader that falls behind loses the newest */
++        len -= len % MAX(info->bytes_per_frame, 1);
++        for (size_t i = 0; i < len; i++) {
++            ios_ring[(ios_head + ios_used + i) % IOS_AUDIO_RING] = src[i];
++        }
++        ios_used += len;
++    }
++    pthread_mutex_unlock(&ios_lock);
++}
++
++/* The guest's output format: returns 0 and fills in the format once a voice played. */
++int qemu_ios_audio_format(int *freq, int *channels, int *bits, int *is_float);
++int qemu_ios_audio_format(int *freq, int *channels, int *bits, int *is_float)
++{
++    int ret = -1;
++    pthread_mutex_lock(&ios_lock);
++    ios_reader = true;
++    if (ios_have_info) {
++        *freq = ios_info.freq;
++        *channels = ios_info.nchannels;
++        *bits = ios_info.bits;
++        *is_float = ios_info.is_float;
++        ret = 0;
++    }
++    pthread_mutex_unlock(&ios_lock);
++    return ret;
++}
++
++/* Copies up to size bytes of played sound into buf; returns how many. */
++size_t qemu_ios_audio_read(void *buf, size_t size);
++size_t qemu_ios_audio_read(void *buf, size_t size)
++{
++    uint8_t *dst = buf;
++    pthread_mutex_lock(&ios_lock);
++    ios_reader = true;
++    size = MIN(size, ios_used);
++    for (size_t i = 0; i < size; i++) {
++        dst[i] = ios_ring[(ios_head + i) % IOS_AUDIO_RING];
++    }
++    ios_head = (ios_head + size) % IOS_AUDIO_RING;
++    ios_used -= size;
++    pthread_mutex_unlock(&ios_lock);
++    return size;
++}
++
+ static size_t no_write(HWVoiceOut *hw, void *buf, size_t len)
+ {
+     NoVoiceOut *no = (NoVoiceOut *) hw;
+-    return audio_rate_get_bytes(&no->rate, &hw->info, len);
++    size_t bytes = audio_rate_get_bytes(&no->rate, &hw->info, len);
++    ios_audio_put(&hw->info, buf, MIN(bytes, len));
++    return bytes;
+ }
+ 
+ static int no_init_out(HWVoiceOut *hw, struct audsettings *as, void *drv_opaque)
