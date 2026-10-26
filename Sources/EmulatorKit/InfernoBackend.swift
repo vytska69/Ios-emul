@@ -250,17 +250,12 @@ public struct InfernoBackend: EmulatorBackend {
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
     /// The IPSW's Multitouch payload as mtmergeprops reads it. The payload maps each personality
     /// (mt-merge-personality, e.g. "C1FC2,2") to the controller's boot sequence, an array of steps
-    /// (payloads to load, register writes, the HIDSPI and interface configuration). mtmergeprops
-    /// merges a dictionary per personality into the touch bootloader, which takes the sequence as
+    /// (payloads to load, register writes, the HIDSPI and interface configuration), in IOKit's XML
+    /// dialect (ID/IDREF sharing), which CFPropertyList cannot read. mtmergeprops merges a
+    /// dictionary per personality into the touch bootloader, which takes the sequence as
     /// "Constructed Firmware" (with a "Constructed Firmware Version") and rejects anything else.
     static func mtprops(fromMultitouch payload: Data) -> Data? {
-        var xml = payload
-        if payload.range(of: Data("<plist".utf8)) == nil {
-            xml = Data(#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0">"#.utf8) + payload
-                + Data("</plist>".utf8)
-        }
-        guard let root = try? PropertyListSerialization.propertyList(from: xml, format: nil) as? [String: Any]
-        else { return nil }
+        guard let root = IOKitXML.parse(payload) as? [String: Any] else { return nil }
         var personalities: [String: Any] = [:]
         for (name, value) in root {
             if let steps = value as? [Any] {
