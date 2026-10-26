@@ -248,6 +248,30 @@ public struct InfernoBackend: EmulatorBackend {
     /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
     /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
+    /// The IPSW's Multitouch payload as mtmergeprops reads it. The payload maps each personality
+    /// (mt-merge-personality, e.g. "C1FC2,2") to the controller's boot sequence, an array of steps
+    /// (payloads to load, register writes, the HIDSPI and interface configuration). mtmergeprops
+    /// merges a dictionary per personality into the touch bootloader, which takes the sequence as
+    /// "Constructed Firmware" (with a "Constructed Firmware Version") and rejects anything else.
+    static func mtprops(fromMultitouch payload: Data) -> Data? {
+        var xml = payload
+        if payload.range(of: Data("<plist".utf8)) == nil {
+            xml = Data(#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0">"#.utf8) + payload
+                + Data("</plist>".utf8)
+        }
+        guard let root = try? PropertyListSerialization.propertyList(from: xml, format: nil) as? [String: Any]
+        else { return nil }
+        var personalities: [String: Any] = [:]
+        for (name, value) in root {
+            if let steps = value as? [Any] {
+                personalities[name] = ["Constructed Firmware": steps, "Constructed Firmware Version": name]
+            } else {
+                personalities[name] = value
+            }
+        }
+        return try? PropertyListSerialization.data(fromPropertyList: personalities, format: .xml, options: 0)
+    }
+
     static func dataVolumeTree(tweaks: GuestTweaks, build: String, multitouch: Data? = nil) -> APFSContainer.Tree {
         var tree = dataVolumeTree
         // The touch controller's firmware and settings ("Multitouch" in the BuildManifest, a plist
@@ -261,7 +285,7 @@ public struct InfernoBackend: EmulatorBackend {
             tree.directories += ["mobile/Library/Application Support", dir]
             tree.attributes["mobile/Library/Application Support"] = mobile
             tree.attributes[dir] = mobile
-            tree.files[dir + "/Multitouch.mtprops"] = multitouch
+            tree.files[dir + "/Multitouch.mtprops"] = mtprops(fromMultitouch: multitouch) ?? multitouch
             tree.attributes[dir + "/Multitouch.mtprops"] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
         }
         // CommCenter (the cellular service) aborts every few seconds without a modem, and
