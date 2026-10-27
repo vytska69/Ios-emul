@@ -21,8 +21,8 @@ valdymo centras. Pagrindinio ekrano dar nėra:
 
 - iOS prašo slaptažodžio, nors jis nenustatytas, ir jokio nepriima. Emuliuotas saugos procesorius
   (SEP) netikrina tikrų raktų, todėl iOS laiko telefoną užrakintu.
-- Be „Skip setup“ perbraukus „Hello“ sąranka grįžta į pradžią. Tai nulūžęs `backboardd` (ekrano
-  piešimas be GPU); taisymas bandomas.
+- Be „Skip setup“ perbraukus „Hello“ sąranka nebegrįžta į pradžią (anksčiau lūždavo `backboardd`,
+  piešiantis ekraną be GPU), bet atsidaro tas pats slaptažodžio laukas.
 - Garso nėra. Emuliatoriuje iPhone 11 garso dalys (MCA, kodekai, AOP) iOS'ui buvo paslėptos.
   Jas atidengus iOS garso tvarkyklės jau pasileidžia, bet garsas dar neišeina.
 
