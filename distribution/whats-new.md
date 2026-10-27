@@ -10,6 +10,9 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-10-27
 
+- Taps that do not move (for example a tap with a stylus or a mouse) now register on the emulated touch screen; before, only a moving finger did.
+- iPhone 11 iOS 14: the touch screen setup no longer depends on the exact iOS 14.0 build, so it can work on other iOS 14 versions too (not yet tried).
+- iPhone 11 iOS 14: an experimental change for the passcode screen that appears after unlocking: try entering any passcode.
 - iPhone 11 iOS 14: the touch screen works. Swiping up on the lock screen now opens it (new installs). iOS then asks for a passcode even though none was set; that is not solved yet.
 
 ## 2026-10-26

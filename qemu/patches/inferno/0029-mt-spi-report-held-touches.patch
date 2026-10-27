@@ -1,0 +1,32 @@
+diff --git a/hw/arm/apple-silicon/mt-spi.c b/hw/arm/apple-silicon/mt-spi.c
+index f6388d7..44e4813 100644
+--- a/hw/arm/apple-silicon/mt-spi.c
++++ b/hw/arm/apple-silicon/mt-spi.c
+@@ -828,6 +828,9 @@ static void apple_mt_spi_send_path_update(AppleMTSPIState *s, uint64_t ts,
+ 
+     x_delta = s->x - s->prev_x;
+     y_delta = s->y - s->prev_y;
++    /* Reported: a held finger that does not move next reports no motion. */
++    s->prev_x = s->x;
++    s->prev_y = s->y;
+ 
+     packet->type = LL_PACKET_LOSSLESS_OUTPUT;
+     apple_mt_spi_buf_ensure_capacity(&packet->buf, 9 + 27 + 20 + 2);
+@@ -940,11 +943,13 @@ static void apple_mt_spi_timer_tick(void *opaque)
+ 
+     QEMU_LOCK_GUARD(&s->lock);
+ 
+-    if (s->prev_x != s->x || s->prev_y != s->y) {
+-        apple_mt_spi_schedule_touch_update(s, PATH_STAGE_TOUCHING);
+-    }
+-
++    /*
++     * While the finger is down, report it every tick as a real sensor does, moved or not.
++     * A touch that only ever reports make and break (a tap from a mouse or a pencil that
++     * does not move) is dropped by iOS, so buttons and keys never react to it.
++     */
+     if (s->btn_state & MOUSE_EVENT_LBUTTON) {
++        apple_mt_spi_schedule_touch_update(s, PATH_STAGE_TOUCHING);
+         timer_mod(s->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                                 NANOSECONDS_PER_SECOND / 20);
+     }
