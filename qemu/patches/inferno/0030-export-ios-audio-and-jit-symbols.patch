@@ -1,0 +1,13 @@
+diff --git a/system/qemu.symbols b/system/qemu.symbols
+index 3e54dc5..aa11223 100644
+--- a/system/qemu.symbols
++++ b/system/qemu.symbols
+@@ -1,5 +1,8 @@
+ {
+   qemu_init;
+   qemu_main_loop;
+   qemu_cleanup;
++  qemu_ios_jit_prepare;
++  qemu_ios_audio_read;
++  qemu_ios_audio_format;
+ };

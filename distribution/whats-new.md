@@ -9,7 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-10-27
-- Sound: the emulated phone's sound should now actually play. Before, the app started its audio before the emulator finished loading and then never reconnected, so it stayed silent (for example VoiceOver could not be heard).
+- Sound: the emulated phone's sound should now actually play. The app could not reach the emulator's audio at all — the function it reads sound from was missing from the build it loads, so nothing ever came out (for example VoiceOver could not be heard). That connection is now in place, together with the earlier fix that waits for the emulator to finish loading before hooking up the sound.
 
 - The emulated touch screen now keeps reporting a finger that is held still, which should make taps that do not move (for example with a stylus or a mouse) register (not yet confirmed).
 - iPhone 11 iOS 14: the touch screen setup no longer depends on the exact iOS 14.0 build, so it can work on other iOS 14 versions too (not yet tried).
