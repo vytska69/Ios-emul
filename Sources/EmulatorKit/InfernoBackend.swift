@@ -87,18 +87,7 @@ public struct InfernoBackend: EmulatorBackend {
         let kernelPath = ctx.ipsw.researchKernelPath(for: identity) ?? identity.path("KernelCache")
         guard let kernelPath else { throw IPSWError.missingComponent("KernelCache") }
         ctx.progress("KernelCache", 0)
-        var kernel = try ctx.ipsw.extract(path: kernelPath, to: fwDir)
-        // Kernel instruction patches (KernelPatches): booted from a raw copy, the IPSW's stays as is.
-        let patchedKernel = fwDir.appendingPathComponent(kernel.lastPathComponent + ".patched")
-        try? FileManager.default.removeItem(at: patchedKernel)
-        let kernelReport: [String]?
-        do { kernelReport = try KernelPatches.apply(build: ctx.ipsw.build, kernel: kernel, output: patchedKernel) }
-        catch { kernelReport = ["not patched: \(error)"] }
-        if let kernelReport {
-            try? (kernelReport.joined(separator: "\n") + "\n").write(
-                to: fwDir.appendingPathComponent("kernel-patches.txt"), atomically: true, encoding: .utf8)
-        }
-        if FileManager.default.fileExists(atPath: patchedKernel.path) { kernel = patchedKernel }
+        let kernel = try ctx.ipsw.extract(path: kernelPath, to: fwDir)
         ctx.progress("KernelCache", 1)
 
         // NVMe namespaces as laid out by the iPhone's ANS controller (wiki "Creating NVMe namespaces").
@@ -161,6 +150,10 @@ public struct InfernoBackend: EmulatorBackend {
         // (qemu/patches/inferno/0023 answers). Without it iOS never sees the device as unlocked
         // since boot, and daemons that wait for that (assetsd, during data migration) hang.
         bootArgs += " aks-cache-device-state=0"
+        // AppleFirmwareUpdateKext checks firmware that fud loads (the touch controller's, see the
+        // Preboot FUD folder) against its personalised manifest, which the emulated machine has
+        // none of.
+        bootArgs += " skipFWValidation=1"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
         let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
         if !extra.isEmpty { bootArgs += " " + extra }
@@ -207,8 +200,6 @@ public struct InfernoBackend: EmulatorBackend {
     /// Written by a direct install; the next boot asks iOS to finish an obliteration (see prepare).
     static let firstBootMarker = "first-boot"
 
-    /// Whether the installed system's Data volume lacks the system keybag that the first boot's
-    /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
     /// AppleHIDTransportProtocolHIDSPI's binary DeviceConfig, as the touch firmware's personality
     /// would give it: 512-byte transfers led by 4 bytes of padding, which the driver fills with
     /// 0xDEADBEEF, the preamble Inferno's multitouch model expects. Without it the driver clocks
@@ -227,6 +218,8 @@ public struct InfernoBackend: EmulatorBackend {
         return d
     }()
 
+    /// Whether the installed system's Data volume lacks the system keybag that the first boot's
+    /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
     static func systemKeybagMissing(disk: URL, size: UInt64) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: disk) else { return false }
         defer { try? handle.close() }
@@ -261,53 +254,13 @@ public struct InfernoBackend: EmulatorBackend {
                          "root": APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o750)])
     }()
 
-    /// The IPSW's Multitouch payload as mtmergeprops reads it. The payload maps each personality
-    /// (mt-merge-personality, e.g. "C1FC2,2") to the controller's boot sequence, an array of steps
-    /// (payloads to load, register writes, and last the driver configuration: protocol, HIDSPI
-    /// and interface configuration), in IOKit's XML dialect (ID/IDREF sharing), which
-    /// CFPropertyList cannot read. mtmergeprops merges a dictionary per personality into the
-    /// touch bootloader, which takes the sequence as "Constructed Firmware" and the driver
-    /// configuration as serialized "Firmware Config" (each with a version) and rejects anything
-    /// else.
-    static func mtprops(fromMultitouch payload: Data) -> Data? {
-        guard let root = IOKitXML.parse(payload) as? [String: Any] else { return nil }
-        var personalities: [String: Any] = [:]
-        for (name, value) in root {
-            guard let steps = value as? [Any] else { personalities[name] = value; continue }
-            var personality: [String: Any] = ["Constructed Firmware": steps, "Constructed Firmware Version": name]
-            if let config = steps.compactMap({ ($0 as? [String: Any])?["Config"] as? [String: Any] }).first,
-               let xml = try? PropertyListSerialization.data(fromPropertyList: config, format: .xml, options: 0) {
-                personality["Firmware Config"] = xml
-                personality["Firmware Config Version"] = name
-            }
-            personalities[name] = personality
-        }
-        return try? PropertyListSerialization.data(fromPropertyList: personalities, format: .xml, options: 0)
-    }
-
     /// The Data volume with the preference files for `tweaks` (see GuestTweaks).
     ///
     /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
     /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
-    static func dataVolumeTree(tweaks: GuestTweaks, build: String, multitouch: Data? = nil) -> APFSContainer.Tree {
+    static func dataVolumeTree(tweaks: GuestTweaks, build: String) -> APFSContainer.Tree {
         var tree = dataVolumeTree
-        // The touch controller's firmware and settings ("Multitouch" in the BuildManifest, a plist
-        // keyed by the DeviceTree's mt-merge-personality). A restore installs it where
-        // mtmergeprops finds it; mtmergeprops then hands it to the touch driver, which loads it
-        // into the controller and only then powers the controller on. Without it every touch is
-        // ignored.
-        if let multitouch {
-            let mobile = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
-            let dir = "mobile/Library/Application Support/Multitouch"
-            tree.directories += ["mobile/Library/Application Support", dir]
-            tree.attributes["mobile/Library/Application Support"] = mobile
-            tree.attributes[dir] = mobile
-            // mtmergeprops reads *.mtprops only from /usr/share/firmware/multitouch on the system
-            // volume, and *.dycal, merged the same way, from here.
-            tree.files[dir + "/Multitouch.dycal"] = mtprops(fromMultitouch: multitouch) ?? multitouch
-            tree.attributes[dir + "/Multitouch.dycal"] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
-        }
         // CommCenter (the cellular service) aborts every few seconds without a modem, and
         // locationd's synchronous CoreTelephony calls to it never return, so the post-erase data
         // migration hangs in CoreLocationMigrator. Disabled in launchd's overrides, the service
@@ -372,12 +325,11 @@ public struct InfernoBackend: EmulatorBackend {
             // touch controller; the emulated machine has none, so it launches agm-secondary,
             // AppleGenericMultitouchHIDSPI, which fails to start against Inferno's multitouch
             // model, and the screen ignores every touch. Name the primary driver in both.
-            // That driver expects iBoot to have loaded the controller's firmware; without it the
-            // HBPP bootloader takes it from the firmware personality that mtmergeprops merges
-            // (KernelPatches). Until then the driver has no configuration of its own and ignores
-            // power-on; with `use-static-config` it takes the protocol from here
-            // (AppleHIDTransportProtocolHIDSPI, the link layer of Inferno's multitouch model) and
-            // its transfer layout (`touchProtocolConfig`). The bootloader first reads the chip's
+            // That driver boots the controller with the firmware fud loads (the Preboot FUD
+            // folder). Until then it has no configuration of its own and ignores power-on; with
+            // `use-static-config` it takes the protocol from here (AppleHIDTransportProtocolHIDSPI,
+            // the link layer of Inferno's multitouch model) and its transfer layout
+            // (`touchProtocolConfig`). The bootloader first reads the chip's
             // serial number from OTP, which the model cannot answer ("Couldn't talk to chip"); an
             // `otp-sn` of size 0 skips that.
             if node.name == "multi-touch", let primary = node.properties["agm-primary"],
@@ -478,8 +430,7 @@ public struct InfernoBackend: EmulatorBackend {
                 // in the slot after System, as on a restored iPhone: the first-boot obliteration
                 // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the
                 // rootfs fstab says), which fails while another volume holds that slot.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build,
-                                                                                  multitouch: try? ctx.ipsw.decodedComponent("Multitouch", identity: ctx.identity)))
+                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build))
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.
@@ -487,14 +438,21 @@ public struct InfernoBackend: EmulatorBackend {
                 // (seputil) loads /usr/standalone/firmware/sep-firmware.img4 into the SEP before it
                 // sets up the gigalocker. A restore writes it personalised; here it is the IPSW's
                 // payload, with the AP ticket as manifest when one was provided.
+                // FUD holds the personalised firmware that fud hands to drivers after boot. The
+                // touch controller's ("Multitouch", payload type 'mtfw') is one: the touch driver
+                // asks for it by that tag through AppleFirmwareUpdateKext, and without it every
+                // touch is ignored. Unsigned here, so the kernel loads it under skipFWValidation.
                 let firmware = String(repeating: "0", count: 96) + "/usr/standalone/firmware"
+                let ticket = ctx.externalAssets["apticket"].flatMap { try? Data(contentsOf: $0) }
                 var prebootFiles: [String: Data] = [:]
                 if let sep = try? ctx.ipsw.rawComponent("SEP", identity: ctx.identity) {
-                    let ticket = ctx.externalAssets["apticket"].flatMap { try? Data(contentsOf: $0) }
                     prebootFiles[firmware + "/sep-firmware.img4"] = IMG4.wrap(payload: sep, manifest: ticket)
                 }
+                if let multitouch = try? ctx.ipsw.rawComponent("Multitouch", identity: ctx.identity) {
+                    prebootFiles[firmware + "/FUD/Multitouch.img4"] = IMG4.wrap(payload: multitouch, manifest: ticket)
+                }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
-                    directories: [firmware], files: prebootFiles))
+                    directories: [firmware, firmware + "/FUD"], files: prebootFiles))
                 // data-protection then needs the xART volume with the device's gigalocker, which a
                 // restore asks the SEP to create. Lay it out the way seputil creates one: zeros,
                 // the SEP fills it in.
