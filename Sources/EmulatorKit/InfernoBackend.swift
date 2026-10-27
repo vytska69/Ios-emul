@@ -87,7 +87,18 @@ public struct InfernoBackend: EmulatorBackend {
         let kernelPath = ctx.ipsw.researchKernelPath(for: identity) ?? identity.path("KernelCache")
         guard let kernelPath else { throw IPSWError.missingComponent("KernelCache") }
         ctx.progress("KernelCache", 0)
-        let kernel = try ctx.ipsw.extract(path: kernelPath, to: fwDir)
+        var kernel = try ctx.ipsw.extract(path: kernelPath, to: fwDir)
+        // Kernel instruction patches (KernelPatches): booted from a raw copy, the IPSW's stays as is.
+        let patchedKernel = fwDir.appendingPathComponent(kernel.lastPathComponent + ".patched")
+        try? FileManager.default.removeItem(at: patchedKernel)
+        let kernelReport: [String]?
+        do { kernelReport = try KernelPatches.apply(build: ctx.ipsw.build, kernel: kernel, output: patchedKernel) }
+        catch { kernelReport = ["not patched: \(error)"] }
+        if let kernelReport {
+            try? (kernelReport.joined(separator: "\n") + "\n").write(
+                to: fwDir.appendingPathComponent("kernel-patches.txt"), atomically: true, encoding: .utf8)
+        }
+        if FileManager.default.fileExists(atPath: patchedKernel.path) { kernel = patchedKernel }
         ctx.progress("KernelCache", 1)
 
         // NVMe namespaces as laid out by the iPhone's ANS controller (wiki "Creating NVMe namespaces").
@@ -152,7 +163,7 @@ public struct InfernoBackend: EmulatorBackend {
         bootArgs += " aks-cache-device-state=0"
         // AppleFirmwareUpdateKext checks firmware that fud loads (the touch controller's, see the
         // Preboot FUD folder) against its personalised manifest, which the emulated machine has
-        // none of.
+        // none of (with KernelPatches for the kind of request fud makes).
         bootArgs += " skipFWValidation=1"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
         let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
