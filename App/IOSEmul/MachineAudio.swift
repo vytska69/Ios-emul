@@ -24,6 +24,16 @@ final class MachineAudio {
     private var active = false
     private var keepInBackground = true
     private var observers: [NSObjectProtocol] = []
+    /// A standalone engine for the test tone, kept alive while it plays.
+    private var toneEngine: AVAudioEngine?
+
+    /// Diagnostics for the Settings "Sound" card, to tell an app-output problem from a guest that
+    /// makes no sound. Updated on the audio thread, read on the main one; a stale read is harmless.
+    public nonisolated(unsafe) static var totalGuestBytesRead = 0
+    /// Whether the guest's read function was found and its source is attached (not the silent one).
+    public var guestSourceAttached: Bool { sourceReadsGuest }
+    /// Whether the audio engine is running.
+    public var engineRunning: Bool { engine.isRunning }
 
     private init() {
         let center = NotificationCenter.default
@@ -60,6 +70,44 @@ final class MachineAudio {
         active = false
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Plays a 1.5 s 440 Hz tone through the app's own audio, with no emulator involved. If it is
+    /// heard, the app can output sound on this device and silence is the guest making none; if it
+    /// is not, the app's audio output (session, routing) is the problem.
+    func playTestTone() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, options: .mixWithOthers)
+            try session.setActive(true)
+        } catch {}
+        let sampleRate = 44_100.0
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
+                                         channels: 2, interleaved: false) else { return }
+        let step = 2.0 * Double.pi * 440.0 / sampleRate
+        var phase = 0.0
+        let node = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
+            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            for frame in 0..<Int(frameCount) {
+                let value = Float(sin(phase)) * 0.2
+                phase += step
+                if phase > 2.0 * Double.pi { phase -= 2.0 * Double.pi }
+                for buffer in buffers {
+                    if let out = buffer.mData?.assumingMemoryBound(to: Float.self) { out[frame] = value }
+                }
+            }
+            return noErr
+        }
+        let tone = AVAudioEngine()
+        tone.attach(node)
+        tone.connect(node, to: tone.mainMixerNode, format: format)
+        do { try tone.start() } catch { return }
+        toneEngine = tone
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            tone.stop()
+            if self.toneEngine === tone { self.toneEngine = nil }
+        }
     }
 
     private func restart() {
@@ -124,6 +172,7 @@ final class MachineAudio {
                 }
                 if guestIs16BitStereo {
                     got = read(scratch, frames * 4) / 4
+                    MachineAudio.totalGuestBytesRead &+= got * 4
                 }
             }
             for (channel, buffer) in buffers.enumerated() {

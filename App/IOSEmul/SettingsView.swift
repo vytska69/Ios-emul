@@ -492,6 +492,25 @@ private struct EmulatorPage: View {
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Sound", icon: "speaker.wave.2")
+                Card {
+                    Button {
+                        MachineAudio.shared.playTestTone()
+                    } label: {
+                        Label("Play test tone", systemImage: "play.circle")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    Hint(text: "Plays a short tone through the app's own audio, with no emulator involved. If you hear it, the app can play sound on this device and any silence is the emulated phone making none; if you do not, the app's audio output is the problem.")
+                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Hint(text: "Engine running: \(MachineAudio.shared.engineRunning ? "yes" : "no")")
+                            Hint(text: "Guest sound source attached: \(MachineAudio.shared.guestSourceAttached ? "yes" : "no")")
+                            Hint(text: "Guest audio read so far: \(MachineAudio.totalGuestBytesRead / 1024) KB")
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "Behaviour", icon: "gearshape.2")
                 Card {
                     ToggleRow(title: "Verbose boot", detail: "Kernel text on screen instead of the Apple logo.", isOn: $verboseBoot)
