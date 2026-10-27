@@ -12,15 +12,24 @@ sukompiliuotomis kaip biblioteka ir paleidžiamomis programos viduje.
 
 ## Būsena
 
-Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be restore. Po įdiegimo
-iOS pasileidžia iki sąrankos ekrano „Hello“: tai pavyksta ir macOS CI, ir telefone (iPhone 16e su
-JIT, po perkrovimo apie 2 min.). Su „Skip setup“ CI pasiekiamas užrakinimo ekranas: pirmas startas
-trunka apie 8 min. Pagrindinio ekrano dar nėra: perbraukimas aukštyn, kuriuo atrakinamas telefonas,
-emuliuotame iPhone dar neveikia.
+Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be restore, ir pasileidžia
+iki sąrankos ekrano „Hello“, o su „Skip setup“ iki užrakinimo ekrano. Tai pavyksta ir macOS CI, ir
+telefone (iPhone 16e su JIT).
+
+Lietimas veikia: perbraukus aukštyn užrakinimo ekrane atsidaro slaptažodžio laukas, veikia ir
+valdymo centras. Pagrindinio ekrano dar nėra:
+
+- iOS prašo slaptažodžio, nors jis nenustatytas, ir jokio nepriima. Emuliuotas saugos procesorius
+  (SEP) netikrina tikrų raktų, todėl iOS laiko telefoną užrakintu.
+- Be „Skip setup“ perbraukus „Hello“ sąranka grįžta į pradžią. Tai nulūžęs `backboardd` (ekrano
+  piešimas be GPU); taisymas bandomas.
+- Garso nėra. Emuliatoriuje iPhone 11 garso dalys (MCA, kodekai, AOP) iOS'ui buvo paslėptos.
+  Jas atidengus iOS garso tvarkyklės jau pasileidžia, bet garsas dar neišeina.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|
-| iPhone 11 | 14.0 | Užrakinimo ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“ |
+| iPhone 11 | 14.0 | Užrakinimo ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“; lietimas veikia |
+| iPhone 11 | 14.1–14.8 | Ekrano kol kas nepasiekia (14.8: SpringBoard lūžta piešdamas ikonas); lietimo pakeitimai nuo versijos nepriklauso, bet nepatikrinti |
 | iPhone 6s / 6s Plus | 15.8 | Branduolys sustoja ties ekrano valdikliu |
 | iPhone XR | 14.0 | Branduolys sustoja prieš pirmą išvestį |
 | iPod touch 1G / 2G | 1.x–2.x | Tik macOS, į programą neįdėta |
@@ -56,6 +65,9 @@ išlaiko.
 Su įjungtu *Settings → Emulator → Run in background* mašina veikia ir išėjus iš programos. Tada
 programa groja tylų garsą, todėl naudoja bateriją.
 
+*Settings → Emulator → Sound* turi mygtuką „Play test tone“, kuris pagroja toną be emuliatoriaus, ir
+garso būseną. Ten matyti, ar emuliuotas telefonas apskritai skleidė garsą.
+
 ## JIT
 
 Programoje yra du QEMU varikliai: JIT ir interpretatorius. Interpretatorius kelis kartus lėtesnis,
@@ -71,6 +83,9 @@ iPhone su TXM (iPhone 15 Pro, 16, 16e, 17 ir naujesni, iOS 26+) JIT atmintį tur
 - Vienu metu galima paleisti vieną mašiną. Kitai reikia iš naujo atidaryti programą.
 - GPU neemuliuojamas. iOS ekraną piešia procesoriumi, ir tai lėčiausia starto dalis.
 - Emuliuotas iPhone neaktyvuojamas, o Data tomas nešifruojamas.
+- Garso ir tinklo (Wi-Fi) emuliuotame iPhone kol kas nėra.
+- Greitis žemas net su JIT: emuliuojamas visas telefonas, o ekraną piešia procesorius.
+  Keli QEMU branduoliai (MTTCG) šiai mašinai nepadeda.
 - iOS 16+ kol kas nepasileidžia: Preboot tome trūksta cryptex failų.
 - iPhone 6s mašina visada turi 2 GB RAM.
 - Naudok tik teisėtai turimus IPSW ir laikykis Apple licencijos.
