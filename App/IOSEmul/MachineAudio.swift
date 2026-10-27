@@ -73,6 +73,15 @@ final class MachineAudio {
         } catch {
             // Without audio the machine is silent and suspended in the background; nothing else breaks.
         }
+        // The QEMU library loads a moment after the machine view appears, so the first source is
+        // the silent one (no guest read function yet). Nothing else re-attaches it on a normal
+        // run, so poll until the library is up and the guest-reading source is in place.
+        if active && !sourceReadsGuest {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if self.active && !self.sourceReadsGuest { self.restart() }
+            }
+        }
     }
 
     private func attachSource() {
