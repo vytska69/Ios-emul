@@ -506,6 +506,8 @@ private struct EmulatorPage: View {
                             Hint(text: "Engine running: \(MachineAudio.shared.engineRunning ? "yes" : "no")")
                             Hint(text: "Guest sound source attached: \(MachineAudio.shared.guestSourceAttached ? "yes" : "no")")
                             Hint(text: "Guest audio read so far: \(MachineAudio.totalGuestBytesRead / 1024) KB")
+                            Hint(text: "Emulated phone has played sound: \(MachineAudio.shared.guestPlayedFormat ?? "no")")
+                            Hint(text: "Engine restarts: \(MachineAudio.shared.restarts)\(MachineAudio.shared.lastError.map { " · last error: \($0)" } ?? "")")
                         }
                     }
                 }

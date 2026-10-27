@@ -34,6 +34,19 @@ final class MachineAudio {
     public var guestSourceAttached: Bool { sourceReadsGuest }
     /// Whether the audio engine is running.
     public var engineRunning: Bool { engine.isRunning }
+    /// The last error starting the audio, if any, and how often the watchdog restarted it.
+    public private(set) var lastError: String?
+    public private(set) var restarts = 0
+    /// The guest's output format once it has played anything (qemu_ios_audio_format), else nil:
+    /// tells "the emulated phone made no sound" from "the app did not play it".
+    public var guestPlayedFormat: String? {
+        guard let fn = QEMURunner.library.flatMap({ dlsym($0, "qemu_ios_audio_format") })
+            .map({ unsafeBitCast($0, to: FormatFn.self) }) else { return nil }
+        var freq: Int32 = 0, channels: Int32 = 0, bits: Int32 = 0, isFloat: Int32 = 0
+        guard fn(&freq, &channels, &bits, &isFloat) == 0 else { return nil }
+        return "\(freq) Hz, \(channels) ch, \(bits)-bit\(isFloat != 0 ? " float" : "")"
+    }
+    private var watchdog: Timer?
 
     private init() {
         let center = NotificationCenter.default
@@ -63,11 +76,25 @@ final class MachineAudio {
         guard !active else { return }
         active = true
         restart()
+        // The engine can stop on its own (a route or configuration change, another engine
+        // starting) and the QEMU library loads only after the machine view appears; check every
+        // second that the guest's source is attached and the engine runs.
+        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.active else { return }
+                if !self.engine.isRunning || (!self.sourceReadsGuest && QEMURunner.library != nil) {
+                    self.restarts += 1
+                    self.restart()
+                }
+            }
+        }
     }
 
     func stop() {
         guard active else { return }
         active = false
+        watchdog?.invalidate()
+        watchdog = nil
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -116,19 +143,17 @@ final class MachineAudio {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, options: .mixWithOthers)
             try session.setActive(true)
-            if source == nil || (!sourceReadsGuest && QEMURunner.library != nil) { attachSource() }
-            if !engine.isRunning { try engine.start() }
-        } catch {
-            // Without audio the machine is silent and suspended in the background; nothing else breaks.
-        }
-        // The QEMU library loads a moment after the machine view appears, so the first source is
-        // the silent one (no guest read function yet). Nothing else re-attaches it on a normal
-        // run, so poll until the library is up and the guest-reading source is in place.
-        if active && !sourceReadsGuest {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                if self.active && !self.sourceReadsGuest { self.restart() }
+            if source == nil || (!sourceReadsGuest && QEMURunner.library != nil) {
+                // Change the graph with the engine stopped; started again just below.
+                engine.stop()
+                attachSource()
             }
+            if !engine.isRunning { try engine.start() }
+            lastError = nil
+        } catch {
+            // Without audio the machine is silent and suspended in the background; nothing else
+            // breaks. The watchdog tries again; the error is shown in Settings → Emulator → Sound.
+            lastError = error.localizedDescription
         }
     }
 

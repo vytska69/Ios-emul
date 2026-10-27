@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-10-27
+- Sound: the app's audio no longer stays off when it stops on its own while a machine runs; it is checked every second and started again. Settings → Emulator → Sound now also shows whether the emulated phone has played any sound at all and the last audio error.
 - Settings → Emulator has a new Sound section: a "Play test tone" button that plays a short tone through the app's own audio (no emulator involved), and a live sound status. If the tone is heard but the emulated phone is silent, the app's audio works and the phone is making no sound; if the tone is not heard either, the app's audio output is the problem.
 - Sound: the emulated phone's sound should now actually play. The app could not reach the emulator's audio at all — the function it reads sound from was missing from the build it loads, so nothing ever came out (for example VoiceOver could not be heard). That connection is now in place, together with the earlier fix that waits for the emulator to finish loading before hooking up the sound.
 
