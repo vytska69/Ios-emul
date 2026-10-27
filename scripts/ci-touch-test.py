@@ -178,7 +178,11 @@ def main():
     keys = {ch: (x0 + i * dx, y) for letters, x0, dx, y in rows for i, ch in enumerate(letters)}
     def tap(px, py):
         x, y = px * w // 828, py * h // 1792
-        vnc.pointer(x, y, True); time.sleep(0.15); vnc.pointer(x, y, False); time.sleep(0.5)
+        # Held with a few in-place reports: a bare press and release is too short for the
+        # controller model's touch frames.
+        for _ in range(4):
+            vnc.pointer(x, y, True); time.sleep(0.08)
+        vnc.pointer(x, y, False); time.sleep(0.6)
     for code in a.passcode:
         for ch in code:
             tap(*keys[ch])
