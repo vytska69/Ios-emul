@@ -35,6 +35,23 @@ public enum SharedCachePatches {
             // transition after the first swipe in Setup: backboardd crashed reading the null timer.
             Patch(address: 0x1_8367_7E88, original: 0xD503_237F, replacement: 0xD65F_03C0,
                   reason: "QuartzCore AsynchronousDispatcher::stop_timer: no timer to stop without a Metal renderer (ret)"),
+            // release_iosurface asks the renderer to drop what it cached for the surface before
+            // releasing it on its queue; without Metal renderer() is null (backboardd crashed there
+            // after the first swipe in Setup), so skip that call and only release the surface.
+            Patch(address: 0x1_8367_8264, original: 0x97FF_FF1E, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip bl renderer (nop)"),
+            Patch(address: 0x1_8367_8268, original: 0xF940_0000, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip ldr x0, [x0] (nop)"),
+            Patch(address: 0x1_8367_826C, original: 0xF940_0008, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip ldr x8, [x0] (nop)"),
+            Patch(address: 0x1_8367_8270, original: 0xF820_5D09, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip ldraa x9, [x8, #0x28]! (nop)"),
+            Patch(address: 0x1_8367_8274, original: 0xF2FA_35E8, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip movk x8 (nop)"),
+            Patch(address: 0x1_8367_8278, original: 0xAA13_03E1, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip mov x1, x19 (nop)"),
+            Patch(address: 0x1_8367_827C, original: 0xD73F_0928, replacement: 0xD503_201F,
+                  reason: "QuartzCore release_iosurface: no renderer without Metal, skip blraa x9, x8 (nop)"),
             Patch(address: 0x1_8367_74E0, original: 0x5288_E828, replacement: 0xD65F_03C0,
                   reason: "QuartzCore get_compressed_agx_universal_rgb_fourcc: keep surfaces uncompressed (ret)"),
         ],
