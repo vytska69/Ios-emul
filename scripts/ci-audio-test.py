@@ -49,7 +49,7 @@ def main():
     time.sleep(30)
 
     out = os.path.abspath(a.out)
-    print(touch.query(mon, f"wavcapture {out}"))
+    print(touch.query(mon, f"wavcapture {out} #default"))
     print(touch.query(mon, "info capture"))
     steps = [("quiet", None), ("side (lock)", "f5"), ("side (wake)", "f5"), ("ring switch", "f2"),
              ("ring switch", "f2"), ("volume up", "f4"), ("volume up", "f4"), ("volume down", "f3")]
