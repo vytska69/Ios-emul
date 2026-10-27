@@ -103,7 +103,7 @@ def main():
     ap.add_argument("--wait", type=float, default=1500, help="seconds to wait for the screen")
     ap.add_argument("--out", default="touch")
     ap.add_argument("--passcode", action="append", default=[],
-                    help="text typed (then Return) on the passcode screen after the swipes; repeatable")
+                    help="lowercase letters tapped on the passcode screen after the swipes; repeatable")
     a = ap.parse_args()
 
     mon = connect(a.monitor, 900)
@@ -172,13 +172,19 @@ def main():
     swipe(w // 2, h - 4, w // 2, h * 40 // 100, 2.0)
     report("slow-swipe-up", 40)
     show("after-swipes")
+    # The passcode screen's letter keyboard (iPhone 11, 828x1792 points): rows of key centres.
+    # Inferno passes the VNC keyboard to iOS only as buttons (F keys), so the keys are tapped.
+    rows = [("qwertyuiop", 44, 82, 1250), ("asdfghjkl", 86, 82, 1360), ("zxcvbnm", 168, 82, 1473)]
+    keys = {ch: (x0 + i * dx, y) for letters, x0, dx, y in rows for i, ch in enumerate(letters)}
+    def tap(px, py):
+        x, y = px * w // 828, py * h // 1792
+        vnc.pointer(x, y, True); time.sleep(0.15); vnc.pointer(x, y, False); time.sleep(0.5)
     for code in a.passcode:
         for ch in code:
-            vnc.key(ord(ch))
-            time.sleep(0.3)
-        vnc.key(0xFF0D)                  # Return
-        report(f"passcode-{code or 'empty'}", 30)
-        show(f"after-passcode-{code or 'empty'}")
+            tap(*keys[ch])
+        tap(722, 1585)                   # bottom right: "done" once text is entered
+        report(f"passcode-{code}", 30)
+        show(f"after-passcode-{code}")
     # The first icon of the home screen, if the swipes unlocked the device.
     x, y = w * 16 // 100, h * 13 // 100
     vnc.pointer(x, y, True); time.sleep(0.2); vnc.pointer(x, y, False)
