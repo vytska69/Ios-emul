@@ -16,19 +16,19 @@ Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be
 iki sąrankos ekrano „Hello“, o su „Skip setup“ iki užrakinimo ekrano. Tai pavyksta ir macOS CI, ir
 telefone (iPhone 16e su JIT).
 
-Lietimas veikia: perbraukus aukštyn užrakinimo ekrane atsidaro slaptažodžio laukas, veikia ir
-valdymo centras. Pagrindinio ekrano dar nėra:
+Lietimas veikia: perbraukus aukštyn užrakinimo ekrane atsidaro pagrindinis ekranas (slaptažodžio
+iOS nebeprašo), veikia ir valdymo centras.
 
-- iOS prašo slaptažodžio, nors jis nenustatytas, ir jokio nepriima. Emuliuotas saugos procesorius
-  (SEP) netikrina tikrų raktų, todėl iOS laiko telefoną užrakintu.
+- Slaptažodžio nėra: emuliuotas saugos procesorius (SEP) netikrina tikrų raktų, todėl programa
+  pataiso iOS taip, kad jis praneštų „slaptažodis nenustatytas“.
 - Be „Skip setup“ perbraukus „Hello“ sąranka nebegrįžta į pradžią (anksčiau lūždavo `backboardd`,
-  piešiantis ekraną be GPU), bet atsidaro tas pats slaptažodžio laukas.
+  piešiantis ekraną be GPU).
 - Garso nėra. Emuliatoriuje iPhone 11 garso dalys (MCA, kodekai, AOP) iOS'ui buvo paslėptos.
   Jas atidengus iOS garso tvarkyklės jau pasileidžia, bet garsas dar neišeina.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|
-| iPhone 11 | 14.0 | Užrakinimo ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“; lietimas veikia |
+| iPhone 11 | 14.0 | Pagrindinis ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“; lietimas veikia |
 | iPhone 11 | 14.1–14.8 | Ekrano kol kas nepasiekia (14.8: SpringBoard lūžta piešdamas ikonas); lietimo pakeitimai nuo versijos nepriklauso, bet nepatikrinti |
 | iPhone 6s / 6s Plus | 15.8 | Branduolys sustoja ties ekrano valdikliu |
 | iPhone XR | 14.0 | Branduolys sustoja prieš pirmą išvestį |

@@ -54,6 +54,16 @@ public enum SharedCachePatches {
                   reason: "QuartzCore release_iosurface: no renderer without Metal, skip blraa x9, x8 (nop)"),
             Patch(address: 0x1_8367_74E0, original: 0x5288_E828, replacement: 0xD65F_03C0,
                   reason: "QuartzCore get_compressed_agx_universal_rgb_fourcc: keep surfaces uncompressed (ret)"),
+            // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
+            // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
+            // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
+            // services read.
+            Patch(address: 0x1_948D_E7A0, original: 0xB940_07E8, replacement: 0x5280_0068,
+                  reason: "MobileKeyBag MKBGetDeviceLockState: no passcode, lock state disabled (mov w8, #3)"),
+            Patch(address: 0x1_948D_E80C, original: 0xB940_07E2, replacement: 0x5280_0062,
+                  reason: "MobileKeyBag MKBGetDeviceLockStateInfo: no passcode, lock state disabled (mov w2, #3)"),
+            Patch(address: 0x1_990E_07D8, original: 0x1A9F_07E8, replacement: 0x5280_0008,
+                  reason: "SpringBoardFoundation -[SBFMobileKeyBag _queue_setHasPasscodeIfNecessary:]: no passcode (mov w8, #0)"),
         ],
     ]
 
