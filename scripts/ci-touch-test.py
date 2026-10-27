@@ -102,6 +102,8 @@ def main():
     ap.add_argument("--vnc", type=int, default=5901)
     ap.add_argument("--wait", type=float, default=1500, help="seconds to wait for the screen")
     ap.add_argument("--out", default="touch")
+    ap.add_argument("--passcode", action="append", default=[],
+                    help="text typed (then Return) on the passcode screen after the swipes; repeatable")
     a = ap.parse_args()
 
     mon = connect(a.monitor, 900)
@@ -170,6 +172,13 @@ def main():
     swipe(w // 2, h - 4, w // 2, h * 40 // 100, 2.0)
     report("slow-swipe-up", 40)
     show("after-swipes")
+    for code in a.passcode:
+        for ch in code:
+            vnc.key(ord(ch))
+            time.sleep(0.3)
+        vnc.key(0xFF0D)                  # Return
+        report(f"passcode-{code or 'empty'}", 30)
+        show(f"after-passcode-{code or 'empty'}")
     # The first icon of the home screen, if the swipes unlocked the device.
     x, y = w * 16 // 100, h * 13 // 100
     vnc.pointer(x, y, True); time.sleep(0.2); vnc.pointer(x, y, False)
