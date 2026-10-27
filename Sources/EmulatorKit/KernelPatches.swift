@@ -17,8 +17,19 @@ public enum KernelPatches {
             // so validation would always fail.
             Patch(address: 0xFFFF_FFF0_0834_B410, original: 0x5400_0061, replacement: 0xD503_201F,
                   reason: "AppleFirmwareUpdateKext::validateFirmware: skipFWValidation for every request (nop)"),
+            // Unvalidated, AIDImageDownloader gets the whole file fud read, an IMG4, and unserializes
+            // it as the IOKit XML that is only its payload. Skip the IMG4 and IM4P headers, which
+            // the touch firmware's file always has at the same size (`fudPayloadOffset`).
+            Patch(address: 0xFFFF_FFF0_083D_5980, original: 0x2A00_03E1, replacement: 0x5100_9001,
+                  reason: "AIDImageDownloader: unserialize past the IMG4 headers (sub w1, w0, #0x24)"),
+            Patch(address: 0xFFFF_FFF0_083D_5988, original: 0xAA17_03E0, replacement: 0x9100_92E0,
+                  reason: "AIDImageDownloader: unserialize past the IMG4 headers (add x0, x23, #0x24)"),
         ],
     ]
+
+    /// Where the payload starts in an IMG4 that wraps an IM4P with a 4-character type and a
+    /// one-character version, both 2^16 to 2^24 bytes long, as the patches above expect.
+    public static let fudPayloadOffset = 0x24
 
     /// Writes `kernel` (an IM4P kernelcache) patched for `build` to `output` as a raw Mach-O and
     /// returns a line per patch, or nil when the build has no patches. When one of them does not

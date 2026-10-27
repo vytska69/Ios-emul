@@ -459,8 +459,13 @@ public struct InfernoBackend: EmulatorBackend {
                 if let sep = try? ctx.ipsw.rawComponent("SEP", identity: ctx.identity) {
                     prebootFiles[firmware + "/sep-firmware.img4"] = IMG4.wrap(payload: sep, manifest: ticket)
                 }
+                // Without a manifest, so that the file ends with the payload's NUL as the kernel's
+                // XML reader needs (KernelPatches).
                 if let multitouch = try? ctx.ipsw.rawComponent("Multitouch", identity: ctx.identity) {
-                    prebootFiles[firmware + "/FUD/Multitouch.img4"] = IMG4.wrap(payload: multitouch, manifest: ticket)
+                    let img4 = IMG4.wrap(payload: multitouch)
+                    if img4.firstIndex(of: UInt8(ascii: "<")).map({ $0 - img4.startIndex }) == KernelPatches.fudPayloadOffset {
+                        prebootFiles[firmware + "/FUD/Multitouch.img4"] = img4
+                    }
                 }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [firmware, firmware + "/FUD"], files: prebootFiles))
