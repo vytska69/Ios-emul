@@ -1,8 +1,8 @@
 diff --git a/audio/noaudio.c b/audio/noaudio.c
-index 1b60d85..af597bd 100644
+index 1b60d85..4ccbaf5 100644
 --- a/audio/noaudio.c
 +++ b/audio/noaudio.c
-@@ -41,10 +41,78 @@ typedef struct NoVoiceIn {
+@@ -41,10 +41,85 @@ typedef struct NoVoiceIn {
      RateCtl rate;
  } NoVoiceIn;
  
@@ -24,6 +24,13 @@ index 1b60d85..af597bd 100644
 +    pthread_mutex_lock(&ios_lock);
 +    ios_info = *info;
 +    ios_have_info = true;
++    /* TEST ONLY: with IOS_AUDIO_DUMP set, append every played frame to that file (raw PCM),
++     * to confirm the guest produces sound and to listen to it. */
++    const char *dump = getenv("IOS_AUDIO_DUMP");
++    if (dump) {
++        FILE *f = fopen(dump, "ab");
++        if (f) { fwrite(buf, 1, len, f); fclose(f); }
++    }
 +    if (ios_reader) {
 +        const uint8_t *src = buf;
 +        size_t room = IOS_AUDIO_RING - ios_used;
