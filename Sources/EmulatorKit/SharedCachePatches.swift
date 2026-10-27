@@ -31,6 +31,10 @@ public enum SharedCachePatches {
                   reason: "CoreImage -[CIContext initWithOptions:]: OpenGL ES is not usable (mov w0, #0)"),
             Patch(address: 0x1_8367_864C, original: 0x97FF_FE0F, replacement: 0xD503_201F,
                   reason: "QuartzCore AsynchronousDispatcher::timer_callback: no stop_timer without a Metal renderer (nop)"),
+            // thread_body reaches stop_timer too (through a run loop source), e.g. for the
+            // transition after the first swipe in Setup: backboardd crashed reading the null timer.
+            Patch(address: 0x1_8367_7E88, original: 0xD503_237F, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore AsynchronousDispatcher::stop_timer: no timer to stop without a Metal renderer (ret)"),
             Patch(address: 0x1_8367_74E0, original: 0x5288_E828, replacement: 0xD65F_03C0,
                   reason: "QuartzCore get_compressed_agx_universal_rgb_fourcc: keep surfaces uncompressed (ret)"),
         ],
