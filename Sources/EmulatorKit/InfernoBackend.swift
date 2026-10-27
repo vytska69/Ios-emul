@@ -316,6 +316,14 @@ public struct InfernoBackend: EmulatorBackend {
             tree.files[springboard] = data
             tree.attributes[springboard] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
         }
+        // TEST ONLY: turn VoiceOver on so the machine speaks on the lock screen (an audio test).
+        let ax = "mobile/Library/Preferences/com.apple.Accessibility.plist"
+        if let data = try? PropertyListSerialization.data(fromPropertyList:
+                ["AccessibilityEnabled": true, "ApplicationAccessibilityEnabled": true, "VoiceOverTouchEnabled": true],
+                format: .binary, options: 0) {
+            tree.files[ax] = data
+            tree.attributes[ax] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
+        }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
             tree.attributes[path] = file.attributes
