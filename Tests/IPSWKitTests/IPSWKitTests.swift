@@ -441,6 +441,30 @@ final class IPSWKitTests: XCTestCase {
         XCTAssertTrue(why.contains("A17 Pro"), why)
     }
 
+    func testKernelPatchesFoundByTheirStrings() throws {
+        // One executable segment at 0x1000 holding both code patterns and their strings.
+        var macho = Data(count: 0x1000)
+        func put(_ v: UInt32, _ at: Int) { withUnsafeBytes(of: v.littleEndian) { macho.replaceSubrange(at..<at + 4, with: $0) } }
+        func put64(_ v: UInt64, _ at: Int) { withUnsafeBytes(of: v.littleEndian) { macho.replaceSubrange(at..<at + 8, with: $0) } }
+        put(0xFEED_FACF, 0); put(1, 16); put(72, 20)
+        put(0x19, 32); put(72, 36); put64(0x1000, 56); put64(0x1000, 64); put64(0, 72); put64(0x1000, 80); put(5, 92)
+        // adrp x0, #0; add x0, x0, #0x800 ("skipFWValidation"); bl; cmp w20, #1; b.ne
+        for (i, w) in [0x9000_0000, 0x9120_0000, 0x9400_0000, 0x7100_069F, 0x5400_0061].enumerated() { put(UInt32(w), 0x100 + 4 * i) }
+        // adrp x3, #0; add x3, x3, #0x820 ("Unserializing…"); nop; mov w1, w0; add x2, sp, #0x28; mov x0, x23; bl
+        for (i, w) in [0x9000_0003, 0x9120_8063, 0xD503_201F, 0x2A00_03E1, 0x9100_A3E2, 0xAA17_03E0, 0x9400_0000].enumerated() {
+            put(UInt32(w), 0x200 + 4 * i)
+        }
+        macho.replaceSubrange(0x800..<0x811, with: Data("skipFWValidation\0".utf8))
+        let unserialize = Data("Unserializing payload with %u bytes\0".utf8)
+        macho.replaceSubrange(0x820..<0x820 + unserialize.count, with: unserialize)
+
+        let patches = try KernelPatches.find(in: MachOImage(macho), fudPayloadOffset: 0x24)
+        XCTAssertEqual(patches.map(\.address), [0x1110, 0x120C, 0x1214])
+        XCTAssertEqual(patches.map(\.original), [0x5400_0061, 0x2A00_03E1, 0xAA17_03E0])
+        XCTAssertEqual(patches.map(\.replacement), [0xD503_201F, 0x5100_9001, 0x9100_92E0])
+        XCTAssertThrowsError(try KernelPatches.find(in: MachOImage(Data(macho.prefix(0x800))), fudPayloadOffset: 0x24))
+    }
+
     func testInfernoPrepareBuildsQEMUArguments() throws {
         let ipsw = try IPSW(url: try fullIPSW())
         let vm = tmp.appendingPathComponent("vm")

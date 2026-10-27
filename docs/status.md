@@ -40,7 +40,8 @@ kaip CI.
   `fud` (AppleFirmwareUpdateKext, žymė `mtfw`), todėl įdiegimas Preboot tome įrašo
   `usr/standalone/firmware/FUD/Multitouch.img4` (IPSW IM4P be manifesto). Nepersonalizuotą
   vaizdą branduolys priima su `skipFWValidation=1` ir trimis `KernelPatches`: argumentas taikomas
-  visoms užklausoms, o AIDImageDownloader XML skaito už IMG4 antraščių (poslinkis 0x24).
+  visoms užklausoms, o AIDImageDownloader XML skaito už IMG4 antraščių. Pataisų vietas programa
+  randa pati pagal greta esančias branduolio eilutes, todėl jos nepririštos prie build'o.
   Tada HBPP įkelia programinę įrangą, valdiklis praneša „Device ready“, ir perbraukimas aukštyn
   atidaro slaptažodžio ekraną. Kalibravimo (`multi-touch-calibration`) nėra, tvarkyklė naudoja
   numatytąjį. VNC klientas turi atsiųsti SetEncodings, kitaip QEMU pelę laiko santykine.

@@ -91,13 +91,16 @@ public struct InfernoBackend: EmulatorBackend {
         // Kernel instruction patches (KernelPatches): booted from a raw copy, the IPSW's stays as is.
         let patchedKernel = fwDir.appendingPathComponent(kernel.lastPathComponent + ".patched")
         try? FileManager.default.removeItem(at: patchedKernel)
-        let kernelReport: [String]?
-        do { kernelReport = try KernelPatches.apply(build: ctx.ipsw.build, kernel: kernel, output: patchedKernel) }
-        catch { kernelReport = ["not patched: \(error)"] }
-        if let kernelReport {
-            try? (kernelReport.joined(separator: "\n") + "\n").write(
-                to: fwDir.appendingPathComponent("kernel-patches.txt"), atomically: true, encoding: .utf8)
+        // They let the touch driver take the touch firmware fud loads, so they need that file.
+        let kernelReport: [String]
+        if let touchFirmware = Self.touchFirmwareFile(ctx) {
+            do { kernelReport = try KernelPatches.apply(kernel: kernel, output: patchedKernel, fudPayloadOffset: touchFirmware.payloadOffset) }
+            catch { kernelReport = ["not patched: \(error)"] }
+        } else {
+            kernelReport = ["not patched: no touch firmware in the IPSW"]
         }
+        try? (kernelReport.joined(separator: "\n") + "\n").write(
+            to: fwDir.appendingPathComponent("kernel-patches.txt"), atomically: true, encoding: .utf8)
         if FileManager.default.fileExists(atPath: patchedKernel.path) { kernel = patchedKernel }
         ctx.progress("KernelCache", 1)
 
@@ -228,6 +231,18 @@ public struct InfernoBackend: EmulatorBackend {
         d[19] = 2
         return d
     }()
+
+    /// The touch controller's firmware as the Preboot FUD folder holds it: the IPSW's Multitouch
+    /// IM4P as an IMG4, without a manifest so that the file ends with the payload's NUL as the
+    /// kernel's XML reader needs, and where the payload (IOKit XML) starts, which KernelPatches
+    /// has the kernel skip to. Nil when the IPSW has none or its payload is not plain XML.
+    static func touchFirmwareFile(_ ctx: PrepareContext) -> (img4: Data, payloadOffset: Int)? {
+        guard let multitouch = try? ctx.ipsw.rawComponent("Multitouch", identity: ctx.identity) else { return nil }
+        let img4 = IMG4.wrap(payload: multitouch)
+        guard img4.last == 0,
+              let start = img4.prefix(64).firstIndex(of: UInt8(ascii: "<")).map({ $0 - img4.startIndex }) else { return nil }
+        return (img4, start)
+    }
 
     /// Whether the installed system's Data volume lacks the system keybag that the first boot's
     /// erase creates. Unreadable disks count as not missing, so nothing is erased by mistake.
@@ -459,13 +474,8 @@ public struct InfernoBackend: EmulatorBackend {
                 if let sep = try? ctx.ipsw.rawComponent("SEP", identity: ctx.identity) {
                     prebootFiles[firmware + "/sep-firmware.img4"] = IMG4.wrap(payload: sep, manifest: ticket)
                 }
-                // Without a manifest, so that the file ends with the payload's NUL as the kernel's
-                // XML reader needs (KernelPatches).
-                if let multitouch = try? ctx.ipsw.rawComponent("Multitouch", identity: ctx.identity) {
-                    let img4 = IMG4.wrap(payload: multitouch)
-                    if img4.firstIndex(of: UInt8(ascii: "<")).map({ $0 - img4.startIndex }) == KernelPatches.fudPayloadOffset {
-                        prebootFiles[firmware + "/FUD/Multitouch.img4"] = img4
-                    }
+                if let touchFirmware = Self.touchFirmwareFile(ctx) {
+                    prebootFiles[firmware + "/FUD/Multitouch.img4"] = touchFirmware.img4
                 }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [firmware, firmware + "/FUD"], files: prebootFiles))
