@@ -1,0 +1,29 @@
+diff --git a/hw/audio/apple-silicon/cs42l77.c b/hw/audio/apple-silicon/cs42l77.c
+index 29286de..315d389 100644
+--- a/hw/audio/apple-silicon/cs42l77.c
++++ b/hw/audio/apple-silicon/cs42l77.c
+@@ -24,6 +24,7 @@
+ #include "migration/vmstate.h"
+ #include "qemu/bswap.h"
+ #include "qemu/lockable.h"
++#include "qemu/log.h"
+ 
+ #if 0
+ #define DPRINTF(v, ...) fprintf(stderr, v, ##__VA_ARGS__)
+@@ -235,6 +236,16 @@ static uint32_t apple_cs42l77_transfer(SSIPeripheral *dev, uint32_t val)
+         break;
+     }
+ 
++    if (s->pos == s->end_pos && s->cur_cmd != CMD_SET_START_ADDRESS &&
++        s->cur_cmd != CMD_SET_LENGTH) {
++        uint32_t word = 0;
++        if (s->start_addr + 4 <= CS42L77_REG_SIZE) {
++            word = ldl_le_p(s->regs + s->start_addr);
++        }
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "CS42L77: cmd 0x%X addr 0x%" PRIX64 " len 0x%X word0 0x%X\n",
++                      s->cur_cmd, s->start_addr, s->length, word);
++    }
+     if (s->pos == s->end_pos) {
+         DPRINTF("%s: cmd 0x%X end at 0x%X, start_addr=0x%llX, address=0x%llX, "
+                 "len=0x%X\n",
