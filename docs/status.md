@@ -33,12 +33,19 @@ kaip CI.
   `SetupVersion = 11` ir pataiso tris SetupAssistant funkcijas, kad jos grąžintų NO
   (`SharedCachePatches.skipSetupByBuild`). CI tai veikia: iOS išsiunčia
   `com.apple.purplebuddy.setupdone`, ir rodomas užrakinimo ekranas.
-- **Lietimai.** iOS 14 `AppleGenericMultitouchDecider` be autentifikacijos koprocesoriaus
-  paleidžia `agm-secondary` tvarkyklę `AppleGenericMultitouchHIDSPI`, kurios startas su Inferno
-  `mt-spi` nepavyksta, todėl lietimai ignoruojami. Tiesioginis įdiegimas DeviceTree'e
-  `agm-secondary` pakeičia į `AppleHIDTransportDeviceSPI`. CI patikrinimas vyksta. VNC klientas
-  turi atsiųsti SetEncodings, kitaip QEMU pelę laiko santykine, o lietimo ekranas negauna
-  koordinačių.
+- **Lietimai veikia (CI).** iOS 14 `AppleGenericMultitouchDecider` be autentifikacijos
+  koprocesoriaus paleidžia `agm-secondary` tvarkyklę `AppleGenericMultitouchHIDSPI`, kurios
+  startas su Inferno `mt-spi` nepavyksta. Tiesioginis įdiegimas DeviceTree'e `agm-secondary`
+  pakeičia į `AppleHIDTransportDeviceSPI`. Ši tvarkyklė valdiklio programinę įrangą gauna iš
+  `fud` (AppleFirmwareUpdateKext, žymė `mtfw`), todėl įdiegimas Preboot tome įrašo
+  `usr/standalone/firmware/FUD/Multitouch.img4` (IPSW IM4P be manifesto). Nepersonalizuotą
+  vaizdą branduolys priima su `skipFWValidation=1` ir trimis `KernelPatches`: argumentas taikomas
+  visoms užklausoms, o AIDImageDownloader XML skaito už IMG4 antraščių (poslinkis 0x24).
+  Tada HBPP įkelia programinę įrangą, valdiklis praneša „Device ready“, ir perbraukimas aukštyn
+  atidaro slaptažodžio ekraną. Kalibravimo (`multi-touch-calibration`) nėra, tvarkyklė naudoja
+  numatytąjį. VNC klientas turi atsiųsti SetEncodings, kitaip QEMU pelę laiko santykine.
+- **Slaptažodžio ekranas.** Po atrakinimo iOS prašo slaptažodžio, nors jis nenustatytas.
+  Priežastis dar nežinoma.
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
   F6 – Home. Šoninis mygtukas iOS pasiekia.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties

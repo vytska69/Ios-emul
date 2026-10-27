@@ -2,8 +2,9 @@
 """Sends touches to a running machine the way the app does (VNC pointer events) and reports
 whether the screen reacts (CI).
 
-Waits until the emulated screen shows more than the boot logo, then taps the middle, swipes up
-from the bottom edge and presses Home (the app's keysym), taking a screendump after each and
+Waits until the emulated screen shows more than the boot logo, then swipes up from the bottom
+edge, taps the first home screen icon and the Hello screen's (i) button and presses the side
+button (the app's keysym), taking a screendump after each and
 printing how much of the screen changed.
 
     scripts/ci-touch-test.py [--monitor 1235] [--vnc 5901] [--wait 1500] [--out touch]
@@ -169,6 +170,11 @@ def main():
     swipe(w // 2, h - 4, w // 2, h * 40 // 100, 2.0)
     report("slow-swipe-up", 40)
     show("after-swipes")
+    # The first icon of the home screen, if the swipes unlocked the device.
+    x, y = w * 16 // 100, h * 13 // 100
+    vnc.pointer(x, y, True); time.sleep(0.2); vnc.pointer(x, y, False)
+    report("tap-icon", 40)
+    show("after-icon")
     # The accessibility (i) button at the bottom right of the Hello screen.
     x, y = w * 895 // 1000, h * 953 // 1000
     vnc.pointer(x, y, True); time.sleep(0.2); vnc.pointer(x, y, False)

@@ -6,7 +6,7 @@
 Sources/IPSWKit/       IPSW: ZIP64, BuildManifest, IMG4/IM4P, LZFSE/LZSS, DeviceTree, UDIF, GPT,
                        APFS skaitymas ir tomų rašymas
 Sources/EmulatorKit/   Backend'ai, suderinamumas, padengimas, QEMU paleidimas, VNC, shared cache
-                       pataisos, emuliuoto iOS nustatymai
+                       ir branduolio (KernelPatches) pataisos, emuliuoto iOS nustatymai
 Sources/ipsw-emu/      CLI
 App/IOSEmul/           SwiftUI programa
 qemu/patches/inferno/  QEMUAppleSilicon patch'ai
@@ -47,7 +47,7 @@ nerašomi.
 ipsw-emu inspect firmware.ipsw                                  # identitetai, suderinamumas, padengimas
 ipsw-emu dt firmware.ipsw --product iPhone12,1 --path /arm-io   # DeviceTree mazgas
 ipsw-emu boot firmware.ipsw --work vm --product iPhone12,1 --mode direct --seconds 600 \
-  [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] \
+  [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] [--boot-args "mt-strings=1"] \
   [--monitor "info registers; x /16wx 0x…"] [--qemu-args "-accel tcg,split-wx=on"]
 ipsw-emu apfs-add-volume disk.img --role data|preboot|xart …
 ipsw-emu apfs-dump disk.img

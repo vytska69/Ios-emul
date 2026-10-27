@@ -8,6 +8,10 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-27
+
+- iPhone 11 iOS 14: the touch screen works. Swiping up on the lock screen now opens it (new installs). iOS then asks for a passcode even though none was set; that is not solved yet.
+
 ## 2026-10-26
 
 - iPhone 11 iOS 14: the installer now puts the touch screen's firmware where iOS looks for it, so the emulated touch screen can be switched on (new installs; work in progress, touches may not work yet).
