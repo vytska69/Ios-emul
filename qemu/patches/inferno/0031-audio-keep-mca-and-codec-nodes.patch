@@ -1,0 +1,35 @@
+diff --git a/hw/arm/apple-silicon/boot.c b/hw/arm/apple-silicon/boot.c
+index 35bbbe8..3a8319f 100644
+--- a/hw/arm/apple-silicon/boot.c
++++ b/hw/arm/apple-silicon/boot.c
+@@ -65,12 +65,12 @@ static const char *KEEP_COMP[] = {
+     // "aop-audio-hpdbg\0$",
+     // "audio-data,aop-audio-hpdbg\0$",
+     // "haptics-support,leap\0$",
+-    // "audio,embedded-resource-manager\0$",
+-    // "audio-control,cs35l27\0$",
++    "audio,embedded-resource-manager\0$",
++    "audio-control,cs35l27\0$",
+     // "audio-data,audio-loopback\0$",
+-    // "audio-data,cs35l27\0$",
+-    // "audio-data,cs42l77\0$",
+-    // "audio-control,cs42l77\0$",
++    "audio-data,cs35l27\0$",
++    "audio-data,cs42l77\0$",
++    "audio-control,cs42l77\0$",
+     "aes,s8000\0$",
+     "aic,1\0$",
+     "apcie-bridge\0$",
+@@ -111,9 +111,9 @@ static const char *KEEP_COMP[] = {
+     "iop,s8000\0$",
+     "iop-nub,sep\0$",
+     "lcd,pinot\0$",
+-    // "mca-switch,t8030\0$",
+-    // "mcaCluster,t8030\0$",
+-    // "mca,t8030\0$",
++    "mca-switch,t8030\0$",
++    "mcaCluster,t8030\0$",
++    "mca,t8030\0$",
+     "mipi-dsim-1,synopsys\0$",
+     "N104AP\0iPhone12,1\0AppleARM\0$",
+     "N104DEV\0iPhone12,1\0AppleARM\0$",
