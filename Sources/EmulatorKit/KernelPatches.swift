@@ -12,14 +12,14 @@ public enum KernelPatches {
 
     /// Writes `kernel` (an IM4P kernelcache) patched to `output` as a raw Mach-O and returns a
     /// line per patch. `fudPayloadOffset` is where the payload starts in the touch firmware file
-    /// fud loads (see InfernoBackend's Preboot FUD folder). When a patch is not found it writes
-    /// nothing and says which.
-    public static func apply(kernel: URL, output: URL, fudPayloadOffset: Int) throws -> [String] {
+    /// fud loads (see InfernoBackend's Preboot FUD folder), `codecPayloadOffset` the same for the
+    /// audio codec's DSP firmware. When a patch is not found it writes nothing and says which.
+    public static func apply(kernel: URL, output: URL, fudPayloadOffset: Int, codecPayloadOffset: Int? = nil) throws -> [String] {
         var macho = try IM4P(Data(contentsOf: kernel)).decodedPayload()
         guard macho.count > 32, macho.le32(at: 0) == 0xFEED_FACF else { return ["not a 64-bit Mach-O; kernel left alone"] }
         let image = MachOImage(macho)
         let patches: [Patch]
-        do { patches = try find(in: image, fudPayloadOffset: fudPayloadOffset) }
+        do { patches = try find(in: image, fudPayloadOffset: fudPayloadOffset, codecPayloadOffset: codecPayloadOffset) }
         catch { return ["\(error); kernel left alone"] }
         for patch in patches {
             guard let offset = image.fileOffset(of: patch.address) else { continue }
@@ -33,7 +33,7 @@ public enum KernelPatches {
         let description: String
     }
 
-    static func find(in image: MachOImage, fudPayloadOffset: Int) throws -> [Patch] {
+    static func find(in image: MachOImage, fudPayloadOffset: Int, codecPayloadOffset: Int? = nil) throws -> [Patch] {
         guard (1...0xFFF).contains(fudPayloadOffset) else { throw NotFound(description: "payload offset \(fudPayloadOffset) out of range") }
         var patches: [Patch] = []
 
@@ -41,38 +41,55 @@ public enum KernelPatches {
         // of request (`cmp wN, #1; b.ne`), not for the firmware fud loads at boot (the touch
         // controller's), which is the IPSW's, without a personalised manifest, so validation
         // would always fail. Without the branch the boot-arg covers every request.
-        let skip = image.codeAfter(string: "skipFWValidation", within: 16).first { at in
+        let check = image.codeAfter(string: "skipFWValidation", within: 16).first { at in
             image.word(at) & 0xFFFF_FC1F == 0x7100_041F && image.word(at + 4) & 0xFF00_001F == 0x5400_0001
         }
-        guard let skip else { throw NotFound(description: "skipFWValidation check not found") }
-        patches.append(Patch(address: skip + 4, original: image.word(skip + 4), replacement: 0xD503_201F,
+        guard let check else { throw NotFound(description: "skipFWValidation check not found") }
+        patches.append(Patch(address: check + 4, original: image.word(check + 4), replacement: 0xD503_201F,
                              reason: "AppleFirmwareUpdateKext::validateFirmware: skipFWValidation for every request (nop)"))
 
         // Unvalidated, AIDImageDownloader gets the whole file fud read, an IMG4, and unserializes
         // it as the IOKit XML that is only its payload: OSUnserializeXML(bytes, length) is called
         // with `mov w1, w0` (length) and then `mov x0, xN` (bytes) before the `bl`. Skip the
         // IMG4 and IM4P headers.
-        var unserialize: (length: UInt64, bytes: UInt64, register: UInt32)?
-        for at in image.codeAfter(string: "Unserializing payload with %u bytes", within: 48)
-        where image.word(at) == 0x2A00_03E1 {
+        guard let unserialize = unserializeCall(in: image, after: "Unserializing payload with %u bytes") else {
+            throw NotFound(description: "AIDImageDownloader's OSUnserializeXML call not found")
+        }
+        patches += skip(unserialize, by: fudPayloadOffset, in: image, what: "AIDImageDownloader")
+
+        // The audio codec's DSP firmware ('acfw') reaches AppleCS42L77AudioDSP the same way, as
+        // the whole IMG4 it unserializes as XML. Optional: a kernel without that driver has no call.
+        if let codecPayloadOffset, (1...0xFFF).contains(codecPayloadOffset),
+           let call = unserializeCall(in: image, after: "%s::%s() START [_dspHWServiceEnabled=%d, _clpFirmwareLoaded=%d]") {
+            patches += skip(call, by: codecPayloadOffset, in: image, what: "AppleCS42L77AudioDSP")
+        }
+        return patches
+    }
+
+    /// An OSUnserializeXML(bytes, length) call after the code that loads `string`: `mov w1, w0`
+    /// (length) and then `mov x0, xN` (bytes) right before the `bl`.
+    static func unserializeCall(in image: MachOImage, after string: String) -> (length: UInt64, bytes: UInt64, register: UInt32)? {
+        for at in image.codeAfter(string: string, within: 64) where image.word(at) == 0x2A00_03E1 {
             for next in 1...3 {
                 let candidate = at + UInt64(4 * next), word = image.word(candidate)
                 if word & 0xFFE0_FFFF == 0xAA00_03E0, image.word(candidate + 4) & 0xFC00_0000 == 0x9400_0000 {
-                    unserialize = (at, candidate, (word >> 16) & 31)
-                    break
+                    return (at, candidate, (word >> 16) & 31)
                 }
             }
-            break
         }
-        guard let unserialize else { throw NotFound(description: "AIDImageDownloader's OSUnserializeXML call not found") }
-        let imm = UInt32(fudPayloadOffset) << 10
-        patches.append(Patch(address: unserialize.length, original: image.word(unserialize.length),
-                             replacement: 0x5100_0001 | imm,
-                             reason: "AIDImageDownloader: unserialize past the IMG4 headers (sub w1, w0, #\(hex(fudPayloadOffset)))"))
-        patches.append(Patch(address: unserialize.bytes, original: image.word(unserialize.bytes),
-                             replacement: 0x9100_0000 | imm | unserialize.register << 5,
-                             reason: "AIDImageDownloader: unserialize past the IMG4 headers (add x0, x\(unserialize.register), #\(hex(fudPayloadOffset)))"))
-        return patches
+        return nil
+    }
+
+    /// Has an OSUnserializeXML call start `offset` bytes into its buffer (past the IMG4 headers).
+    static func skip(_ call: (length: UInt64, bytes: UInt64, register: UInt32), by offset: Int,
+                     in image: MachOImage, what: String) -> [Patch] {
+        let imm = UInt32(offset) << 10
+        return [
+            Patch(address: call.length, original: image.word(call.length), replacement: 0x5100_0001 | imm,
+                  reason: "\(what): unserialize past the IMG4 headers (sub w1, w0, #\(hex(offset)))"),
+            Patch(address: call.bytes, original: image.word(call.bytes), replacement: 0x9100_0000 | imm | call.register << 5,
+                  reason: "\(what): unserialize past the IMG4 headers (add x0, x\(call.register), #\(hex(offset)))"),
+        ]
     }
 
     static func hex<T: BinaryInteger>(_ v: T) -> String { "0x" + String(v, radix: 16) }

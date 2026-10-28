@@ -94,7 +94,10 @@ public struct InfernoBackend: EmulatorBackend {
         // They let the touch driver take the touch firmware fud loads, so they need that file.
         let kernelReport: [String]
         if let touchFirmware = Self.touchFirmwareFile(ctx) {
-            do { kernelReport = try KernelPatches.apply(kernel: kernel, output: patchedKernel, fudPayloadOffset: touchFirmware.payloadOffset) }
+            do {
+                kernelReport = try KernelPatches.apply(kernel: kernel, output: patchedKernel, fudPayloadOffset: touchFirmware.payloadOffset,
+                                                       codecPayloadOffset: Self.codecFirmwareFile(ctx)?.payloadOffset)
+            }
             catch { kernelReport = ["not patched: \(error)"] }
         } else {
             kernelReport = ["not patched: no touch firmware in the IPSW"]
@@ -237,8 +240,17 @@ public struct InfernoBackend: EmulatorBackend {
     /// kernel's XML reader needs, and where the payload (IOKit XML) starts, which KernelPatches
     /// has the kernel skip to. Nil when the IPSW has none or its payload is not plain XML.
     static func touchFirmwareFile(_ ctx: PrepareContext) -> (img4: Data, payloadOffset: Int)? {
-        guard let multitouch = try? ctx.ipsw.rawComponent("Multitouch", identity: ctx.identity) else { return nil }
-        let img4 = IMG4.wrap(payload: multitouch)
+        fudFirmwareFile(ctx, component: "Multitouch")
+    }
+
+    /// The audio codec's DSP firmware ('acfw', AppleCS42L77AudioDSP), the same way.
+    static func codecFirmwareFile(_ ctx: PrepareContext) -> (img4: Data, payloadOffset: Int)? {
+        fudFirmwareFile(ctx, component: "AudioCodecFirmware")
+    }
+
+    static func fudFirmwareFile(_ ctx: PrepareContext, component: String) -> (img4: Data, payloadOffset: Int)? {
+        guard let raw = try? ctx.ipsw.rawComponent(component, identity: ctx.identity) else { return nil }
+        let img4 = IMG4.wrap(payload: raw)
         guard img4.last == 0,
               let start = img4.prefix(64).firstIndex(of: UInt8(ascii: "<")).map({ $0 - img4.startIndex }) else { return nil }
         return (img4, start)
@@ -479,8 +491,8 @@ public struct InfernoBackend: EmulatorBackend {
                 }
                 // The audio codec's DSP firmware (payload type 'acfw'): AppleCS42L77AudioDSP asks
                 // fud for it at boot and, without it, the codec never publishes the speaker.
-                if let codec = try? ctx.ipsw.rawComponent("AudioCodecFirmware", identity: ctx.identity) {
-                    prebootFiles[firmware + "/FUD/AudioCodecFirmware.img4"] = IMG4.wrap(payload: codec)
+                if let codecFirmware = Self.codecFirmwareFile(ctx) {
+                    prebootFiles[firmware + "/FUD/AudioCodecFirmware.img4"] = codecFirmware.img4
                 }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [firmware, firmware + "/FUD"], files: prebootFiles))
