@@ -442,6 +442,16 @@ public struct InfernoBackend: EmulatorBackend {
                 try GPT.write(to: handle, layout: layout)
                 try image.expand(apfs, into: handle, at: layout.partitionOffset) { ctx.progress("OS", $0) }
                 let container = try APFSContainer(handle: handle, offset: layout.partitionOffset)
+                // The image's container is only as large as the image (8 GB for iOS 14), which left
+                // iOS a few hundred MB free; grow it to the whole partition. A layout this cannot
+                // grow stays at the image's size.
+                let grown: String
+                do {
+                    let added = try container.grow(toBlocks: layout.partitionSize / container.blockSize)
+                    grown = "grew by \(added) blocks"
+                } catch { grown = "not grown: \(error)" }
+                try? (grown + "\n").write(to: disk.deletingLastPathComponent().appendingPathComponent("container-size.txt"),
+                                          atomically: true, encoding: .utf8)
                 // Without a GPU iOS draws with QuartzCore's CPU renderer only after these patches
                 // (SharedCachePatches). The outcome goes next to the disk; a failure leaves the
                 // system as the IPSW has it.
