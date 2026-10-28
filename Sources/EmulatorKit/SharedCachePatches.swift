@@ -125,7 +125,11 @@ public enum SharedCachePatches {
               Patch(address: 0x19_CE44, original: 0x3946_A000, replacement: 0x5280_0020,
                     reason: "VirtualAudio port: reports itself connected (mov w0, #1)"),
               Patch(address: 0x1A_0BF8, original: 0x3946_A000, replacement: 0x5280_0020,
-                    reason: "VirtualAudio port: reports itself connected (mov w0, #1)")]),
+                    reason: "VirtualAudio port: reports itself connected (mov w0, #1)"),
+              Patch(address: 0x47_C020, original: 0xD503_237F, replacement: 0x5280_0020,
+                    reason: "TEST VirtualAudio log scopes: every level enabled (mov w0, #1)"),
+              Patch(address: 0x47_C024, original: 0xA9BD_57F6, replacement: 0xD65F_03C0,
+                    reason: "TEST VirtualAudio log scopes: every level enabled (ret)")]),
         ],
     ]
 
