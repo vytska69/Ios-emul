@@ -120,6 +120,10 @@ public enum SharedCachePatches {
                 report.append("\(file.paths[0]): not found"); continue
             }
             let (path, fileExtents) = found
+            if fileExtents.isEmpty, let compressed = try container.compressedFile(volume: system.oid, path: path) {
+                report += try CompressedFilePatch.apply(file.patches, to: compressed, path: path, container: container)
+                continue
+            }
             for patch in file.patches {
                 guard let e = fileExtents.first(where: { patch.address >= $0.logical && patch.address < $0.logical + $0.length }) else {
                     report.append("\(path)+\(hex(patch.address)): not in the file"); continue
