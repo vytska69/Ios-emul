@@ -477,6 +477,11 @@ public struct InfernoBackend: EmulatorBackend {
                 if let touchFirmware = Self.touchFirmwareFile(ctx) {
                     prebootFiles[firmware + "/FUD/Multitouch.img4"] = touchFirmware.img4
                 }
+                // The audio codec's DSP firmware (payload type 'acfw'): AppleCS42L77AudioDSP asks
+                // fud for it at boot and, without it, the codec never publishes the speaker.
+                if let codec = try? ctx.ipsw.rawComponent("AudioCodecFirmware", identity: ctx.identity) {
+                    prebootFiles[firmware + "/FUD/AudioCodecFirmware.img4"] = IMG4.wrap(payload: codec)
+                }
                 try container.addVolume(name: "Preboot", role: .preboot, tree: APFSContainer.Tree(
                     directories: [firmware, firmware + "/FUD"], files: prebootFiles))
                 // data-protection then needs the xART volume with the device's gigalocker, which a
