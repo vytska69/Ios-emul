@@ -92,15 +92,16 @@ public enum SharedCachePatches {
     /// candidates that exists) and patches whose address is a file offset.
     public static let filePatchesByBuild: [String: [(paths: [String], patches: [Patch])]] = [
         "18A373": [
-            // VirtualAudio's deferred initialisation sets up a first audio route and gives up
-            // (staying "not initialized", so iOS plays no sound at all) when there is none yet:
-            // the codec only publishes its devices once fud has loaded its DSP firmware, which
-            // takes half a minute under emulation. Carry on without a route; routes follow
-            // when the devices appear.
+            // VirtualAudio's deferred initialisation applies a first audio route and, when there
+            // is none yet, throws ("nort") and stays "not initialized", so iOS plays no sound at
+            // all: the codec only publishes its devices once fud has loaded its DSP firmware,
+            // which takes half a minute under emulation. Build the route request as before (the
+            // function's end releases it) but skip applying it and logging the result; routes
+            // follow when the devices appear.
             (["System/Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio",
               "Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio"],
-             [Patch(address: 0x7354, original: 0x3500_5528, replacement: 0xD503_201F,
-                    reason: "VirtualAudio deferred initialisation: carry on without a first route (nop)")]),
+             [Patch(address: 0x7338, original: 0x9102_03E8, replacement: 0x1400_00BB,
+                    reason: "VirtualAudio deferred initialisation: carry on without a first route (b 0x7624)")]),
         ],
     ]
 
