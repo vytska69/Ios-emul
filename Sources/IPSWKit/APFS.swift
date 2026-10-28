@@ -1005,13 +1005,15 @@ extension APFSContainer {
             if name == "com.apple.ResourceFork", flags & 0x1 != 0 { forkStream = v.u64(at: 4) }
         }
         guard let decmpfs, decmpfs.count >= 16, ByteReader(decmpfs).u32(at: 0) == 0x636D_7066 else { return nil }  // "fpmc"
-        let fork = try forkStream.map { stream in
-            try fs.records(id: stream, type: FSTree.typeFileExtent).map { record in
+        var fork: [Extent] = []
+        if let forkStream {
+            for record in try fs.records(id: forkStream, type: FSTree.typeFileExtent) {
                 let k = ByteReader(record.key), v = ByteReader(record.value)
-                return Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize,
-                              length: v.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF)
-            }.sorted { $0.logical < $1.logical }
-        } ?? []
+                fork.append(Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize,
+                                   length: v.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF))
+            }
+            fork.sort { $0.logical < $1.logical }
+        }
         return CompressedFile(type: ByteReader(decmpfs).u32(at: 4), size: ByteReader(decmpfs).u64(at: 8), fork: fork)
     }
 
