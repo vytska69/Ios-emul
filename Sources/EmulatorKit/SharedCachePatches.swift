@@ -109,7 +109,9 @@ public enum SharedCachePatches {
               Patch(address: 0x7260, original: 0x9411_D370, replacement: 0x9412_4500,
                     reason: "VirtualAudio deferred initialisation: give them time to arrive (bl usleep)"),
               Patch(address: 0x7264, original: 0x3400_0300, replacement: 0x1400_0018,
-                    reason: "VirtualAudio deferred initialisation: then build its first route (b 0x72c4)")]),
+                    reason: "VirtualAudio deferred initialisation: then build its first route (b 0x72c4)"),
+              Patch(address: 0x19_C334, original: 0x5400_1301, replacement: 0xD503_201F,
+                    reason: "VirtualAudio port: routable even when the hardware reports it not connected (nop)")]),
         ],
     ]
 
