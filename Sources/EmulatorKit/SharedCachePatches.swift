@@ -109,7 +109,11 @@ public enum SharedCachePatches {
               Patch(address: 0x734C, original: 0x3500_5288, replacement: 0xD503_201F,
                     reason: "VirtualAudio deferred initialisation: finish even when the first route request fails (nop)"),
               Patch(address: 0x7354, original: 0x3500_5528, replacement: 0xD503_201F,
-                    reason: "VirtualAudio deferred initialisation: finish even when the first route is refused (nop)")]),
+                    reason: "VirtualAudio deferred initialisation: finish even when the first route is refused (nop)"),
+              Patch(address: 0x1A_0B44, original: 0x3906_A27F, replacement: 0x5280_2020,
+                    reason: "VirtualAudio application processor port: created connected and routable (mov w0, #0x101)"),
+              Patch(address: 0x1A_0B48, original: 0xAA13_03E0, replacement: 0x7903_5260,
+                    reason: "VirtualAudio application processor port: created connected and routable (strh w0, [x19, #0x1a8])")]),
         ],
     ]
 
