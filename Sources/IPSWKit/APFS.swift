@@ -237,8 +237,7 @@ public final class APFSContainer {
     /// Grows the container to `blocks` blocks of the partition it sits in, so iOS sees the whole
     /// disk instead of the root filesystem image's size (8 GB for iOS 14). The space manager gets
     /// the new chunks as free chunks without bitmaps (all blocks free), in the last chunk-info
-    /// block and in new ones. The image's space manager has room for only one chunk-info block
-    /// address, so their addresses move into a chunk-info address block, as on a large container.
+    /// block and in new ones, whose addresses the space manager lists after making room for them.
     /// The container superblock gets the new block count. Returns the blocks added (0 if the
     /// container is already that large).
     @discardableResult
@@ -249,8 +248,7 @@ public final class APFSContainer {
         var s = ByteReader(sm.data)
         let blocksPerChunk = UInt64(s.u32(at: 36))
         let chunksPerCIB = Int(s.u32(at: 40))
-        let cibsPerCAB = Int(s.u32(at: 44))
-        guard blocksPerChunk > 0, chunksPerCIB > 0, cibsPerCAB > 0 else { throw Error.unsupported("space manager geometry") }
+        guard blocksPerChunk > 0, chunksPerCIB > 0 else { throw Error.unsupported("space manager geometry") }
         guard s.u64(at: 48) == oldBlocks else { throw Error.unsupported("space manager and superblock disagree") }
         let oldCIBAddrs = try chunkInfoAddresses(sm.data)
         let oldCABs = Int(s.u32(at: 48 + 20))
@@ -263,20 +261,24 @@ public final class APFSContainer {
             throw Error.unsupported("unexpected chunk-info layout")
         }
 
-        // Where the main device's address array may grow to: up to whatever follows it.
+        // The image's space manager has room for one chunk-info block address before the next
+        // array (tier 2 addresses, then the internal pool's bitmap bookkeeping). Make room the way
+        // APFS lays a larger container out: shift those arrays up and adjust their offsets.
         let addrOffset = Int(s.u32(at: 48 + 32))
-        let following = [Int(s.u32(at: 96 + 32)), Int(s.u32(at: 324)), Int(s.u32(at: 328)), Int(s.u32(at: 332))]
-            .filter { $0 > addrOffset }
-        let slots = ((following.min() ?? sm.size) - addrOffset) / 8
-        let useCABs = oldCABs > 0 || newCIBs > slots
-        let newCABs = useCABs ? (newCIBs + cibsPerCAB - 1) / cibsPerCAB : 0
-        guard (useCABs ? newCABs : newCIBs) <= slots else { throw Error.unsupported("no room for chunk-info addresses") }
-        let oldCABAddrs = oldCABs > 0 ? (0..<oldCABs).map { s.u64(at: addrOffset + $0 * 8) } : []
+        guard oldCABs == 0 else { throw Error.unsupported("chunk-info address blocks") }
+        let offsetFields = [96 + 32, 324, 328, 332]                               // tier2 addrs, ip_bm_xid, ip_bitmap, ip_bm_free_next
+        let following = offsetFields.map { Int(s.u32(at: $0)) }.filter { $0 > addrOffset }
+        let boundary = following.min() ?? sm.size
+        let delta = max(0, addrOffset + newCIBs * 8 - boundary)
+        if delta > 0 {
+            guard boundary < sm.size, sm.data[(sm.size - delta)..<sm.size].allSatisfy({ $0 == 0 }) else {
+                throw Error.unsupported("no room for chunk-info addresses")
+            }
+        }
 
-        // New chunk-info (and address) blocks come from the existing free space, before the space
-        // manager is read again for its updated free count.
+        // New chunk-info blocks come from the existing free space, before the space manager is
+        // read again for its updated free count.
         let newCIBAddrs = try allocate(newCIBs - oldCIBAddrs.count)
-        let newCABAddrs = try allocate(max(0, newCABs - oldCABs))
         sm = try readSpaceman()
         var spaceman = sm.data
         s = ByteReader(spaceman)
@@ -338,24 +340,14 @@ public final class APFSContainer {
             fill(&cib, from: 0)
             try write(cib, block: addr)
         }
-        // The address array: chunk-info blocks directly, or chunk-info address blocks listing them.
-        let cibAddrs = oldCIBAddrs + newCIBAddrs
-        if useCABs {
-            let cabAddrs = oldCABAddrs + newCABAddrs
-            for (c, addr) in cabAddrs.enumerated() {
-                var cab = newObject(at: addr, type: 0x6)                          // OBJECT_TYPE_SPACEMAN_CAB
-                let slice = cibAddrs[(c * cibsPerCAB)..<min(cibAddrs.count, (c + 1) * cibsPerCAB)]
-                cab.put32(UInt32(c), at: 32)                                      // cab_index
-                cab.put32(UInt32(slice.count), at: 36)
-                for (j, a) in slice.enumerated() { cab.put64(a, at: 40 + j * 8) }
-                Self.seal(&cab)
-                try write(cab, block: addr)
-                spaceman.put64(addr, at: addrOffset + c * 8)
+        if delta > 0 {
+            let moved = spaceman[boundary..<(sm.size - delta)]
+            spaceman.replaceSubrange((boundary + delta)..<sm.size, with: moved)
+            for field in offsetFields where Int(s.u32(at: field)) >= boundary {
+                spaceman.put32(s.u32(at: field) + UInt32(delta), at: field)
             }
-            spaceman.put32(UInt32(cabAddrs.count), at: 48 + 20)
-        } else {
-            for (c, addr) in cibAddrs.enumerated() { spaceman.put64(addr, at: addrOffset + c * 8) }
         }
+        for (c, addr) in (oldCIBAddrs + newCIBAddrs).enumerated() { spaceman.put64(addr, at: addrOffset + c * 8) }
 
         let added = blocks - oldBlocks
         spaceman.put64(blocks, at: 48)                                            // sm_dev[main].sm_block_count
