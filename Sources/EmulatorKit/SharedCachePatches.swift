@@ -134,6 +134,8 @@ public enum SharedCachePatches {
                     reason: "VirtualAudio PortManager: connect the application processor port before publishing it (nop)"),
               Patch(address: 0x1_1554, original: 0x9400_10E8, replacement: 0xD503_201F,
                     reason: "VirtualAudio PortManager: connect the application processor port before publishing it (nop)"),
+              Patch(address: 0x1C_33B4, original: 0x5400_0F81, replacement: 0xD503_201F,
+                    reason: "VirtualAudio routing: an alternate VAD whose ports the hardware lacks (haptics, AOP mic) is skipped instead of failing the route (nop)"),
               Patch(address: 0x1AEC74, original: 0x940B34EB, replacement: 0x52800020,
                     reason: "TEST VirtualAudio routing detail log on (mov w0, #1)"),
               Patch(address: 0x1AED58, original: 0x940B34B2, replacement: 0x52800020,
