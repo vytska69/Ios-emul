@@ -328,6 +328,14 @@ public struct InfernoBackend: EmulatorBackend {
             tree.files[springboard] = data
             tree.attributes[springboard] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
         }
+        // TEST: keep CoreAudio's debug messages (VirtualAudio's routing decisions) in the log.
+        if let logging = try? PropertyListSerialization.data(fromPropertyList: ["DEFAULT-OPTIONS": ["Level": ["Enable": "Debug", "Persist": "Debug"]]],
+                                                             format: .xml, options: 0) {
+            for path in ["preferences/Logging/Subsystems/com.apple.coreaudio.plist", "db/Logging/Subsystems/com.apple.coreaudio.plist"] {
+                tree.files[path] = logging
+                tree.attributes[path] = APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o644)
+            }
+        }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
             tree.attributes[path] = file.attributes
