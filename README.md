@@ -13,8 +13,8 @@ sukompiliuotomis kaip biblioteka ir paleidžiamomis programos viduje.
 ## Būsena
 
 Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be restore, ir pasileidžia
-iki sąrankos ekrano „Hello“, o su „Skip setup“ iki užrakinimo ekrano. Tai pavyksta ir macOS CI, ir
-telefone (iPhone 16e su JIT).
+iki sąrankos ekrano „Hello“, o su „Skip setup“ iki pagrindinio ekrano. Telefone (iPhone 16e su JIT)
+veikia ir programėlės, pavyzdžiui Settings ir jų skiltys.
 
 Lietimas veikia: perbraukus aukštyn užrakinimo ekrane atsidaro pagrindinis ekranas (slaptažodžio
 iOS nebeprašo), veikia ir valdymo centras.
@@ -23,8 +23,10 @@ iOS nebeprašo), veikia ir valdymo centras.
   pataiso iOS taip, kad jis praneštų „slaptažodis nenustatytas“.
 - Be „Skip setup“ perbraukus „Hello“ sąranka nebegrįžta į pradžią (anksčiau lūždavo `backboardd`,
   piešiantis ekraną be GPU).
-- Garso nėra. Emuliatoriuje iPhone 11 garso dalys (MCA, kodekai, AOP) iOS'ui buvo paslėptos.
-  Jas atidengus iOS garso tvarkyklės jau pasileidžia, bet garsas dar neišeina.
+- Garso nėra. iOS garso sistema mato tik tuščią „Null“ įrenginį: garso lusto (CS42L77) tvarkyklė
+  negauna DSP programinės įrangos, todėl garsiakalbio nėra, o VirtualAudio nebaigia paleidimo.
+  Tiriama bandomojoje šakoje `test/audio-mca`.
+- Emuliuoto telefono diske laisvos vietos lieka tik apie 200 MB.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|

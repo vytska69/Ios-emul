@@ -8,14 +8,14 @@ pačiu keliu.
 
 | Įrenginys, iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Su „Skip setup“: užrakinimo ekranas (pirmas startas apie 8 min.). Be jo: sąrankos ekranas „Hello“ (pirmas startas apie 20 min., po perkrovimo – 2–20 min.) | Perbraukimas aukštyn (žr. žemiau) |
+| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Su „Skip setup“: pagrindinis ekranas, atsidaro programėlės (pirmas startas apie 8 min.). Be jo: sąrankos ekranas „Hello“ (pirmas startas apie 20 min., po perkrovimo – 2–20 min.) | Garsas, Wi-Fi, greitis (žr. žemiau) |
 | iPhone 11, 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB per TCP) |
 | iPhone 6s / 6s Plus (A9), 15.8 | IOKit: AIC, AES, SPI, I2C, PCIe, NVMe | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` |
 | iPhone XR (A12), 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įsijungia | Panika `rtclock` inicializacijoje, dar prieš serial išvestį |
 | iPod touch 1G / 2G | iPhoneOS 1.x–2.x tik macOS | `qemu-ios` dar nekompiliuojamas į IPA |
 
-Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia tą patį „Hello“ ekraną
-kaip CI.
+Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia tą patį kaip CI: su
+„Skip setup“ atsidaro pagrindinis ekranas ir Settings programėlė.
 
 ## Mašinos
 
@@ -43,10 +43,24 @@ kaip CI.
   visoms užklausoms, o AIDImageDownloader XML skaito už IMG4 antraščių. Pataisų vietas programa
   randa pati pagal greta esančias branduolio eilutes, todėl jos nepririštos prie build'o.
   Tada HBPP įkelia programinę įrangą, valdiklis praneša „Device ready“, ir perbraukimas aukštyn
-  atidaro slaptažodžio ekraną. Kalibravimo (`multi-touch-calibration`) nėra, tvarkyklė naudoja
+  atidaro pagrindinį ekraną. Kalibravimo (`multi-touch-calibration`) nėra, tvarkyklė naudoja
   numatytąjį. VNC klientas turi atsiųsti SetEncodings, kitaip QEMU pelę laiko santykine.
-- **Slaptažodžio ekranas.** Po atrakinimo iOS prašo slaptažodžio, nors jis nenustatytas.
-  Priežastis dar nežinoma.
+- **Slaptažodis (išspręsta).** Simuliuoto SEP keystore praneša užrakto būseną, kuri nėra 3
+  („disabled“, t. y. slaptažodžio nėra), todėl SpringBoard (`-[SBFMobileKeyBag
+  _queue_setHasPasscodeIfNecessary:]`) manė, kad slaptažodis nustatytas. MobileKeyBag
+  `MKBGetDeviceLockState` ir `MKBGetDeviceLockStateInfo` dabar grąžina 3, o SpringBoardFoundation
+  slaptažodžio nežymi; perbraukimas aukštyn atidaro pagrindinį ekraną.
+- **Sąranka be „Skip setup“ (išspręsta).** Po perbraukimo „Hello“ ekrane `backboardd` lūždavo
+  QuartzCore `AsynchronousDispatcher::stop_timer` ir `release_iosurface`, nes be Metal
+  `renderer()` yra null. Abi vietos pataisytos.
+- **Garsas.** Programos pusė veikia (test tone girdisi). Pagrindinėje šakoje Inferno garso mazgus
+  DeviceTree'e paslepia, todėl iOS garso neleidžia. Bandomojoje šakoje `test/audio-mca` (patch'ai
+  0031–0034) mazgai palikti: tvarkyklės pasileidžia, bet `AppleCS42L77AudioDSP` neužkrauna DSP
+  programinės įrangos („Thread Timeout waiting to load DSP Firmware“; per SPI įrašų beveik nėra).
+  iOS garso sistema mato tik `Null_Device`, VirtualAudio pradinis maršrutas baigiasi klaida `nort`,
+  ir įskiepis lieka „not initialized“. Branduolys programinę įrangą tikisi gauti kaip serializuotus
+  duomenis per `setProperties`; tikėtinas siuntėjas – VirtualAudio (`L77Device`, ANC tuning'ai).
+- **Disko vieta.** Data tome laisvos vietos lieka apie 200 MB iš 8 GB.
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
   F6 – Home. Šoninis mygtukas iOS pasiekia.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
@@ -73,12 +87,13 @@ konteinerį įrašomi Preboot, xART ir Data tomai, o `fstab` pritaikomas. Pirmam
   nėra), o SpringBoard watchdog'as nebežudo lėtai startuojančių procesų.
 
 Ekranas. Be AGX GPU nėra nei Metal, nei OpenGL ES, todėl QuartzCore piešia `CA::OGL::SWContext`.
-Įdiegimas pataiso 5 dyld shared cache instrukcijas (`Sources/EmulatorKit/SharedCachePatches.swift`):
+Įdiegimas pataiso dyld shared cache instrukcijas (`Sources/EmulatorKit/SharedCachePatches.swift`):
 
 - MobileIcons ikonas mažina be CoreImage;
 - CoreImage veikia be OpenGL ES;
-- AsynchronousDispatcher apsieina be `stop_timer`;
-- ekrano paviršiai kuriami be AGX suspaudimo (`&BGA`).
+- AsynchronousDispatcher apsieina be `stop_timer` ir Metal renderer'io (`release_iosurface`);
+- ekrano paviršiai kuriami be AGX suspaudimo (`&BGA`);
+- MobileKeyBag ir SpringBoardFoundation praneša, kad slaptažodžio nėra.
 
 Kiekviena pataisa prieš įrašymą tikrina originalius baitus.
 

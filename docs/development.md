@@ -110,3 +110,4 @@ Bazė: QEMUAppleSilicon, `INFERNO_REV` iš `scripts/build-qemu-ios.sh`.
 | 0027 | Lietimo ekrano srautas `-d guest_errors` žurnale (`MT-SPI:`): HBPP, feature report'ai, paketai, pirštų pėdsakai |
 | 0028 | SEP simuliatorius: nežinomoms keystore užklausoms atsako tvarkingu „pavyko“, o ne grąžina užklausą |
 | 0029 | Lietimo ekranas: laikomas pirštas pranešamas kas 50 ms, net jei nejuda (tikslūs bakstelėjimai) |
+| 0030 | Bibliotekos eksportuoja `qemu_ios_audio_read`, `qemu_ios_audio_format` ir `qemu_ios_jit_prepare`, kad programa jas rastų per `dlsym` |

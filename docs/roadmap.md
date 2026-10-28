@@ -32,9 +32,9 @@ jų `compatible` vardais, MMIO adresais ir pertraukimais. Todėl:
 
 ## Artimiausi žingsniai
 
-1. **iPhone 11, iOS 14: nuo „Hello“ iki pagrindinio ekrano.**
-   - Sąranka praleidžiama, rodomas užrakinimo ekranas. Patikrinti telefone.
-   - Gauti veikiantį perbraukimą aukštyn, kad būtų galima atrakinti.
+1. **iPhone 11, iOS 14: naudojamas telefonas.** Pagrindinis ekranas ir programėlės jau veikia.
+   - Garsas: CS42L77 DSP programinė įranga, kad iOS atsirastų garsiakalbis (žr. [status.md](status.md)).
+   - Didesnis Data tomas (dabar lieka apie 200 MB laisvos vietos).
    - Rasti retos NVMe panikos priežastį.
 2. **Greitis telefone.**
    - Išbandyti 30 Hz ekrano atnaujinimą ir mažiau vCPU.
