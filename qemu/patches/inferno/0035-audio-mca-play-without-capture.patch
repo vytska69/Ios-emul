@@ -1,0 +1,29 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 7975658..17c8691 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -392,8 +392,13 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             pulled = chunk;
+         }
+ 
+-        uint32_t written = apple_sio_dma_write(s->rx_ep, temp, pulled);
+-        written = AUD_write(s->voice, temp, written);
++        /*
++         * Feed the output back to the capture endpoint when the guest has one
++         * running (echo reference), but play it either way: the host hears
++         * what the guest sends, not only what it also records.
++         */
++        apple_sio_dma_write(s->rx_ep, temp, pulled);
++        uint32_t written = AUD_write(s->voice, temp, pulled);
+ 
+         to_play -= written;
+         if (written < pulled) {
+@@ -456,7 +461,7 @@ SysBusDevice *apple_mca_create(AppleDTNode *node, AppleSIODMAEndpoint *tx_ep,
+     if (AUD_register_card("mca", &s->card, NULL)) {
+         audsettings settings = { 0 };
+         settings.fmt = AUDIO_FORMAT_S16;
+-        settings.freq = 44100;
++        settings.freq = 48000;
+         settings.nchannels = 2;
+         settings.endianness = 0; // LE
+         s->voice = AUD_open_out(&s->card, s->voice, "mca.out", s,

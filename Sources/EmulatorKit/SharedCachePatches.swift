@@ -88,6 +88,62 @@ public enum SharedCachePatches {
         ],
     ]
 
+    /// Patches to other files on the system volume, by IPSW build: the path (the first of the
+    /// candidates that exists) and patches whose address is a file offset.
+    public static let filePatchesByBuild: [String: [(paths: [String], patches: [Patch])]] = [
+        "18A373": [
+            // VirtualAudio (the HAL plug-in that turns the codec's devices into the virtual audio
+            // devices iOS plays through) creates none under emulation, so iOS plays no sound:
+            // - Its deferred initialisation applies a first route before it has handled the codec's
+            //   devices; the route fails ("nort") and the initialisation throws, leaving it "not
+            //   initialized". Let the devices in first, and finish even when that route fails:
+            //   it is applied again when the ports connect.
+            // - Every route starts at the application processor port ('pap '), which nothing
+            //   connects when the AP is emulated. Connect it before PortManager publishes it.
+            // - Each route also wants the alternate devices of hardware the emulator has none of
+            //   (haptics actuator, AOP low-power microphone); treat those as optional like the
+            //   others instead of failing the whole route.
+            (["System/Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio",
+              "Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio"],
+             [Patch(address: 0x7254, original: 0xA90A_7FE8, replacement: 0x9400_D418,
+                    reason: "VirtualAudio deferred initialisation: let the devices in before the first route (bl device manager)"),
+              Patch(address: 0x7258, original: 0x9102_83E1, replacement: 0x9406_1499,
+                    reason: "VirtualAudio deferred initialisation: let the devices in before the first route (bl allow devices)"),
+              Patch(address: 0x725C, original: 0x5280_00C0, replacement: 0x1400_001A,
+                    reason: "VirtualAudio deferred initialisation: then build its first route (b 0x72c4)"),
+              Patch(address: 0x734C, original: 0x3500_5288, replacement: 0xD503_201F,
+                    reason: "VirtualAudio deferred initialisation: finish even when the first route request fails (nop)"),
+              Patch(address: 0x7354, original: 0x3500_5528, replacement: 0xD503_201F,
+                    reason: "VirtualAudio deferred initialisation: finish even when the first route is refused (nop)"),
+              Patch(address: 0x1_1528, original: 0x9100_63F3, replacement: 0x9100_63E0,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (add x0, sp, #0x18)"),
+              Patch(address: 0x1_152C, original: 0x9100_8260, replacement: 0x9401_FDB3,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (bl release)"),
+              Patch(address: 0x1_1530, original: 0x9401_FDB2, replacement: 0x9100_23E0,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (add x0, sp, #0x8)"),
+              Patch(address: 0x1_1534, original: 0x9100_4260, replacement: 0x9401_FDB1,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (bl release)"),
+              Patch(address: 0x1_1538, original: 0x9401_FDB0, replacement: 0xAA13_03E0,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (mov x0, x19 (the port))"),
+              Patch(address: 0x1_153C, original: 0x9100_63E0, replacement: 0x9406_3DA1,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (bl Connect)"),
+              Patch(address: 0x1_1540, original: 0x9401_FDAE, replacement: 0xAA14_03E0,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (mov x0, x20)"),
+              Patch(address: 0x1_1544, original: 0x9100_23E0, replacement: 0x5280_0021,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (mov w1, #1)"),
+              Patch(address: 0x1_1548, original: 0x9401_FDAC, replacement: 0x9400_10EB,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (bl publish ports)"),
+              Patch(address: 0x1_154C, original: 0xAA14_03E0, replacement: 0xD503_201F,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (nop)"),
+              Patch(address: 0x1_1550, original: 0x5280_0021, replacement: 0xD503_201F,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (nop)"),
+              Patch(address: 0x1_1554, original: 0x9400_10E8, replacement: 0xD503_201F,
+                    reason: "VirtualAudio PortManager: connect the application processor port before publishing it (nop)"),
+              Patch(address: 0x1C_33B4, original: 0x5400_0F81, replacement: 0xD503_201F,
+                    reason: "VirtualAudio routing: an alternate VAD whose ports the hardware lacks (haptics, AOP mic) is skipped instead of failing the route (nop)")]),
+        ],
+    ]
+
     /// Applies the patches for `build` (and with `skipSetup` the setup assistant ones) to the shared
     /// cache on the container's system volume. Returns a line per patch saying what happened.
     @discardableResult
@@ -96,6 +152,36 @@ public enum SharedCachePatches {
         guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == 0x1 }) ?? volumes.first else { return [] }
+        func hex<T: BinaryInteger>(_ v: T) -> String { "0x" + String(v, radix: 16) }
+        var report: [String] = []
+        for file in filePatchesByBuild[build] ?? [] {
+            guard let found = file.paths.lazy
+                .compactMap({ p in (try? container.fileExtents(volume: system.oid, path: p)).map { (p, $0) } }).first else {
+                report.append("\(file.paths[0]): not found"); continue
+            }
+            let (path, fileExtents) = found
+            if fileExtents.isEmpty, let compressed = try container.compressedFile(volume: system.oid, path: path) {
+                report += try CompressedFilePatch.apply(file.patches, to: compressed, path: path, container: container)
+                continue
+            }
+            for patch in file.patches {
+                guard let e = fileExtents.first(where: { patch.address >= $0.logical && patch.address < $0.logical + $0.length }) else {
+                    report.append("\(path)+\(hex(patch.address)): not in the file"); continue
+                }
+                let at = e.offset + patch.address - e.logical
+                let word = try container.readBytes(at: at, count: 4).le32(at: 0)
+                if word == patch.replacement {
+                    report.append("\(path)+\(hex(patch.address)): already patched")
+                } else if word != patch.original {
+                    report.append("\(path)+\(hex(patch.address)): expected \(hex(patch.original)), found \(hex(word)); left alone")
+                } else {
+                    var bytes = Data(count: 4)
+                    bytes.withUnsafeMutableBytes { $0.storeBytes(of: patch.replacement.littleEndian, as: UInt32.self) }
+                    try container.writeBytes(bytes, at: at)
+                    report.append("\(path)+\(hex(patch.address)): patched, \(patch.reason)")
+                }
+            }
+        }
         let extents = try container.fileExtents(volume: system.oid, path: cachePath)
 
         func containerOffset(_ fileOffset: UInt64) -> UInt64? {
@@ -116,8 +202,6 @@ public enum SharedCachePatches {
             (address: table.le64(at: i * 32), size: table.le64(at: i * 32 + 8), fileOffset: table.le64(at: i * 32 + 16))
         }
 
-        func hex<T: BinaryInteger>(_ v: T) -> String { "0x" + String(v, radix: 16) }
-        var report: [String] = []
         for patch in patches {
             guard let m = mappings.first(where: { patch.address >= $0.address && patch.address < $0.address + $0.size }),
                   let at = containerOffset(m.fileOffset + patch.address - m.address) else {

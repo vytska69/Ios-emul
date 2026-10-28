@@ -53,13 +53,15 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Sąranka be „Skip setup“ (išspręsta).** Po perbraukimo „Hello“ ekrane `backboardd` lūždavo
   QuartzCore `AsynchronousDispatcher::stop_timer` ir `release_iosurface`, nes be Metal
   `renderer()` yra null. Abi vietos pataisytos.
-- **Garsas.** Programos pusė veikia (test tone girdisi). Pagrindinėje šakoje Inferno garso mazgus
-  DeviceTree'e paslepia, todėl iOS garso neleidžia. Bandomojoje šakoje `test/audio-mca` (patch'ai
-  0031–0034) mazgai palikti: tvarkyklės pasileidžia, bet `AppleCS42L77AudioDSP` neužkrauna DSP
-  programinės įrangos („Thread Timeout waiting to load DSP Firmware“; per SPI įrašų beveik nėra).
-  iOS garso sistema mato tik `Null_Device`, VirtualAudio pradinis maršrutas baigiasi klaida `nort`,
-  ir įskiepis lieka „not initialized“. Branduolys programinę įrangą tikisi gauti kaip serializuotus
-  duomenis per `setProperties`; tikėtinas siuntėjas – VirtualAudio (`L77Device`, ANC tuning'ai).
+- **Garsas (iOS pusė veikia; galutinai patikrinti programoje).** Inferno garso mazgai paliekami
+  DeviceTree'e (patch'ai 0031–0032). Kodeko DSP programinė įranga (`AudioCodecFirmware`, 'acfw')
+  dedama į Preboot FUD; branduolys ją skaito praleisdamas IMG4 antraštes ir laukia jos 60 s, ne
+  2 s. VirtualAudio (APFS suspaustas failas; pataisomas per `CompressedFilePatch`): įrenginiai
+  įsileidžiami prieš pirmą maršrutą, inicializacija nebenutrūksta nepavykus maršrutui,
+  „Application Processor“ prievadas (`pap `) prijungiamas, o papildomi VAD, kuriems reikia
+  nesamos aparatūros (haptika `pact`, AOP mikrofonas `phki`), laikomi neprivalomais. Tada
+  sukuriamas numatytasis VAD, o MCA gauna garsą (CI: „tx dma … peak 4244“). MCA (patch 0035) garsą
+  siunčia į QEMU audio nepriklausomai nuo įrašymo kanalo, 48 kHz.
 - **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
   ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai

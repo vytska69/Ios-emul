@@ -1,0 +1,42 @@
+diff --git a/hw/arm/apple-silicon/boot.c b/hw/arm/apple-silicon/boot.c
+index 3a8319f..d6f9b11 100644
+--- a/hw/arm/apple-silicon/boot.c
++++ b/hw/arm/apple-silicon/boot.c
+@@ -42,12 +42,12 @@
+ 
+ static const char *KEEP_COMP[] = {
+     "adbe0,s8000\0$",
+-    // "aop-audio\0$",
+-    // "aop-audio-control\0$",
+-    // "aop-audio-speaker\0$",
+-    // "audio-aop-lp-mic-in\0$",
+-    // "audio-aop-mca2\0$",
+-    // "audio-aop-pcmaudiomgr\0$",
++    "aop-audio\0$",
++    "aop-audio-control\0$",
++    "aop-audio-speaker\0$",
++    "audio-aop-lp-mic-in\0$",
++    "audio-aop-mca2\0$",
++    "audio-aop-pcmaudiomgr\0$",
+     // "alc,t8030\0$",
+     // "audio-data,aop-audio-haptic\0$",
+     // "audio-data,halogen\0$",
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index e55712d..ab63899 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -2503,10 +2503,10 @@ static void t8030_create_aop(AppleT8030MachineState *t8030)
+     assert_nonnull(dma_mr);
+     object_property_add_const_link(OBJECT(aop), "dma-mr", OBJECT(dma_mr));
+ 
+-    // sbd = apple_aop_audio_create(APPLE_AOP(aop));
+-    // assert_nonnull(sbd);
+-    // object_property_add_child(OBJECT(aop), "aop-audio", OBJECT(sbd));
+-    // sysbus_realize_and_unref(sbd, &error_fatal);
++    sbd = apple_aop_audio_create(APPLE_AOP(aop));
++    assert_nonnull(sbd);
++    object_property_add_child(OBJECT(aop), "aop-audio", OBJECT(sbd));
++    sysbus_realize_and_unref(sbd, &error_fatal);
+ 
+     sysbus_realize_and_unref(aop, &error_fatal);
+ }

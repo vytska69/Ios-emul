@@ -1184,6 +1184,50 @@ extension APFSContainer {
         }.sorted { $0.logical < $1.logical }
     }
 
+    /// A file stored with APFS compression (decmpfs): its algorithm (`com.apple.decmpfs` type),
+    /// uncompressed size and, for the resource-fork types, where the fork's bytes are.
+    public struct CompressedFile {
+        public let type: UInt32
+        public let size: UInt64
+        public let fork: [Extent]
+    }
+
+    /// The compression of a file that has no data extents of its own, or nil if it is not compressed.
+    public func compressedFile(volume oid: UInt64, path: String) throws -> CompressedFile? {
+        let sb = ByteReader(try volumeSuperblock(oid))
+        let omapTree = ByteReader(try read(block: sb.u64(at: 128))).u64(at: 48)
+        let fs = FSReader(container: self, omapTree: omapTree, root: sb.u64(at: 136),
+                          hashedNames: sb.u64(at: 56) & 0x9 != 0)
+        var id = FSTree.rootID
+        for name in path.split(separator: "/") {
+            guard let hit = try fs.records(id: id, type: FSTree.typeDirRecord)
+                .first(where: { fs.directoryEntryName($0.key) == String(name) }) else {
+                throw Error.unsupported("\(path): no \(name)")
+            }
+            id = ByteReader(hit.value).u64(at: 0)
+        }
+        // Extended attributes: key j_key, name_len, name; value flags, xdata_len, xdata.
+        var decmpfs: Data?, forkStream: UInt64?
+        for record in try fs.records(id: id, type: 4) {
+            let k = ByteReader(record.key), v = ByteReader(record.value)
+            let name = String(decoding: record.key.slice(10, max(0, Int(k.u16(at: 8)) - 1)), as: UTF8.self)
+            let flags = v.u16(at: 0), length = Int(v.u16(at: 2))
+            if name == "com.apple.decmpfs", flags & 0x2 != 0 { decmpfs = record.value.slice(4, length) }
+            if name == "com.apple.ResourceFork", flags & 0x1 != 0 { forkStream = v.u64(at: 4) }
+        }
+        guard let decmpfs, decmpfs.count >= 16, ByteReader(decmpfs).u32(at: 0) == 0x636D_7066 else { return nil }  // "fpmc"
+        var fork: [Extent] = []
+        if let forkStream {
+            for record in try fs.records(id: forkStream, type: FSTree.typeFileExtent) {
+                let k = ByteReader(record.key), v = ByteReader(record.value)
+                fork.append(Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize,
+                                   length: v.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF))
+            }
+            fork.sort { $0.logical < $1.logical }
+        }
+        return CompressedFile(type: ByteReader(decmpfs).u32(at: 4), size: ByteReader(decmpfs).u64(at: 8), fork: fork)
+    }
+
     /// Reads `count` bytes at byte `offset` of the container.
     public func readBytes(at offset: UInt64, count: Int) throws -> Data {
         try handle.seek(toOffset: base + offset)
