@@ -167,6 +167,6 @@ private extension Data {
         (0..<4).reduce(UInt32(0)) { $0 | UInt32(self[startIndex + i + $1]) << (8 * $1) }
     }
     mutating func appendLE32(_ v: UInt32) {
-        withUnsafeBytes(of: v.littleEndian) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: v.littleEndian) { append(contentsOf: $0) }
     }
 }
