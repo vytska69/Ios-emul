@@ -235,81 +235,109 @@ public final class APFSContainer {
     }
 
     /// Grows the container to `blocks` blocks of the partition it sits in, so iOS sees the whole
-    /// disk instead of the root filesystem image's size (8 GB for iOS 14). The space manager gets
-    /// the new chunks as free chunks without bitmaps (all blocks free), in the last chunk-info
-    /// block and in new ones, whose addresses the space manager lists after making room for them.
-    /// The container superblock gets the new block count. Returns the blocks added (0 if the
-    /// container is already that large).
+    /// disk instead of the root filesystem image's size (8 GB for iOS 14). Returns the blocks added
+    /// (0 if the container is already that large).
+    ///
+    /// The space manager keeps its chunk-info blocks and chunk bitmaps in the internal pool, whose
+    /// size APFS ties to the container's: 3 blocks per chunk and per chunk-info block, as
+    /// newfs_apfs lays it out (183 blocks for the image's 60 chunks, 777 for 32 GiB). The pool
+    /// moves to the start of the new space with that size, its blocks copied and every address
+    /// into it translated. The new chunks are free and have no bitmap, except the one holding
+    /// the pool; the image's old pool blocks become free.
     @discardableResult
     public func grow(toBlocks blocks: UInt64) throws -> UInt64 {
         let oldBlocks = ByteReader(superblock).u64(at: 40)                       // nx_block_count
         guard blocks > oldBlocks else { return 0 }
-        var sm = try readSpaceman()
-        var s = ByteReader(sm.data)
-        let blocksPerChunk = UInt64(s.u32(at: 36))
-        let chunksPerCIB = Int(s.u32(at: 40))
-        guard blocksPerChunk > 0, chunksPerCIB > 0 else { throw Error.unsupported("space manager geometry") }
-        guard s.u64(at: 48) == oldBlocks else { throw Error.unsupported("space manager and superblock disagree") }
-        let oldCIBAddrs = try chunkInfoAddresses(sm.data)
-        let oldCABs = Int(s.u32(at: 48 + 20))
+        let sm = try readSpaceman()
+        var spaceman = sm.data
+        let s = ByteReader(sm.data)
+        let bpc = UInt64(s.u32(at: 36)), chunksPerCIB = Int(s.u32(at: 40))
+        guard bpc == blockSize * 8, chunksPerCIB > 0 else { throw Error.unsupported("space manager geometry") }
+        guard s.u64(at: 48) == oldBlocks, s.u32(at: 48 + 20) == 0, s.u64(at: 96) == 0 else {
+            throw Error.unsupported("space manager layout")
+        }
+        guard s.u32(at: 160) == 1 else { throw Error.unsupported("internal pool bitmap size") }
+        let oldCIBs = try chunkInfoAddresses(sm.data)
         let oldChunks = Int(s.u64(at: 48 + 8))
-        let newChunks = Int((blocks + blocksPerChunk - 1) / blocksPerChunk)
-        let newCIBs = (newChunks + chunksPerCIB - 1) / chunksPerCIB
-        guard let lastCIB = oldCIBAddrs.last else { throw Error.unsupported("no chunk-info blocks") }
-        let lastCIBChunks = Int(ByteReader(try read(block: lastCIB)).u32(at: 36))
-        guard lastCIBChunks > 0, oldChunks == (oldCIBAddrs.count - 1) * chunksPerCIB + lastCIBChunks else {
+        guard let lastCIB = oldCIBs.last,
+              oldChunks == (oldCIBs.count - 1) * chunksPerCIB + Int(ByteReader(try read(block: lastCIB)).u32(at: 36)) else {
             throw Error.unsupported("unexpected chunk-info layout")
         }
+        let newChunks = Int((blocks + bpc - 1) / bpc)
+        let newCIBCount = (newChunks + chunksPerCIB - 1) / chunksPerCIB
 
-        // The image's space manager has room for one chunk-info block address before the next
-        // array (tier 2 addresses, then the internal pool's bitmap bookkeeping). Make room the way
-        // APFS lays a larger container out: shift those arrays up and adjust their offsets.
-        let addrOffset = Int(s.u32(at: 48 + 32))
-        guard oldCABs == 0 else { throw Error.unsupported("chunk-info address blocks") }
-        let offsetFields = [96 + 32, 324, 328, 332]                               // tier2 addrs, ip_bm_xid, ip_bitmap, ip_bm_free_next
-        let following = offsetFields.map { Int(s.u32(at: $0)) }.filter { $0 > addrOffset }
-        let boundary = following.min() ?? sm.size
-        let delta = max(0, addrOffset + newCIBs * 8 - boundary)
-        if delta > 0 {
-            guard boundary < sm.size, sm.data[(sm.size - delta)..<sm.size].allSatisfy({ $0 == 0 }) else {
-                throw Error.unsupported("no room for chunk-info addresses")
+        // The internal pool: where it is and where it goes.
+        let oldPoolBase = s.u64(at: 176), oldPoolSize = s.u64(at: 152)
+        let poolSize = UInt64(3 * (newChunks + newCIBCount))
+        let poolChunk = Int((oldBlocks + bpc - 1) / bpc)                          // first chunk wholly new
+        let poolBase = UInt64(poolChunk) * bpc
+        guard poolSize >= oldPoolSize, poolBase + poolSize <= blocks else { throw Error.unsupported("internal pool does not fit") }
+        func moved(_ a: UInt64) -> UInt64 {
+            (oldPoolBase..<oldPoolBase + oldPoolSize).contains(a) ? a - oldPoolBase + poolBase : a
+        }
+
+        // The pool's bitmap (one block, the current one of its ring) marks which pool blocks
+        // are used; blocks past the old pool start free.
+        let ipBitmapAddr = s.u64(at: 168) + UInt64(ByteReader(sm.data).u16(at: Int(s.u32(at: 328))))
+        var ipBitmap = try read(block: ipBitmapAddr)
+        for b in oldPoolSize..<poolSize { ipBitmap[Int(b / 8)] &= ~UInt8(1 << (b % 8)) }
+        func takePoolBlock() throws -> UInt64 {
+            for b in 0..<poolSize where ipBitmap[Int(b / 8)] & UInt8(1 << (b % 8)) == 0 {
+                ipBitmap[Int(b / 8)] |= UInt8(1 << (b % 8))
+                return poolBase + b
+            }
+            throw Error.full
+        }
+
+        // Copy the pool; chunk-info blocks are physical objects named by their address.
+        for b in 0..<oldPoolSize {
+            try write(try read(block: oldPoolBase + b), block: poolBase + b)
+        }
+        var cibAddrs = oldCIBs.map(moved)
+        var cibs = try cibAddrs.map { try read(block: $0) }
+        for i in cibs.indices {
+            cibs[i].put64(cibAddrs[i], at: 8)
+            for c in 0..<Int(ByteReader(cibs[i]).u32(at: 36)) {
+                let o = 40 + c * 32
+                cibs[i].put64(moved(ByteReader(cibs[i]).u64(at: o + 24)), at: o + 24)
+            }
+        }
+        let template = cibs[0]
+
+        // Chunk info: find, update, append.
+        func chunkInfo(_ chunk: Int) -> (cib: Int, offset: Int) { (chunk / chunksPerCIB, 40 + (chunk % chunksPerCIB) * 32) }
+        var freeChange: Int64 = 0                                                 // from marking blocks
+        func markMain(_ range: Range<UInt64>, used: Bool) throws {
+            var b = range.lowerBound
+            while b < range.upperBound {
+                let chunk = Int(b / bpc), end = min(range.upperBound, UInt64(chunk + 1) * bpc)
+                let (ci, o) = chunkInfo(chunk)
+                let r = ByteReader(cibs[ci])
+                var bitmapAddr = r.u64(at: o + 24)
+                var bitmap = bitmapAddr == 0 ? Data(count: Int(blockSize)) : try read(block: bitmapAddr)
+                if bitmapAddr == 0 {
+                    bitmapAddr = try takePoolBlock()
+                    cibs[ci].put64(bitmapAddr, at: o + 24)
+                }
+                var free = r.u32(at: o + 20)
+                for x in (b - UInt64(chunk) * bpc)..<(end - UInt64(chunk) * bpc) {
+                    let byte = Int(x / 8), bit = UInt8(1 << (x % 8))
+                    if used, bitmap[byte] & bit == 0 { bitmap[byte] |= bit; free -= 1; freeChange -= 1 }
+                    if !used, bitmap[byte] & bit != 0 { bitmap[byte] &= ~bit; free += 1; freeChange += 1 }
+                }
+                try write(bitmap, block: bitmapAddr)
+                cibs[ci].put32(free, at: o + 20)
+                cibs[ci].put64(xid, at: o)
+                b = end
             }
         }
 
-        // New chunk-info blocks come from the existing free space, before the space manager is
-        // read again for its updated free count.
-        let newCIBAddrs = try allocate(newCIBs - oldCIBAddrs.count)
-        sm = try readSpaceman()
-        var spaceman = sm.data
-        s = ByteReader(spaceman)
-        let template = try read(block: oldCIBAddrs[0])
-
-        func chunkInfo(_ chunk: Int) -> Data {
-            let start = UInt64(chunk) * blocksPerChunk
-            let count = UInt32(min(blocksPerChunk, blocks - start))
-            var d = Data(count: 32)
-            d.put64(xid, at: 0); d.put64(start, at: 8)
-            d.put32(count, at: 16); d.put32(count, at: 20)                         // all free
-            return d                                                              // no bitmap
-        }
-        func newObject(at addr: UInt64, type: UInt32) -> Data {
-            var d = template
-            d.replaceSubrange(32..<Int(blockSize), with: Data(count: Int(blockSize) - 32))
-            d.put64(addr, at: 8)                                                  // o_oid: physical
-            d.put64(xid, at: 16)
-            d.put32(ByteReader(template).u32(at: 24) & 0xFFFF_0000 | type, at: 24)
-            return d
-        }
-
-        // The last chunk-info block: a last chunk that ended early (the image's size) grows to a
-        // full chunk, then new chunks fill it.
-        var cib = try read(block: lastCIB)
-        let n = Int(ByteReader(cib).u32(at: 36))
+        // A last chunk that ended early (the image's size) grows to a full chunk.
         do {
-            let r = ByteReader(cib)
-            let o = 40 + (n - 1) * 32
+            let (ci, o) = chunkInfo(oldChunks - 1)
+            let r = ByteReader(cibs[ci])
             let start = r.u64(at: o + 8), count = UInt64(r.u32(at: o + 16))
-            let full = min(blocksPerChunk, blocks - start)
+            let full = min(bpc, blocks - start)
             if full > count {
                 let bitmapAddr = r.u64(at: o + 24)
                 if bitmapAddr != 0 {
@@ -317,43 +345,76 @@ public final class APFSContainer {
                     for b in count..<full { bitmap[Int(b / 8)] &= ~UInt8(1 << (b % 8)) }
                     try write(bitmap, block: bitmapAddr)
                 }
-                cib.put32(UInt32(full), at: o + 16)
-                cib.put32(r.u32(at: o + 20) + UInt32(full - count), at: o + 20)
-                cib.put64(xid, at: o)
+                cibs[ci].put32(UInt32(full), at: o + 16)
+                cibs[ci].put32(r.u32(at: o + 20) + UInt32(full - count), at: o + 20)
+                cibs[ci].put64(xid, at: o)
             }
         }
-        var chunk = oldChunks
-        func fill(_ cib: inout Data, from n: Int) {
-            var n = n
-            while n < chunksPerCIB && chunk < newChunks {
-                cib.replaceSubrange((40 + n * 32)..<(40 + n * 32 + 32), with: chunkInfo(chunk))
-                n += 1; chunk += 1
+        // New chunks, free and without bitmaps, in the last chunk-info block and new ones.
+        for chunk in oldChunks..<newChunks {
+            let (ci, o) = chunkInfo(chunk)
+            if ci == cibs.count {
+                let addr = try takePoolBlock()
+                var cib = template
+                cib.replaceSubrange(32..<Int(blockSize), with: Data(count: Int(blockSize) - 32))
+                cib.put64(addr, at: 8); cib.put64(xid, at: 16)
+                cib.put32(UInt32(ci), at: 32)                                     // cib_index
+                cibs.append(cib); cibAddrs.append(addr)
             }
-            cib.put32(UInt32(n), at: 36)
+            let start = UInt64(chunk) * bpc, count = UInt32(min(bpc, blocks - start))
+            var info = Data(count: 32)
+            info.put64(xid, at: 0); info.put64(start, at: 8)
+            info.put32(count, at: 16); info.put32(count, at: 20)
+            cibs[ci].replaceSubrange(o..<(o + 32), with: info)
+            cibs[ci].put32(UInt32(chunk % chunksPerCIB + 1), at: 36)
+        }
+        guard cibs.count == newCIBCount else { throw Error.unsupported("chunk-info count") }
+
+        // The new pool's blocks are in use, the old pool's free.
+        try markMain(poolBase..<poolBase + poolSize, used: true)
+        try markMain(oldPoolBase..<oldPoolBase + oldPoolSize, used: false)
+        for (cib, addr) in zip(cibs, cibAddrs) {
+            var cib = cib
             Self.seal(&cib)
-        }
-        fill(&cib, from: n)
-        try write(cib, block: lastCIB)
-        for (i, addr) in newCIBAddrs.enumerated() {
-            var cib = newObject(at: addr, type: 0x7)                              // OBJECT_TYPE_SPACEMAN_CIB
-            cib.put32(UInt32(oldCIBAddrs.count + i), at: 32)                      // cib_index
-            fill(&cib, from: 0)
             try write(cib, block: addr)
         }
-        if delta > 0 {
-            let moved = spaceman[boundary..<(sm.size - delta)]
-            spaceman.replaceSubrange((boundary + delta)..<sm.size, with: moved)
-            for field in offsetFields where Int(s.u32(at: field)) >= boundary {
-                spaceman.put32(s.u32(at: field) + UInt32(delta), at: field)
-            }
-        }
-        for (c, addr) in (oldCIBAddrs + newCIBAddrs).enumerated() { spaceman.put64(addr, at: addrOffset + c * 8) }
+        try write(ipBitmap, block: ipBitmapAddr)
 
+        // The internal pool's free queue lists pool blocks waiting to be freed: translate them.
+        let ipQueue = s.u64(at: 208)
+        if s.u64(at: 200) > 0, ipQueue != 0 {
+            let paddr = try checkpointMappings().first(where: { $0.oid == ipQueue })?.paddr ?? ipQueue
+            var node = try read(block: paddr)
+            let n = ByteReader(node)
+            guard n.u16(at: 32) & 0x3 == 0x3 else { throw Error.unsupported("multi-level free queue") }
+            let tocOff = 56 + Int(n.u16(at: 40)), keyStart = tocOff + Int(n.u16(at: 42))
+            let fixed = n.u16(at: 32) & 0x4 != 0
+            for i in 0..<Int(n.u32(at: 36)) {
+                let k = keyStart + Int(n.u16(at: tocOff + i * (fixed ? 4 : 8)))
+                node.put64(moved(n.u64(at: k + 8)), at: k + 8)
+            }
+            Self.seal(&node)
+            try write(node, block: paddr)
+        }
+
+        // The space manager: chunk-info addresses (shifting the tier-2 address array up as a
+        // larger container lays it out), counts and the pool.
+        let addrOffset = Int(s.u32(at: 48 + 32))
+        let tier2Offset = Int(s.u32(at: 96 + 32))
+        let needed = addrOffset + cibs.count * 8
+        if tier2Offset > addrOffset, needed > tier2Offset {
+            guard needed + 8 <= sm.size else { throw Error.unsupported("no room for chunk-info addresses") }
+            spaceman.put32(UInt32(needed), at: 96 + 32)
+        }
+        guard needed <= sm.size else { throw Error.unsupported("no room for chunk-info addresses") }
+        for (c, addr) in cibAddrs.enumerated() { spaceman.put64(addr, at: addrOffset + c * 8) }
         let added = blocks - oldBlocks
         spaceman.put64(blocks, at: 48)                                            // sm_dev[main].sm_block_count
         spaceman.put64(UInt64(newChunks), at: 48 + 8)
-        spaceman.put32(UInt32(newCIBs), at: 48 + 16)
-        spaceman.put64(s.u64(at: 48 + 24) + added, at: 48 + 24)                  // sm_free_count
+        spaceman.put32(UInt32(cibs.count), at: 48 + 16)
+        spaceman.put64(UInt64(Int64(s.u64(at: 48 + 24) + added) + freeChange), at: 48 + 24)   // sm_free_count
+        spaceman.put64(poolSize, at: 152)                                         // sm_ip_block_count
+        spaceman.put64(poolBase, at: 176)                                         // sm_ip_base
         Self.seal(&spaceman)
         try write(spaceman, block: sm.paddr)
 
