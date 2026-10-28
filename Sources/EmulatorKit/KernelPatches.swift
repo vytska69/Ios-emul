@@ -63,6 +63,19 @@ public enum KernelPatches {
            let call = unserializeCall(in: image, after: "%s::%s() START [_dspHWServiceEnabled=%d, _clpFirmwareLoaded=%d]") {
             patches += skip(call, by: codecPayloadOffset, in: image, what: "AppleCS42L77AudioDSP")
         }
+
+        // AppleCS42L77AudioDSP::_enableHWService waits 2 s for that firmware to download (the
+        // deadline is set just before it logs "Awaiting for CLP firmware download callback":
+        // `mov w0, #2000; mov w1, #1000000` for clock_interval_to_deadline). The download takes
+        // far longer emulated, so the codec gave up and its ports never connected. Wait 60 s.
+        if codecPayloadOffset != nil,
+           let log = image.codeAfter(string: "%s::%s(inEnable=%d) Awaiting for CLP firmware download callback", within: 1).first,
+           let at = (1...48).lazy.map({ log - UInt64(4 * $0) }).first(where: {
+               image.word($0) == 0x5280_FA00 && image.word($0 + 4) == 0x5288_4801 && image.word($0 + 8) == 0x72A0_01E1
+           }) {
+            patches.append(Patch(address: at, original: image.word(at), replacement: 0x529D_4C00,
+                                 reason: "AppleCS42L77AudioDSP::_enableHWService: wait 60 s for the DSP firmware (mov w0, #60000)"))
+        }
         return patches
     }
 
