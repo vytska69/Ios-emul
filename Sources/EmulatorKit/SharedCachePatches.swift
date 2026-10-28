@@ -100,12 +100,8 @@ public enum SharedCachePatches {
             // follow when the devices appear.
             (["System/Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio",
               "Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio"],
-             [Patch(address: 0x7254, original: 0xA90A_7FE8, replacement: 0x52A3_9380,
-                    reason: "VirtualAudio deferred initialisation: wait for the codec devices (mov w0, #30 s)"),
-              Patch(address: 0x7258, original: 0x9102_83E1, replacement: 0x9412_4502,
-                    reason: "VirtualAudio deferred initialisation: wait for the codec devices (bl usleep)"),
-              Patch(address: 0x725C, original: 0x5280_00C0, replacement: 0x1400_001A,
-                    reason: "VirtualAudio deferred initialisation: then build its first route (b 0x72c4)")]),
+             [Patch(address: 0x7338, original: 0x9102_03E8, replacement: 0x1400_00BB,
+                    reason: "VirtualAudio deferred initialisation: carry on without a first route (b 0x7624)")]),
         ],
     ]
 
