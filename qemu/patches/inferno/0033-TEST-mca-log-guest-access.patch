@@ -18,15 +18,24 @@ index df692ed..7975658 100644
  
  // MMIO Index 0: SmartIO MCA
  #define MCA_SIO_REG_STRIDE (0x4000)
-@@ -385,6 +380,13 @@ static void apple_mca_out_callback(void *opaque, int avail)
+@@ -385,6 +380,22 @@ static void apple_mca_out_callback(void *opaque, int avail)
          uint32_t chunk = MIN(to_play, sizeof(s->buf));
  
          uint32_t pulled = apple_sio_dma_read(s->tx_ep, temp, chunk);
 +        static uint64_t mca_pulled_total;
++        static int mca_peak;
 +        if (pulled) {
++            const int16_t *smp = (const int16_t *)temp;
++            for (uint32_t i = 0; i < pulled / 2; i++) {
++                int v = smp[i] < 0 ? -smp[i] : smp[i];
++                if (v > mca_peak) {
++                    mca_peak = v;
++                }
++            }
 +            mca_pulled_total += pulled;
 +            if ((mca_pulled_total & ~0xFFFFull) != ((mca_pulled_total - pulled) & ~0xFFFFull)) {
-+                MCA_DPRINTF("tx dma pulled %llu bytes so far\n", (unsigned long long)mca_pulled_total);
++                MCA_DPRINTF("tx dma pulled %llu bytes so far, peak %d\n", (unsigned long long)mca_pulled_total, mca_peak);
++                mca_peak = 0;
 +            }
 +        }
          if (pulled == 0) {
