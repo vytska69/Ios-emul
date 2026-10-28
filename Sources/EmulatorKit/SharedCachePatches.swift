@@ -104,7 +104,11 @@ public enum SharedCachePatches {
                     reason: "VirtualAudio deferred initialisation: let the devices in before the first route (bl device manager)"),
               Patch(address: 0x7258, original: 0x9102_83E1, replacement: 0x9406_1499,
                     reason: "VirtualAudio deferred initialisation: let the devices in before the first route (bl allow devices)"),
-              Patch(address: 0x725C, original: 0x5280_00C0, replacement: 0x1400_001A,
+              Patch(address: 0x725C, original: 0x5280_00C0, replacement: 0x52A0_0F40,
+                    reason: "VirtualAudio deferred initialisation: give them time to arrive (mov w0, #8 s)"),
+              Patch(address: 0x7260, original: 0x9411_D370, replacement: 0x9412_4500,
+                    reason: "VirtualAudio deferred initialisation: give them time to arrive (bl usleep)"),
+              Patch(address: 0x7264, original: 0x3400_0300, replacement: 0x1400_0018,
                     reason: "VirtualAudio deferred initialisation: then build its first route (b 0x72c4)")]),
         ],
     ]
