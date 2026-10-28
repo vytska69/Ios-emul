@@ -88,6 +88,22 @@ public enum SharedCachePatches {
         ],
     ]
 
+    /// Patches to other files on the system volume, by IPSW build: the path (the first of the
+    /// candidates that exists) and patches whose address is a file offset.
+    public static let filePatchesByBuild: [String: [(paths: [String], patches: [Patch])]] = [
+        "18A373": [
+            // VirtualAudio's deferred initialisation sets up a first audio route and gives up
+            // (staying "not initialized", so iOS plays no sound at all) when there is none yet:
+            // the codec only publishes its devices once fud has loaded its DSP firmware, which
+            // takes half a minute under emulation. Carry on without a route; routes follow
+            // when the devices appear.
+            (["System/Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio",
+              "Library/Audio/Plug-Ins/HAL/VirtualAudio.plugin/VirtualAudio"],
+             [Patch(address: 0x7354, original: 0x3500_5528, replacement: 0xD503_201F,
+                    reason: "VirtualAudio deferred initialisation: carry on without a first route (nop)")]),
+        ],
+    ]
+
     /// Applies the patches for `build` (and with `skipSetup` the setup assistant ones) to the shared
     /// cache on the container's system volume. Returns a line per patch saying what happened.
     @discardableResult
@@ -96,6 +112,32 @@ public enum SharedCachePatches {
         guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == 0x1 }) ?? volumes.first else { return [] }
+        func hex<T: BinaryInteger>(_ v: T) -> String { "0x" + String(v, radix: 16) }
+        var report: [String] = []
+        for file in filePatchesByBuild[build] ?? [] {
+            guard let found = file.paths.lazy
+                .compactMap({ p in (try? container.fileExtents(volume: system.oid, path: p)).map { (p, $0) } }).first else {
+                report.append("\(file.paths[0]): not found"); continue
+            }
+            let (path, fileExtents) = found
+            for patch in file.patches {
+                guard let e = fileExtents.first(where: { patch.address >= $0.logical && patch.address < $0.logical + $0.length }) else {
+                    report.append("\(path)+\(hex(patch.address)): not in the file"); continue
+                }
+                let at = e.offset + patch.address - e.logical
+                let word = try container.readBytes(at: at, count: 4).le32(at: 0)
+                if word == patch.replacement {
+                    report.append("\(path)+\(hex(patch.address)): already patched")
+                } else if word != patch.original {
+                    report.append("\(path)+\(hex(patch.address)): expected \(hex(patch.original)), found \(hex(word)); left alone")
+                } else {
+                    var bytes = Data(count: 4)
+                    bytes.withUnsafeMutableBytes { $0.storeBytes(of: patch.replacement.littleEndian, as: UInt32.self) }
+                    try container.writeBytes(bytes, at: at)
+                    report.append("\(path)+\(hex(patch.address)): patched, \(patch.reason)")
+                }
+            }
+        }
         let extents = try container.fileExtents(volume: system.oid, path: cachePath)
 
         func containerOffset(_ fileOffset: UInt64) -> UInt64? {
@@ -116,8 +158,6 @@ public enum SharedCachePatches {
             (address: table.le64(at: i * 32), size: table.le64(at: i * 32 + 8), fileOffset: table.le64(at: i * 32 + 16))
         }
 
-        func hex<T: BinaryInteger>(_ v: T) -> String { "0x" + String(v, radix: 16) }
-        var report: [String] = []
         for patch in patches {
             guard let m = mappings.first(where: { patch.address >= $0.address && patch.address < $0.address + $0.size }),
                   let at = containerOffset(m.fileOffset + patch.address - m.address) else {
