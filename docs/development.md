@@ -47,7 +47,7 @@ nerašomi.
 ipsw-emu inspect firmware.ipsw                                  # identitetai, suderinamumas, padengimas
 ipsw-emu dt firmware.ipsw --product iPhone12,1 --path /arm-io   # DeviceTree mazgas
 ipsw-emu boot firmware.ipsw --work vm --product iPhone12,1 --mode direct --seconds 600 \
-  [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] [--boot-args "mt-strings=1"] \
+  [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] [--voiceover 1] [--boot-args "mt-strings=1"] \
   [--monitor "info registers; x /16wx 0x…"] [--qemu-args "-accel tcg,split-wx=on"]
 ipsw-emu apfs-add-volume disk.img --role data|preboot|xart …
 ipsw-emu apfs-dump disk.img
