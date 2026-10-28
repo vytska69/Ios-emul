@@ -60,7 +60,11 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   iOS garso sistema mato tik `Null_Device`, VirtualAudio pradinis maršrutas baigiasi klaida `nort`,
   ir įskiepis lieka „not initialized“. Branduolys programinę įrangą tikisi gauti kaip serializuotus
   duomenis per `setProperties`; tikėtinas siuntėjas – VirtualAudio (`L77Device`, ANC tuning'ai).
-- **Disko vieta.** Data tome laisvos vietos lieka apie 200 MB iš 8 GB.
+- **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
+  ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
+  blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai
+  ir žemėlapiai) perkeliama ir padidinama iki 3 × (grupių + sąrašų) blokų, kaip ją išdėsto
+  `newfs_apfs`. `fsck_apfs` erdvės tvarkyklę priima, Data tome laisva ~25 GB.
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
   F6 – Home. Šoninis mygtukas iOS pasiekia.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties

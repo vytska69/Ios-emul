@@ -26,7 +26,6 @@ iOS nebeprašo), veikia ir valdymo centras.
 - Garso nėra. iOS garso sistema mato tik tuščią „Null“ įrenginį: garso lusto (CS42L77) tvarkyklė
   negauna DSP programinės įrangos, todėl garsiakalbio nėra, o VirtualAudio nebaigia paleidimo.
   Tiriama bandomojoje šakoje `test/audio-mca`.
-- Emuliuoto telefono diske laisvos vietos lieka tik apie 200 MB.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|

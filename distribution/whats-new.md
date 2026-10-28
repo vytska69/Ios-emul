@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-28
+- iPhone 11 iOS 14: the emulated phone now has 32 GB of storage instead of 8 GB, of which only about 200 MB were free; about 25 GB are now free for apps and data (new installs).
+
 ## 2026-10-27
 - iPhone 11 iOS 14: no more passcode. Swiping up on the lock screen now opens the home screen; before, iOS asked for a passcode that was never set (new installs).
 - iPhone 11 iOS 14: Setup no longer jumps back to the "Hello" screen after you swipe up. The screen-drawing part of iOS crashed there because the emulated phone has no graphics chip; now the swipe leads on (for now to the passcode screen) (new installs).
