@@ -155,7 +155,9 @@ public struct InfernoBackend: EmulatorBackend {
 
         let vncPort: UInt16 = 5901
         let monitorPort: UInt16 = 1235
-        var bootArgs = "debug=0x14e kextlog=0xffff serial=3"
+        // No kextlog: logging every kext load and match to the console slowed the boot for
+        // nothing anyone reads.
+        var bootArgs = "debug=0x14e serial=3"
         if ctx.verboseBoot { bootArgs += " -v" }
         bootArgs += " wdt=-1"
         // Spinlocks time out after 0.1 s by default; under emulation a lock holder on another

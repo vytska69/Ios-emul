@@ -11,6 +11,7 @@ published with each build (scripts/make-sidestore-source.py).
 ## 2026-10-31
 - Sound: the emulated phone's sound no longer stutters. It was cut into short pieces with gaps of silence in between, because the emulated phone produces sound unevenly; the app now keeps a quarter second in hand and plays it smoothly, waiting briefly when the phone falls behind instead of breaking up every sound.
 - iPhone 11 iOS 14: fixed the phone crashing (restarting) shortly after the home screen appeared, which the sound change above caused in the previous build.
+- Faster: new boots now use 4 emulated CPU cores instead of 2 on iPhones and iPads with 6 or more cores (unless you changed the number in Settings), and the boot no longer writes a log line for every driver it loads.
 
 ## 2026-10-28
 - iPhone 11 iOS 14: the emulated phone now makes sound. Its audio system used to stay switched off (no speaker was ever set up), so nothing played, VoiceOver included; now the speaker is found and what the phone plays reaches the app (new installs).

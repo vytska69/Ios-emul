@@ -7,6 +7,10 @@ enum Pref {
     static let theme = "theme"
     static let bootMode = "defaultBootMode"
     static let cpus = "defaultCPUs"
+    /// Emulated cores a new boot starts with: 4 where the iPhone or iPad has 6 or more (QEMU runs
+    /// each emulated core on its own thread, and iOS spreads drawing and its daemons over them),
+    /// else 2.
+    static var defaultCPUCount: Int { ProcessInfo.processInfo.activeProcessorCount >= 6 ? 4 : 2 }
     /// 0: the machine's own default.
     static let memoryMB = "defaultMemoryMB"
     static let translationCacheMB = "translationCacheMB"
@@ -82,7 +86,7 @@ enum Pref {
         UserDefaults.standard.register(defaults: [
             theme: AppTheme.aurora.rawValue,
             bootMode: BootMode.direct.rawValue,
-            cpus: 2,
+            cpus: defaultCPUCount,
             memoryMB: 0,
             translationCacheMB: QEMURunner.defaultTranslationCacheMB,
             engine: QEMURunner.Engine.automatic.rawValue,
@@ -380,7 +384,7 @@ private struct ThemePicker: View {
 private struct BootDefaultsPage: View {
     @Environment(\.theme) private var theme
     @AppStorage(Pref.bootMode) private var bootMode = BootMode.direct.rawValue
-    @AppStorage(Pref.cpus) private var cpus = 2
+    @AppStorage(Pref.cpus) private var cpus = Pref.defaultCPUCount
     @AppStorage(Pref.memoryMB) private var memoryMB = 0
 
     var body: some View {
