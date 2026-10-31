@@ -1,9 +1,21 @@
 diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
-index 7975658..17c8691 100644
+index df692ed..b808163 100644
 --- a/hw/audio/apple-silicon/mca.c
 +++ b/hw/audio/apple-silicon/mca.c
-@@ -392,8 +392,13 @@ static void apple_mca_out_callback(void *opaque, int avail)
-             pulled = chunk;
+@@ -386,12 +386,24 @@ static void apple_mca_out_callback(void *opaque, int avail)
+ 
+         uint32_t pulled = apple_sio_dma_read(s->tx_ep, temp, chunk);
+         if (pulled == 0) {
++            /*
++             * The guest has nothing queued (emulated, it often falls behind real
++             * time). Keep a running capture endpoint fed, but play nothing rather
++             * than silence: inserted silence cuts every sound into pieces, while
++             * the host side buffers and plays what does arrive without gaps.
++             */
+             memset(temp, 0, chunk);
+-            pulled = chunk;
++            apple_sio_dma_write(s->rx_ep, temp, chunk);
++            break;
          }
  
 -        uint32_t written = apple_sio_dma_write(s->rx_ep, temp, pulled);
@@ -18,7 +30,7 @@ index 7975658..17c8691 100644
  
          to_play -= written;
          if (written < pulled) {
-@@ -456,7 +461,7 @@ SysBusDevice *apple_mca_create(AppleDTNode *node, AppleSIODMAEndpoint *tx_ep,
+@@ -454,7 +466,7 @@ SysBusDevice *apple_mca_create(AppleDTNode *node, AppleSIODMAEndpoint *tx_ep,
      if (AUD_register_card("mca", &s->card, NULL)) {
          audsettings settings = { 0 };
          settings.fmt = AUDIO_FORMAT_S16;

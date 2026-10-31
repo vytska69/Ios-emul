@@ -173,11 +173,23 @@ final class MachineAudio {
     }
 
     /// The render callback runs on the audio thread, so it is built outside the main actor.
-    /// The guest plays 16-bit stereo at 44.1 kHz (Inferno's MCA); the mixer converts to the output.
+    /// The guest plays 16-bit stereo at 44.1 kHz (QEMU's mixer output); the mixer converts to the
+    /// output.
+    ///
+    /// Emulated, the phone produces sound in bursts and often slower than real time. Played as it
+    /// arrives, every gap became a click and a short sound came out chopped into pieces. Instead
+    /// the guest's sound collects in a buffer and plays once a quarter second is there; when it
+    /// runs dry, it waits for the next quarter second rather than playing scraps.
     nonisolated private static func makeSource(read: ReadFn?, format: FormatFn?) -> (AVAudioSourceNode, AVAudioFormat)? {
         let sampleRate = 44_100.0
         let frameCapacity = 8192
         let scratch = UnsafeMutablePointer<Int16>.allocate(capacity: frameCapacity * 2)
+        // Buffered guest frames (interleaved stereo), up to 3 s; play starts at 0.25 s buffered.
+        let fifoFrames = Int(sampleRate) * 3
+        let startFrames = Int(sampleRate) / 4
+        let fifo = UnsafeMutablePointer<Int16>.allocate(capacity: fifoFrames * 2)
+        var fifoHead = 0, fifoCount = 0
+        var playing = false
         var guestIs16BitStereo = true
         var checkedFormat = false
 
@@ -186,7 +198,6 @@ final class MachineAudio {
         let node = AVAudioSourceNode(format: nodeFormat) { _, _, frameCount, audioBufferList -> OSStatus in
             let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let frames = min(Int(frameCount), frameCapacity)
-            var got = 0
             if let read {
                 if !checkedFormat, let format {
                     var freq: Int32 = 0, channels: Int32 = 0, bits: Int32 = 0, isFloat: Int32 = 0
@@ -195,18 +206,32 @@ final class MachineAudio {
                         checkedFormat = true
                     }
                 }
-                if guestIs16BitStereo {
-                    got = read(scratch, frames * 4) / 4
+                // Take everything the guest has played so far into the buffer.
+                while guestIs16BitStereo, fifoCount < fifoFrames {
+                    let want = min(frameCapacity, fifoFrames - fifoCount)
+                    let got = read(scratch, want * 4) / 4
+                    if got == 0 { break }
                     MachineAudio.totalGuestBytesRead &+= got * 4
+                    for i in 0..<got {
+                        let at = (fifoHead + fifoCount + i) % fifoFrames
+                        fifo[at * 2] = scratch[i * 2]
+                        fifo[at * 2 + 1] = scratch[i * 2 + 1]
+                    }
+                    fifoCount += got
                 }
             }
+            if !playing && fifoCount >= startFrames { playing = true }
+            let take = playing ? min(frames, fifoCount) : 0
             for (channel, buffer) in buffers.enumerated() {
                 guard let out = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
                 let c = min(channel, 1)
                 for i in 0..<Int(frameCount) {
-                    out[i] = i < got ? Float(scratch[i * 2 + c]) / 32768 : 0
+                    out[i] = i < take ? Float(fifo[((fifoHead + i) % fifoFrames) * 2 + c]) / 32768 : 0
                 }
             }
+            fifoHead = (fifoHead + take) % fifoFrames
+            fifoCount -= take
+            if take < Int(frameCount) { playing = false }
             return noErr
         }
         return (node, nodeFormat)

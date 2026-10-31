@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-10-31
+- Sound: the emulated phone's sound no longer stutters. It was cut into short pieces with gaps of silence in between, because the emulated phone produces sound unevenly; the app now keeps a quarter second in hand and plays it smoothly, waiting briefly when the phone falls behind instead of breaking up every sound.
+
 ## 2026-10-28
 - iPhone 11 iOS 14: the emulated phone now makes sound. Its audio system used to stay switched off (no speaker was ever set up), so nothing played, VoiceOver included; now the speaker is found and what the phone plays reaches the app (new installs).
 - iPhone 11 iOS 14: the emulated phone now has 32 GB of storage instead of 8 GB, of which only about 200 MB were free; about 25 GB are now free for apps and data (new installs).
