@@ -13,6 +13,7 @@ published with each build (scripts/make-sidestore-source.py).
 - iPhone 11 iOS 14: fixed the phone crashing (restarting) shortly after the home screen appeared, which the sound change above caused in the previous build.
 - Faster: new boots now use 4 emulated CPU cores instead of 2 on iPhones and iPads with 6 or more cores (unless you changed the number in Settings), and the boot no longer writes a log line for every driver it loads.
 - Sound: no more echo. When the emulated phone could not keep up, its sound chip played the last part of the sound again (every third of a second); those repeats are now left out, so you hear each sound once, with short pauses instead of an echo when the phone falls behind.
+- Sound: fewer clicks and crackles. The tiny silent gaps the emulated phone left between bits of a sound when it fell behind are now skipped, so sounds and speech play through smoothly; real pauses longer than 40 ms are kept.
 
 ## 2026-10-28
 - iPhone 11 iOS 14: the emulated phone now makes sound. Its audio system used to stay switched off (no speaker was ever set up), so nothing played, VoiceOver included; now the speaker is found and what the phone plays reaches the app (new installs).
