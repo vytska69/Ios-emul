@@ -1,9 +1,9 @@
 diff --git a/fpu/softfloat-native-arm.c.inc b/fpu/softfloat-native-arm.c.inc
 new file mode 100644
-index 0000000..13918f2
+index 0000000..fa11306
 --- /dev/null
 +++ b/fpu/softfloat-native-arm.c.inc
-@@ -0,0 +1,968 @@
+@@ -0,0 +1,977 @@
 +/*
 + * Native floating point for an Arm guest on an AArch64 host.
 + *
@@ -24,6 +24,15 @@ index 0000000..13918f2
 +    uint64_t want;
 +} NativeArmFP;
 +
++/* QEMU_NATIVE_FP=0 in the environment turns this off (to compare). */
++static bool native_arm_fp_off;
++
++static void __attribute__((constructor)) native_arm_fp_init(void)
++{
++    const char *v = getenv("QEMU_NATIVE_FP");
++    native_arm_fp_off = v && v[0] == '0';
++}
++
 +static inline uint64_t na_get_fpcr(void)
 +{
 +    uint64_t v;
@@ -42,7 +51,7 @@ index 0000000..13918f2
 +{
 +    uint64_t want = 0;
 +
-+    if (likely(!s->native_arm)) {
++    if (likely(!s->native_arm) || unlikely(native_arm_fp_off)) {
 +        return false;
 +    }
 +    if (!any_rmode) {
