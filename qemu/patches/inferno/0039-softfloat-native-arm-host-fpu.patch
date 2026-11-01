@@ -1,0 +1,1316 @@
+diff --git a/fpu/softfloat-native-arm.c.inc b/fpu/softfloat-native-arm.c.inc
+new file mode 100644
+index 0000000..13918f2
+--- /dev/null
++++ b/fpu/softfloat-native-arm.c.inc
+@@ -0,0 +1,968 @@
++/*
++ * Native floating point for an Arm guest on an AArch64 host.
++ *
++ * Softfloat computes every operation in software, at a hundred or more host
++ * instructions each; iOS draws its whole screen with the CPU (there is no GPU
++ * to emulate), mostly in floating point, so softfloat was a third of QEMU's
++ * time. The host's FPU implements the same Arm architecture as the guest:
++ * with the guest's rounding mode, flush-to-zero and default-NaN settings in
++ * FPCR it gives the guest's result, NaN propagation included, and FPSR
++ * gives its exception flags. Used only for float_status the Arm target marked
++ * native_arm (the FPCR.AH=0 statuses); anything else, or a mode FPCR has no
++ * encoding for, falls through to softfloat.
++ */
++#if defined(__aarch64__)
++
++typedef struct {
++    uint64_t old;
++    uint64_t want;
++} NativeArmFP;
++
++static inline uint64_t na_get_fpcr(void)
++{
++    uint64_t v;
++    asm volatile("mrs %0, fpcr" : "=r"(v));
++    return v;
++}
++
++static inline void na_set_fpcr(uint64_t v)
++{
++    asm volatile("msr fpcr, %0" : : "r"(v));
++}
++
++/* any_rmode: the operation takes its rounding mode from elsewhere. */
++static inline bool na_begin(const float_status *s, bool any_rmode,
++                            NativeArmFP *st)
++{
++    uint64_t want = 0;
++
++    if (likely(!s->native_arm)) {
++        return false;
++    }
++    if (!any_rmode) {
++        switch (s->float_rounding_mode) {
++        case float_round_nearest_even:
++            break;
++        case float_round_up:
++            want = 1ull << 22;
++            break;
++        case float_round_down:
++            want = 2ull << 22;
++            break;
++        case float_round_to_zero:
++            want = 3ull << 22;
++            break;
++        default:
++            return false;
++        }
++    }
++    if (s->flush_to_zero != s->flush_inputs_to_zero) {
++        return false;
++    }
++    if (s->flush_to_zero) {
++        want |= 1ull << 24;
++    }
++    if (s->default_nan_mode) {
++        want |= 1ull << 25;
++    }
++    st->want = want;
++    st->old = na_get_fpcr();
++    if (st->old != want) {
++        na_set_fpcr(want);
++    }
++    asm volatile("msr fpsr, xzr");
++    return true;
++}
++
++static inline void na_end(float_status *s, const NativeArmFP *st)
++{
++    uint64_t fpsr;
++    int f = 0;
++
++    asm volatile("mrs %0, fpsr" : "=r"(fpsr));
++    if (st->old != st->want) {
++        na_set_fpcr(st->old);
++    }
++    if (unlikely(fpsr & 0x9f)) {
++        if (fpsr & 1) {
++            f |= float_flag_invalid;
++        }
++        if (fpsr & 2) {
++            f |= float_flag_divbyzero;
++        }
++        if (fpsr & 4) {
++            f |= float_flag_overflow;
++        }
++        if (fpsr & 8) {
++            f |= float_flag_underflow;
++        }
++        if (fpsr & 16) {
++            f |= float_flag_inexact;
++        }
++        if (fpsr & 128) {
++            f |= float_flag_input_denormal_flushed;
++        }
++        s->float_exception_flags |= f;
++    }
++}
++
++static inline bool na_f32_add(float32 a, float32 b, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fadd s0, s0, s1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_sub(float32 a, float32 b, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fsub s0, s0, s1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_mul(float32 a, float32 b, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fmul s0, s0, s1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_div(float32 a, float32 b, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fdiv s0, s0, s1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_sqrt(float32 a, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fsqrt s0, s0\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_round_to_int(float32 a, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "frintx s0, s0\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_muladd(float32 a, float32 b, float32 c, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fmov s2, %w3\n\t"
++                 "fmadd s0, s0, s1, s2\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a), "r"(b), "r"(c) : "v0", "v1", "v2");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_to_int32(float32 a, FloatRoundMode rmode, int scale,
++                        float_status *s, int32_t *r)
++{
++    NativeArmFP st;
++    int32_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtns %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtps %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtms %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtzs %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtas %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_to_uint32(float32 a, FloatRoundMode rmode, int scale,
++                        float_status *s, uint32_t *r)
++{
++    NativeArmFP st;
++    uint32_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtnu %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtpu %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtmu %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtzu %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtau %w0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_to_int64(float32 a, FloatRoundMode rmode, int scale,
++                        float_status *s, int64_t *r)
++{
++    NativeArmFP st;
++    int64_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtns %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtps %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtms %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtzs %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtas %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_to_uint64(float32 a, FloatRoundMode rmode, int scale,
++                        float_status *s, uint64_t *r)
++{
++    NativeArmFP st;
++    uint64_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtnu %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtpu %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtmu %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtzu %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov s0, %w1\n\t"
++                     "fcvtau %x0, s0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_int64_to_f32(int64_t a, int scale, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (scale != 0 || !na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("cvtf s0, %x1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_uint64_to_f32(uint64_t a, int scale, float_status *s, float32 *r)
++{
++    NativeArmFP st;
++    float32 out;
++    if (scale != 0 || !na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("ucvtf s0, %x1\n\t"
++                 "fmov %w0, s0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f32_compare(float32 a, float32 b, float_status *s, FloatRelation *r)
++{
++    NativeArmFP st;
++    uint64_t nzcv;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fcmpe s0, s1\n\t"
++                 "mrs %0, nzcv"
++                 : "=r"(nzcv) : "r"(a), "r"(b) : "v0", "v1", "cc");
++    na_end(s, &st);
++    switch ((nzcv >> 28) & 0xf) {
++    case 0x6:
++        *r = float_relation_equal;
++        break;
++    case 0x8:
++        *r = float_relation_less;
++        break;
++    case 0x2:
++        *r = float_relation_greater;
++        break;
++    default:
++        *r = float_relation_unordered;
++        break;
++    }
++    return true;
++}
++
++static inline bool na_f32_compare_quiet(float32 a, float32 b, float_status *s, FloatRelation *r)
++{
++    NativeArmFP st;
++    uint64_t nzcv;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov s0, %w1\n\t"
++                 "fmov s1, %w2\n\t"
++                 "fcmp s0, s1\n\t"
++                 "mrs %0, nzcv"
++                 : "=r"(nzcv) : "r"(a), "r"(b) : "v0", "v1", "cc");
++    na_end(s, &st);
++    switch ((nzcv >> 28) & 0xf) {
++    case 0x6:
++        *r = float_relation_equal;
++        break;
++    case 0x8:
++        *r = float_relation_less;
++        break;
++    case 0x2:
++        *r = float_relation_greater;
++        break;
++    default:
++        *r = float_relation_unordered;
++        break;
++    }
++    return true;
++}
++
++static inline bool na_f64_add(float64 a, float64 b, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fadd d0, d0, d1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_sub(float64 a, float64 b, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fsub d0, d0, d1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_mul(float64 a, float64 b, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fmul d0, d0, d1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_div(float64 a, float64 b, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fdiv d0, d0, d1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a), "r"(b) : "v0", "v1");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_sqrt(float64 a, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fsqrt d0, d0\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_round_to_int(float64 a, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "frintx d0, d0\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_muladd(float64 a, float64 b, float64 c, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fmov d2, %x3\n\t"
++                 "fmadd d0, d0, d1, d2\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a), "r"(b), "r"(c) : "v0", "v1", "v2");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_to_int32(float64 a, FloatRoundMode rmode, int scale,
++                        float_status *s, int32_t *r)
++{
++    NativeArmFP st;
++    int32_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtns %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtps %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtms %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtzs %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtas %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_to_uint32(float64 a, FloatRoundMode rmode, int scale,
++                        float_status *s, uint32_t *r)
++{
++    NativeArmFP st;
++    uint32_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtnu %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtpu %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtmu %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtzu %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtau %w0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_to_int64(float64 a, FloatRoundMode rmode, int scale,
++                        float_status *s, int64_t *r)
++{
++    NativeArmFP st;
++    int64_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtns %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtps %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtms %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtzs %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtas %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_to_uint64(float64 a, FloatRoundMode rmode, int scale,
++                        float_status *s, uint64_t *r)
++{
++    NativeArmFP st;
++    uint64_t out;
++    if (scale != 0) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++    case float_round_up:
++    case float_round_down:
++    case float_round_to_zero:
++    case float_round_ties_away:
++        break;
++    default:
++        return false;
++    }
++    if (!na_begin(s, true, &st)) {
++        return false;
++    }
++    switch (rmode) {
++    case float_round_nearest_even:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtnu %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_up:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtpu %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_down:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtmu %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_to_zero:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtzu %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    case float_round_ties_away:
++        asm volatile("fmov d0, %x1\n\t"
++                     "fcvtau %x0, d0"
++                     : "=r"(out) : "r"(a) : "v0");
++        break;
++    default:
++        g_assert_not_reached();
++    }
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_int64_to_f64(int64_t a, int scale, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (scale != 0 || !na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("cvtf d0, %x1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_uint64_to_f64(uint64_t a, int scale, float_status *s, float64 *r)
++{
++    NativeArmFP st;
++    float64 out;
++    if (scale != 0 || !na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("ucvtf d0, %x1\n\t"
++                 "fmov %x0, d0"
++                 : "=r"(out) : "r"(a) : "v0");
++    na_end(s, &st);
++    *r = out;
++    return true;
++}
++
++static inline bool na_f64_compare(float64 a, float64 b, float_status *s, FloatRelation *r)
++{
++    NativeArmFP st;
++    uint64_t nzcv;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fcmpe d0, d1\n\t"
++                 "mrs %0, nzcv"
++                 : "=r"(nzcv) : "r"(a), "r"(b) : "v0", "v1", "cc");
++    na_end(s, &st);
++    switch ((nzcv >> 28) & 0xf) {
++    case 0x6:
++        *r = float_relation_equal;
++        break;
++    case 0x8:
++        *r = float_relation_less;
++        break;
++    case 0x2:
++        *r = float_relation_greater;
++        break;
++    default:
++        *r = float_relation_unordered;
++        break;
++    }
++    return true;
++}
++
++static inline bool na_f64_compare_quiet(float64 a, float64 b, float_status *s, FloatRelation *r)
++{
++    NativeArmFP st;
++    uint64_t nzcv;
++    if (!na_begin(s, false, &st)) {
++        return false;
++    }
++    asm volatile("fmov d0, %x1\n\t"
++                 "fmov d1, %x2\n\t"
++                 "fcmp d0, d1\n\t"
++                 "mrs %0, nzcv"
++                 : "=r"(nzcv) : "r"(a), "r"(b) : "v0", "v1", "cc");
++    na_end(s, &st);
++    switch ((nzcv >> 28) & 0xf) {
++    case 0x6:
++        *r = float_relation_equal;
++        break;
++    case 0x8:
++        *r = float_relation_less;
++        break;
++    case 0x2:
++        *r = float_relation_greater;
++        break;
++    default:
++        *r = float_relation_unordered;
++        break;
++    }
++    return true;
++}
++
++#define NATIVE_ARM_FP 1
++#else
++#define NATIVE_ARM_FP 0
++#endif
+diff --git a/fpu/softfloat.c b/fpu/softfloat.c
+index c70c9fd..23b173c 100644
+--- a/fpu/softfloat.c
++++ b/fpu/softfloat.c
+@@ -227,6 +227,8 @@ GEN_INPUT_FLUSH3(float64_input_flush3, float64)
+ # define QEMU_SOFTFLOAT_ATTR QEMU_FLATTEN __attribute__((noinline))
+ #endif
+ 
++#include "softfloat-native-arm.c.inc"
++
+ static inline bool can_use_fpu(const float_status *s)
+ {
+     if (QEMU_NO_HARDFLOAT) {
+@@ -2100,24 +2102,36 @@ static float64 float64_addsub(float64 a, float64 b, float_status *s,
+ float32 QEMU_FLATTEN
+ float32_add(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_add(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_addsub(a, b, s, hard_f32_add, soft_f32_add);
+ }
+ 
+ float32 QEMU_FLATTEN
+ float32_sub(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_sub(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_addsub(a, b, s, hard_f32_sub, soft_f32_sub);
+ }
+ 
+ float64 QEMU_FLATTEN
+ float64_add(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_add(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_addsub(a, b, s, hard_f64_add, soft_f64_add);
+ }
+ 
+ float64 QEMU_FLATTEN
+ float64_sub(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_sub(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_addsub(a, b, s, hard_f64_sub, soft_f64_sub);
+ }
+ 
+@@ -2263,6 +2277,9 @@ static double hard_f64_mul(double a, double b)
+ float32 QEMU_FLATTEN
+ float32_mul(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_mul(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_gen2(a, b, s, hard_f32_mul, soft_f32_mul,
+                         f32_is_zon2, f32_addsubmul_post);
+ }
+@@ -2270,6 +2287,9 @@ float32_mul(float32 a, float32 b, float_status *s)
+ float64 QEMU_FLATTEN
+ float64_mul(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_mul(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_gen2(a, b, s, hard_f64_mul, soft_f64_mul,
+                         f64_is_zon2, f64_addsubmul_post);
+ }
+@@ -2395,6 +2415,9 @@ static bool force_soft_fma;
+ float32 QEMU_FLATTEN
+ float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    if (flags == 0) { float32 na_r; if (na_f32_muladd(xa, xb, xc, s, &na_r)) { return na_r; } }
++#endif
+     union_float32 ua, ub, uc, ur;
+ 
+     ua.s = xa;
+@@ -2463,6 +2486,9 @@ float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
+ float64 QEMU_FLATTEN
+ float64_muladd(float64 xa, float64 xb, float64 xc, int flags, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    if (flags == 0) { float64 na_r; if (na_f64_muladd(xa, xb, xc, s, &na_r)) { return na_r; } }
++#endif
+     union_float64 ua, ub, uc, ur;
+ 
+     ua.s = xa;
+@@ -2668,6 +2694,9 @@ static bool f64_div_post(union_float64 a, union_float64 b)
+ float32 QEMU_FLATTEN
+ float32_div(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_div(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_gen2(a, b, s, hard_f32_div, soft_f32_div,
+                         f32_div_pre, f32_div_post);
+ }
+@@ -2675,6 +2704,9 @@ float32_div(float32 a, float32 b, float_status *s)
+ float64 QEMU_FLATTEN
+ float64_div(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_div(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_gen2(a, b, s, hard_f64_div, soft_f64_div,
+                         f64_div_pre, f64_div_post);
+ }
+@@ -3251,6 +3283,9 @@ float16 float16_round_to_int(float16 a, float_status *s)
+ 
+ float32 float32_round_to_int(float32 a, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_round_to_int(a, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float32_unpack_canonical(&p, a, s);
+@@ -3260,6 +3295,9 @@ float32 float32_round_to_int(float32 a, float_status *s)
+ 
+ float64 float64_round_to_int(float64 a, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_round_to_int(a, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float64_unpack_canonical(&p, a, s);
+@@ -3350,6 +3388,9 @@ int16_t float32_to_int16_scalbn(float32 a, FloatRoundMode rmode, int scale,
+ int32_t float32_to_int32_scalbn(float32 a, FloatRoundMode rmode, int scale,
+                                 float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { int32_t na_r; if (na_f32_to_int32(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float32_unpack_canonical(&p, a, s);
+@@ -3359,6 +3400,9 @@ int32_t float32_to_int32_scalbn(float32 a, FloatRoundMode rmode, int scale,
+ int64_t float32_to_int64_scalbn(float32 a, FloatRoundMode rmode, int scale,
+                                 float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { int64_t na_r; if (na_f32_to_int64(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float32_unpack_canonical(&p, a, s);
+@@ -3377,6 +3421,9 @@ int16_t float64_to_int16_scalbn(float64 a, FloatRoundMode rmode, int scale,
+ int32_t float64_to_int32_scalbn(float64 a, FloatRoundMode rmode, int scale,
+                                 float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { int32_t na_r; if (na_f64_to_int32(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float64_unpack_canonical(&p, a, s);
+@@ -3386,6 +3433,9 @@ int32_t float64_to_int32_scalbn(float64 a, FloatRoundMode rmode, int scale,
+ int64_t float64_to_int64_scalbn(float64 a, FloatRoundMode rmode, int scale,
+                                 float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { int64_t na_r; if (na_f64_to_int64(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float64_unpack_canonical(&p, a, s);
+@@ -3778,6 +3828,9 @@ uint16_t float32_to_uint16_scalbn(float32 a, FloatRoundMode rmode, int scale,
+ uint32_t float32_to_uint32_scalbn(float32 a, FloatRoundMode rmode, int scale,
+                                   float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { uint32_t na_r; if (na_f32_to_uint32(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float32_unpack_canonical(&p, a, s);
+@@ -3787,6 +3840,9 @@ uint32_t float32_to_uint32_scalbn(float32 a, FloatRoundMode rmode, int scale,
+ uint64_t float32_to_uint64_scalbn(float32 a, FloatRoundMode rmode, int scale,
+                                   float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { uint64_t na_r; if (na_f32_to_uint64(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float32_unpack_canonical(&p, a, s);
+@@ -3805,6 +3861,9 @@ uint16_t float64_to_uint16_scalbn(float64 a, FloatRoundMode rmode, int scale,
+ uint32_t float64_to_uint32_scalbn(float64 a, FloatRoundMode rmode, int scale,
+                                   float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { uint32_t na_r; if (na_f64_to_uint32(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float64_unpack_canonical(&p, a, s);
+@@ -3814,6 +3873,9 @@ uint32_t float64_to_uint32_scalbn(float64 a, FloatRoundMode rmode, int scale,
+ uint64_t float64_to_uint64_scalbn(float64 a, FloatRoundMode rmode, int scale,
+                                   float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { uint64_t na_r; if (na_f64_to_uint64(a, rmode, scale, s, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     float64_unpack_canonical(&p, a, s);
+@@ -4139,6 +4201,9 @@ float16 int8_to_float16(int8_t a, float_status *status)
+ 
+ float32 int64_to_float32_scalbn(int64_t a, int scale, float_status *status)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_int64_to_f32(a, scale, status, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     /* Without scaling, there are no overflow concerns. */
+@@ -4179,6 +4244,9 @@ float32 int16_to_float32(int16_t a, float_status *status)
+ 
+ float64 int64_to_float64_scalbn(int64_t a, int scale, float_status *status)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_int64_to_f64(a, scale, status, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     /* Without scaling, there are no overflow concerns. */
+@@ -4359,6 +4427,9 @@ float16 uint8_to_float16(uint8_t a, float_status *status)
+ 
+ float32 uint64_to_float32_scalbn(uint64_t a, int scale, float_status *status)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_uint64_to_f32(a, scale, status, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     /* Without scaling, there are no overflow concerns. */
+@@ -4399,6 +4470,9 @@ float32 uint16_to_float32(uint16_t a, float_status *status)
+ 
+ float64 uint64_to_float64_scalbn(uint64_t a, int scale, float_status *status)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_uint64_to_f64(a, scale, status, &na_r)) { return na_r; } }
++#endif
+     FloatParts64 p;
+ 
+     /* Without scaling, there are no overflow concerns. */
+@@ -4667,11 +4741,17 @@ float32_hs_compare(float32 xa, float32 xb, float_status *s, bool is_quiet)
+ 
+ FloatRelation float32_compare(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { FloatRelation na_r; if (na_f32_compare(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_hs_compare(a, b, s, false);
+ }
+ 
+ FloatRelation float32_compare_quiet(float32 a, float32 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { FloatRelation na_r; if (na_f32_compare_quiet(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float32_hs_compare(a, b, s, true);
+ }
+ 
+@@ -4721,11 +4801,17 @@ float64_hs_compare(float64 xa, float64 xb, float_status *s, bool is_quiet)
+ 
+ FloatRelation float64_compare(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { FloatRelation na_r; if (na_f64_compare(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_hs_compare(a, b, s, false);
+ }
+ 
+ FloatRelation float64_compare_quiet(float64 a, float64 b, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { FloatRelation na_r; if (na_f64_compare_quiet(a, b, s, &na_r)) { return na_r; } }
++#endif
+     return float64_hs_compare(a, b, s, true);
+ }
+ 
+@@ -4886,6 +4972,9 @@ soft_f64_sqrt(float64 a, float_status *status)
+ 
+ float32 QEMU_FLATTEN float32_sqrt(float32 xa, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float32 na_r; if (na_f32_sqrt(xa, s, &na_r)) { return na_r; } }
++#endif
+     union_float32 ua, ur;
+ 
+     ua.s = xa;
+@@ -4913,6 +5002,9 @@ float32 QEMU_FLATTEN float32_sqrt(float32 xa, float_status *s)
+ 
+ float64 QEMU_FLATTEN float64_sqrt(float64 xa, float_status *s)
+ {
++#if NATIVE_ARM_FP
++    { float64 na_r; if (na_f64_sqrt(xa, s, &na_r)) { return na_r; } }
++#endif
+     union_float64 ua, ur;
+ 
+     ua.s = xa;
+diff --git a/include/fpu/softfloat-types.h b/include/fpu/softfloat-types.h
+index e52d6e1..9e3c0cc 100644
+--- a/include/fpu/softfloat-types.h
++++ b/include/fpu/softfloat-types.h
+@@ -421,6 +421,11 @@ typedef struct float_status {
+     bool rebias_overflow;
+     /* should underflowed results add re_bias to its exponent? */
+     bool rebias_underflow;
++    /*
++     * Arm FPCR.AH=0 behaviour: on an AArch64 host the host FPU computes the
++     * same results and flags (fpu/softfloat-native-arm.c.inc).
++     */
++    bool native_arm;
+ } float_status;
+ 
+ #endif /* SOFTFLOAT_TYPES_H */
+diff --git a/target/arm/tcg/vfp_helper.c b/target/arm/tcg/vfp_helper.c
+index 1a5fc07..88367c2 100644
+--- a/target/arm/tcg/vfp_helper.c
++++ b/target/arm/tcg/vfp_helper.c
+@@ -48,6 +48,7 @@ void arm_set_default_fp_behaviours(float_status *s)
+     set_float_3nan_prop_rule(float_3nan_prop_s_cab, s);
+     set_float_infzeronan_rule(float_infzeronan_dnan_if_qnan, s);
+     set_float_default_nan_pattern(0b01000000, s);
++    s->native_arm = true;
+ }
+ 
+ /*
+@@ -69,6 +70,7 @@ void arm_set_ah_fp_behaviours(float_status *s)
+     set_float_infzeronan_rule(float_infzeronan_dnan_never |
+                               float_infzeronan_suppress_invalid, s);
+     set_float_default_nan_pattern(0b11000000, s);
++    s->native_arm = false;
+ }
+ 
+ /* Convert host exception flags to vfp form.  */
