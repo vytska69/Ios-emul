@@ -1,0 +1,136 @@
+diff --git a/target/arm/tcg/vec_helper.c b/target/arm/tcg/vec_helper.c
+index 33a136b..00ac598 100644
+--- a/target/arm/tcg/vec_helper.c
++++ b/target/arm/tcg/vec_helper.c
+@@ -25,6 +25,75 @@
+ #include "qemu/int128.h"
+ #include "crypto/clmul.h"
+ #include "vec_internal.h"
++#if defined(__aarch64__)
++#include <arm_neon.h>
++
++/*
++ * SQDMULH/SQRDMULH on the host's NEON: the same Arm instructions, a whole
++ * vector at a time instead of one element per call of do_sqrdmlah_*. iOS's
++ * CPU renderer uses them for every pixel it blends. They saturate only for
++ * MIN * MIN, which is what sets QC.
++ */
++static bool native_qdmulh_h(int16_t *d, const int16_t *n, const int16_t *m,
++                            intptr_t opr_sz, bool round, uint32_t *qc)
++{
++    intptr_t i;
++
++    if (opr_sz == 8) {
++        int16x4_t a = vld1_s16(n), b = vld1_s16(m);
++        uint16x4_t sat = vand_u16(vceq_s16(a, vdup_n_s16(INT16_MIN)),
++                                  vceq_s16(b, vdup_n_s16(INT16_MIN)));
++        vst1_s16(d, round ? vqrdmulh_s16(a, b) : vqdmulh_s16(a, b));
++        if (vmaxv_u16(sat)) {
++            *qc = 1;
++        }
++        return true;
++    }
++    if (opr_sz % 16) {
++        return false;
++    }
++    for (i = 0; i < opr_sz / 2; i += 8) {
++        int16x8_t a = vld1q_s16(n + i), b = vld1q_s16(m + i);
++        uint16x8_t sat = vandq_u16(vceqq_s16(a, vdupq_n_s16(INT16_MIN)),
++                                   vceqq_s16(b, vdupq_n_s16(INT16_MIN)));
++        vst1q_s16(d + i, round ? vqrdmulhq_s16(a, b) : vqdmulhq_s16(a, b));
++        if (vmaxvq_u16(sat)) {
++            *qc = 1;
++        }
++    }
++    return true;
++}
++
++static bool native_qdmulh_s(int32_t *d, const int32_t *n, const int32_t *m,
++                            intptr_t opr_sz, bool round, uint32_t *qc)
++{
++    intptr_t i;
++
++    if (opr_sz == 8) {
++        int32x2_t a = vld1_s32(n), b = vld1_s32(m);
++        uint32x2_t sat = vand_u32(vceq_s32(a, vdup_n_s32(INT32_MIN)),
++                                  vceq_s32(b, vdup_n_s32(INT32_MIN)));
++        vst1_s32(d, round ? vqrdmulh_s32(a, b) : vqdmulh_s32(a, b));
++        if (vmaxv_u32(sat)) {
++            *qc = 1;
++        }
++        return true;
++    }
++    if (opr_sz % 16) {
++        return false;
++    }
++    for (i = 0; i < opr_sz / 4; i += 4) {
++        int32x4_t a = vld1q_s32(n + i), b = vld1q_s32(m + i);
++        uint32x4_t sat = vandq_u32(vceqq_s32(a, vdupq_n_s32(INT32_MIN)),
++                                   vceqq_s32(b, vdupq_n_s32(INT32_MIN)));
++        vst1q_s32(d + i, round ? vqrdmulhq_s32(a, b) : vqdmulhq_s32(a, b));
++        if (vmaxvq_u32(sat)) {
++            *qc = 1;
++        }
++    }
++    return true;
++}
++#endif
+ 
+ /*
+  * Data for expanding active predicate bits to bytes, for byte elements.
+@@ -293,6 +362,13 @@ void HELPER(neon_sqdmulh_h)(void *vd, void *vn, void *vm,
+     intptr_t i, opr_sz = simd_oprsz(desc);
+     int16_t *d = vd, *n = vn, *m = vm;
+ 
++#if defined(__aarch64__)
++    if (native_qdmulh_h(d, n, m, opr_sz, false, vq)) {
++        clear_tail(d, opr_sz, simd_maxsz(desc));
++        return;
++    }
++#endif
++
+     for (i = 0; i < opr_sz / 2; ++i) {
+         d[i] = do_sqrdmlah_h(n[i], m[i], 0, false, false, vq);
+     }
+@@ -305,6 +381,13 @@ void HELPER(neon_sqrdmulh_h)(void *vd, void *vn, void *vm,
+     intptr_t i, opr_sz = simd_oprsz(desc);
+     int16_t *d = vd, *n = vn, *m = vm;
+ 
++#if defined(__aarch64__)
++    if (native_qdmulh_h(d, n, m, opr_sz, true, vq)) {
++        clear_tail(d, opr_sz, simd_maxsz(desc));
++        return;
++    }
++#endif
++
+     for (i = 0; i < opr_sz / 2; ++i) {
+         d[i] = do_sqrdmlah_h(n[i], m[i], 0, false, true, vq);
+     }
+@@ -528,6 +611,13 @@ void HELPER(neon_sqdmulh_s)(void *vd, void *vn, void *vm,
+     intptr_t i, opr_sz = simd_oprsz(desc);
+     int32_t *d = vd, *n = vn, *m = vm;
+ 
++#if defined(__aarch64__)
++    if (native_qdmulh_s(d, n, m, opr_sz, false, vq)) {
++        clear_tail(d, opr_sz, simd_maxsz(desc));
++        return;
++    }
++#endif
++
+     for (i = 0; i < opr_sz / 4; ++i) {
+         d[i] = do_sqrdmlah_s(n[i], m[i], 0, false, false, vq);
+     }
+@@ -540,6 +630,13 @@ void HELPER(neon_sqrdmulh_s)(void *vd, void *vn, void *vm,
+     intptr_t i, opr_sz = simd_oprsz(desc);
+     int32_t *d = vd, *n = vn, *m = vm;
+ 
++#if defined(__aarch64__)
++    if (native_qdmulh_s(d, n, m, opr_sz, true, vq)) {
++        clear_tail(d, opr_sz, simd_maxsz(desc));
++        return;
++    }
++#endif
++
+     for (i = 0; i < opr_sz / 4; ++i) {
+         d[i] = do_sqrdmlah_s(n[i], m[i], 0, false, true, vq);
+     }
