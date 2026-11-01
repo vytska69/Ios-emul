@@ -1,0 +1,19 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index e6c29d0..a6f2ba8 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -209,7 +209,13 @@ static void apple_mca_sio_reg_write(void *opaque, hwaddr addr, uint64_t data,
+             AUD_set_active_out(s->voice, active);
+             AUD_set_volume_out(s->voice, !active, 255, 255);
+         }
+-        s->sio_clusters[index].txb_control = data;
++        /*
++         * A unit reset completes at once: the reset bit reads back clear.
++         * AppleMCA2Switch_TxCtl::reset waits for it and panics when it stays
++         * set ("reset SAC fail"), which it did every time a sound stopped.
++         */
++        s->sio_clusters[index].txb_control =
++            (data & SIO_UNIT_CTL_RESET) ? 0 : data;
+         break;
+     }
+ }
