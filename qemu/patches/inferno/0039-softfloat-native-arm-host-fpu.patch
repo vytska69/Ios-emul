@@ -457,7 +457,7 @@ index 0000000..13918f2
 +    if (scale != 0 || !na_begin(s, false, &st)) {
 +        return false;
 +    }
-+    asm volatile("cvtf s0, %x1\n\t"
++    asm volatile("scvtf s0, %x1\n\t"
 +                 "fmov %w0, s0"
 +                 : "=r"(out) : "r"(a) : "v0");
 +    na_end(s, &st);
@@ -885,7 +885,7 @@ index 0000000..13918f2
 +    if (scale != 0 || !na_begin(s, false, &st)) {
 +        return false;
 +    }
-+    asm volatile("cvtf d0, %x1\n\t"
++    asm volatile("scvtf d0, %x1\n\t"
 +                 "fmov %x0, d0"
 +                 : "=r"(out) : "r"(a) : "v0");
 +    na_end(s, &st);
