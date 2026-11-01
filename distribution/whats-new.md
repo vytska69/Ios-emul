@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-01
+- Sound: less crackle. The tiny silent holes left where the emulated phone fell behind are now taken out of the sound however short they are, not only the longer ones.
+
 ## 2026-10-31
 - Sound: the emulated phone's sound no longer stutters. It was cut into short pieces with gaps of silence in between, because the emulated phone produces sound unevenly; the app now keeps a quarter second in hand and plays it smoothly, waiting briefly when the phone falls behind instead of breaking up every sound.
 - iPhone 11 iOS 14: fixed the phone crashing (restarting) shortly after the home screen appeared, which the sound change above caused in the previous build.

@@ -1,16 +1,8 @@
 diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
-index 3c5c627..63c0622 100644
+index 3c5c627..e6c29d0 100644
 --- a/hw/audio/apple-silicon/mca.c
 +++ b/hw/audio/apple-silicon/mca.c
-@@ -22,6 +22,7 @@
- #include "hw/audio/apple-silicon/mca.h"
- #include "qemu/error-report.h"
- #include "qemu/fifo32.h"
-+#include "qemu/cutils.h"
- 
- #if 0
- #define MCA_DPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
-@@ -152,6 +153,8 @@ struct AppleMCAState {
+@@ -152,6 +152,8 @@ struct AppleMCAState {
      AppleSIODMAEndpoint *rx_ep;
      QEMUSoundCard card;
      SWVoiceOut *voice;
@@ -19,7 +11,7 @@ index 3c5c627..63c0622 100644
      uint8_t buf[32768];
  };
  
-@@ -374,6 +377,42 @@ static const MemoryRegionOps apple_mca_mclk_ops = {
+@@ -374,6 +376,56 @@ static const MemoryRegionOps apple_mca_mclk_ops = {
      .valid.unaligned = false,
  };
  
@@ -27,33 +19,47 @@ index 3c5c627..63c0622 100644
 + * Plays the guest's output, leaving out short runs of silence. Emulated, the
 + * guest's audio often misses its deadline, and the parts of its ring it had no
 + * sound for in time are silent: playing them cut every sound into pieces a few
-+ * milliseconds apart, with a click at each cut. Silence that lasts longer than
-+ * that (a pause between words, the end of a sound) is still played. Returns the
-+ * bytes the voice took, counting the left-out silence as taken.
++ * milliseconds apart, with a click at each cut. A run of exactly silent frames
++ * is left out until the silence has lasted 40 ms; silence that lasts longer (a
++ * pause between words, the end of a sound) is still played. Returns the bytes
++ * the voice took, counting the left-out silence as taken.
 + */
-+#define MCA_SILENCE_KEPT (48000 * 4 * 40 / 1000)  /* 40 ms of 48 kHz stereo S16 */
-+#define MCA_SILENCE_BLOCK 512
++#define MCA_FRAME 4                                       /* stereo S16 */
++#define MCA_SILENCE_KEPT (48000 * MCA_FRAME * 40 / 1000)  /* 40 ms */
++
++static bool apple_mca_frame_silent(const uint8_t *frame)
++{
++    return !(frame[0] | frame[1] | frame[2] | frame[3]);
++}
 +
 +static uint32_t apple_mca_play(AppleMCAState *s, uint8_t *data, uint32_t len)
 +{
 +    uint32_t done = 0;
 +
++    len -= len % MCA_FRAME;
 +    while (done < len) {
-+        uint32_t n = MIN(len - done, MCA_SILENCE_BLOCK);
-+        bool silent = buffer_is_zero(data + done, n);
-+
-+        if (silent && s->held_silence + n <= MCA_SILENCE_KEPT) {
-+            s->held_silence += n;
-+            done += n;
-+            continue;
++        /* Sound up to the next silent frame, or held-back silence past 40 ms. */
++        uint32_t end = done;
++        while (end < len && (!apple_mca_frame_silent(data + end) ||
++                             s->held_silence >= MCA_SILENCE_KEPT)) {
++            if (!apple_mca_frame_silent(data + end)) {
++                s->held_silence = 0;
++            }
++            end += MCA_FRAME;
 +        }
-+        if (!silent) {
-+            s->held_silence = 0;
++        if (end > done) {
++            uint32_t n = end - done;
++            uint32_t written = AUD_write(s->voice, data + done, n);
++            done += written;
++            if (written < n) {
++                return done;
++            }
 +        }
-+        uint32_t written = AUD_write(s->voice, data + done, n);
-+        done += written;
-+        if (written < n) {
-+            break;
++        /* Silent frames, left out while the silence is short. */
++        while (done < len && apple_mca_frame_silent(data + done) &&
++               s->held_silence < MCA_SILENCE_KEPT) {
++            s->held_silence += MCA_FRAME;
++            done += MCA_FRAME;
 +        }
 +    }
 +    return done;
@@ -62,7 +68,7 @@ index 3c5c627..63c0622 100644
  static void apple_mca_out_callback(void *opaque, int avail)
  {
      AppleMCAState *s = opaque;
-@@ -384,8 +423,10 @@ static void apple_mca_out_callback(void *opaque, int avail)
+@@ -384,8 +436,10 @@ static void apple_mca_out_callback(void *opaque, int avail)
      while (to_play > 0) {
          uint32_t chunk = MIN(to_play, sizeof(s->buf));
  
@@ -75,7 +81,7 @@ index 3c5c627..63c0622 100644
              /*
               * The guest has nothing queued (emulated, it often falls behind real
               * time). The capture endpoint still gets silence at the real rate, as
-@@ -403,12 +444,15 @@ static void apple_mca_out_callback(void *opaque, int avail)
+@@ -403,12 +457,15 @@ static void apple_mca_out_callback(void *opaque, int avail)
          /*
           * Feed the output back to the capture endpoint when the guest has one
           * running (echo reference), but play it either way: the host hears
