@@ -9,7 +9,6 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-01
-- Faster: decimal-number math of the emulated phone (most of what it does to draw the screen, since there is no graphics chip) now runs directly on your device's processor instead of being calculated step by step in software.
 - Faster: the pixel blending the emulated phone does when drawing also runs directly on your device's processor, several pixels at once.
 - Faster: the emulator no longer stops and restarts its fast path every time the emulated phone's system switches between apps or handles an event, so less time goes to overhead.
 - Sound: the emulated phone no longer freezes about half a minute after it starts playing a sound (a ringtone, VoiceOver). Its system crashed whenever a sound stopped.

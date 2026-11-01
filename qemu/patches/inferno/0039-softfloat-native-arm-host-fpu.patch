@@ -24,13 +24,13 @@ index 0000000..fa11306
 +    uint64_t want;
 +} NativeArmFP;
 +
-+/* QEMU_NATIVE_FP=0 in the environment turns this off (to compare). */
++/* Off unless QEMU_NATIVE_FP=1: FPSR/FPCR accesses cost more than softfloat on Apple cores. */
 +static bool native_arm_fp_off;
 +
 +static void __attribute__((constructor)) native_arm_fp_init(void)
 +{
 +    const char *v = getenv("QEMU_NATIVE_FP");
-+    native_arm_fp_off = v && v[0] == '0';
++    native_arm_fp_off = !(v && v[0] == '1');
 +}
 +
 +static inline uint64_t na_get_fpcr(void)
