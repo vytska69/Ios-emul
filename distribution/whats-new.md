@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-01
+- Touch: a finger that moves is now passed to the emulated phone as it moves, with its speed, instead of a few points a fraction of a second apart. This should make the swipe up to go home from inside an app work.
 - Faster: the pixel blending the emulated phone does when drawing also runs directly on your device's processor, several pixels at once.
 - Faster: the emulator no longer stops and restarts its fast path every time the emulated phone's system switches between apps or handles an event, so less time goes to overhead.
 - Sound: the emulated phone no longer freezes about half a minute after it starts playing a sound (a ringtone, VoiceOver). Its system crashed whenever a sound stopped.
