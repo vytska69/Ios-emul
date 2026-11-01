@@ -1,0 +1,152 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 3c5c627..2d2cb1d 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -384,8 +384,10 @@ static void apple_mca_out_callback(void *opaque, int avail)
+     while (to_play > 0) {
+         uint32_t chunk = MIN(to_play, sizeof(s->buf));
+ 
+-        uint32_t pulled = apple_sio_dma_read(s->tx_ep, temp, chunk);
+-        if (pulled == 0) {
++        uint64_t consumed = 0;
++        uint32_t pulled = apple_sio_dma_read_fresh(s->tx_ep, temp, chunk,
++                                                   &consumed);
++        if (consumed == 0) {
+             /*
+              * The guest has nothing queued (emulated, it often falls behind real
+              * time). The capture endpoint still gets silence at the real rate, as
+@@ -403,12 +405,15 @@ static void apple_mca_out_callback(void *opaque, int avail)
+         /*
+          * Feed the output back to the capture endpoint when the guest has one
+          * running (echo reference), but play it either way: the host hears
+-         * what the guest sends, not only what it also records.
++         * what the guest sends, not only what it also records. Ring contents
++         * the guest had not refilled (apple_sio_dma_read_fresh) are left out,
++         * so the host hears no old sound twice.
+          */
+-        apple_sio_dma_write(s->rx_ep, temp, pulled);
+-        uint32_t written = AUD_write(s->voice, temp, pulled);
++        memset(temp + pulled, 0, consumed - pulled);
++        apple_sio_dma_write(s->rx_ep, temp, consumed);
++        uint32_t written = pulled ? AUD_write(s->voice, temp, pulled) : 0;
+ 
+-        to_play -= written;
++        to_play -= consumed;
+         if (written < pulled) {
+             break;
+         }
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 29bb9a1..96415d7 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -74,6 +74,8 @@ struct AppleSIODMAEndpoint {
+     QemuMutex mutex;
+     uint8_t id;
+     QTAILQ_HEAD(, SIODMABuffer) buffers;
++    /* apple_sio_dma_read_fresh: content hash of what was last read, by guest address. */
++    GHashTable *played;
+ };
+ 
+ struct AppleSIOClass {
+@@ -334,6 +336,88 @@ uint64_t apple_sio_dma_read(AppleSIODMAEndpoint *ep, void *buffer, uint64_t len)
+     return actual_len;
+ }
+ 
++#define SIO_FRESH_BLOCK 512
++
++/* The guest address of byte `offset` of the buffer's data. */
++static uint64_t apple_sio_dma_buf_addr(SIODMABuffer *buf, uint64_t offset)
++{
++    for (int i = 0; i < buf->sgl.nsg; ++i) {
++        if (offset < buf->sgl.sg[i].len) {
++            return buf->sgl.sg[i].base + offset;
++        }
++        offset -= buf->sgl.sg[i].len;
++    }
++    return 0;
++}
++
++/*
++ * Like apple_sio_dma_read, consuming up to len bytes of the guest's buffers, but
++ * copies into buffer only what the guest changed since the device last read the
++ * same guest memory: audio rings are queued again whether or not the guest has
++ * refilled them, and when it falls behind (always, emulated) the device would
++ * play the old contents once more, an echo. Returns the bytes copied; sets
++ * *consumed to the bytes taken from the guest.
++ */
++uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
++                                  uint64_t len, uint64_t *consumed)
++{
++    AppleSIOState *s;
++    SIODMABuffer *buf;
++    uint64_t fresh = 0;
++    uint64_t taken = 0;
++
++    assert_cmpuint(ep->direction, ==, DMA_DIRECTION_TO_DEVICE);
++
++    QEMU_LOCK_GUARD(&ep->mutex);
++
++    s = container_of(ep, AppleSIOState, eps[ep->id]);
++    if (ep->played == NULL) {
++        ep->played = g_hash_table_new_full(g_int64_hash, g_int64_equal,
++                                           g_free, g_free);
++    }
++
++    while (len > taken) {
++        buf = QTAILQ_FIRST(&ep->buffers);
++        if (buf == NULL || !apple_sio_dma_map_buf(ep, buf)) {
++            break;
++        }
++        uint64_t addr = apple_sio_dma_buf_addr(buf, buf->completed);
++        uint64_t piece = MIN(len - taken, buf->iov.size - buf->completed);
++        piece = MIN(piece, SIO_FRESH_BLOCK - (addr % SIO_FRESH_BLOCK));
++        uint8_t *dst = (uint8_t *)buffer + fresh;
++        piece = qemu_iovec_to_buf(&buf->iov, buf->completed, dst, piece);
++        if (piece == 0) {
++            break;
++        }
++
++        uint64_t hash = 0xcbf29ce484222325ULL;
++        for (uint64_t i = 0; i < piece; ++i) {
++            hash = (hash ^ dst[i]) * 0x100000001b3ULL;
++        }
++        hash ^= piece;
++        uint64_t *last = g_hash_table_lookup(ep->played, &addr);
++        if (last == NULL || *last != hash) {
++            if (last == NULL) {
++                uint64_t *key = g_new(uint64_t, 1);
++                *key = addr;
++                last = g_new(uint64_t, 1);
++                g_hash_table_insert(ep->played, key, last);
++            }
++            *last = hash;
++            fresh += piece;
++        }
++
++        taken += piece;
++        buf->completed += piece;
++        if (buf->completed >= buf->iov.size) {
++            apple_sio_dma_writeback(s, ep, buf);
++        }
++    }
++
++    *consumed = taken;
++    return fresh;
++}
++
+ uint64_t apple_sio_dma_write(AppleSIODMAEndpoint *ep, void *buffer,
+                              uint64_t len)
+ {
+diff --git a/include/hw/dma/apple_sio.h b/include/hw/dma/apple_sio.h
+index 1cb4718..24556a2 100644
+--- a/include/hw/dma/apple_sio.h
++++ b/include/hw/dma/apple_sio.h
+@@ -13,6 +13,8 @@ typedef struct AppleSIODMAEndpoint AppleSIODMAEndpoint;
+ 
+ uint64_t apple_sio_dma_read(AppleSIODMAEndpoint *ep, void *buffer,
+                             uint64_t len);
++uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
++                                  uint64_t len, uint64_t *consumed);
+ uint64_t apple_sio_dma_write(AppleSIODMAEndpoint *ep, void *buffer,
+                              uint64_t len);
+ uint64_t apple_sio_dma_remaining(AppleSIODMAEndpoint *ep);
