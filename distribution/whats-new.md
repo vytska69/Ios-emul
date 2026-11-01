@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-01
+- Faster: the emulator no longer stops and restarts its fast path every time the emulated phone's system switches between apps or handles an event, so less time goes to overhead.
 - Sound: the emulated phone no longer freezes about half a minute after it starts playing a sound (a ringtone, VoiceOver). Its system crashed whenever a sound stopped.
 - Sound: no more stop-and-start when the emulated phone is slower than real time. Its sound now plays a little slower, at the same pitch, without gaps; Settings → Emulator → Sound shows how fast it plays.
 - Sound: less crackle. The tiny silent holes left where the emulated phone fell behind are now taken out of the sound however short they are, not only the longer ones.
