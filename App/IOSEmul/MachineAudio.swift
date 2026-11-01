@@ -19,6 +19,9 @@ final class MachineAudio {
 
     private let engine = AVAudioEngine()
     private var source: AVAudioSourceNode?
+    /// Between the source and the mixer: plays the guest's sound slower, at the same pitch, when
+    /// the emulated phone produces it slower than real time (makeSource sets its rate).
+    private let stretch = AVAudioUnitTimePitch()
     /// Whether the source was made with QEMU's functions (the library loads when the machine starts).
     private var sourceReadsGuest = false
     private var active = false
@@ -30,6 +33,8 @@ final class MachineAudio {
     /// Diagnostics for the Settings "Sound" card, to tell an app-output problem from a guest that
     /// makes no sound. Updated on the audio thread, read on the main one; a stale read is harmless.
     public nonisolated(unsafe) static var totalGuestBytesRead = 0
+    /// How fast the guest's sound is played, 1 being real time (lower when the phone falls behind).
+    public nonisolated(unsafe) static var playbackRate: Float = 1
     /// Whether the guest's read function was found and its source is attached (not the silent one).
     public var guestSourceAttached: Bool { sourceReadsGuest }
     /// Whether the audio engine is running.
@@ -164,10 +169,12 @@ final class MachineAudio {
             engine.disconnectNodeOutput(old)
             engine.detach(old)
         }
-        guard let made = Self.makeSource(read: read, format: format) else { return }
+        if stretch.engine == nil { engine.attach(stretch) }
+        guard let made = Self.makeSource(read: read, format: format, stretch: stretch.audioUnit) else { return }
         let (node, nodeFormat) = made
         engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: nodeFormat)
+        engine.connect(node, to: stretch, format: nodeFormat)
+        engine.connect(stretch, to: engine.mainMixerNode, format: nodeFormat)
         source = node
         sourceReadsGuest = read != nil
     }
@@ -180,7 +187,14 @@ final class MachineAudio {
     /// arrives, every gap became a click and a short sound came out chopped into pieces. Instead
     /// the guest's sound collects in a buffer and plays once a quarter second is there; when it
     /// runs dry, it waits for the next quarter second rather than playing scraps.
-    nonisolated private static func makeSource(read: ReadFn?, format: FormatFn?) -> (AVAudioSourceNode, AVAudioFormat)? {
+    ///
+    /// A buffer only evens out bursts: a phone that keeps producing less than real time (most of
+    /// the time, emulated) still ran it dry every second or so, and the sound stopped and started.
+    /// `stretch` (a time-pitch unit) therefore plays it at the rate the phone produces it, measured
+    /// over the last second, nudged by how full the buffer is: slower, at the same pitch, without
+    /// gaps.
+    nonisolated private static func makeSource(read: ReadFn?, format: FormatFn?,
+                                               stretch: AudioUnit) -> (AVAudioSourceNode, AVAudioFormat)? {
         let sampleRate = 44_100.0
         let frameCapacity = 8192
         let scratch = UnsafeMutablePointer<Int16>.allocate(capacity: frameCapacity * 2)
@@ -192,6 +206,11 @@ final class MachineAudio {
         var playing = false
         var guestIs16BitStereo = true
         var checkedFormat = false
+        // Guest frames per second of wall time, averaged over about a second, and the rate set.
+        var inflowPerSecond = sampleRate
+        var lastTick: UInt64 = 0
+        var rate: Float = 1
+        let targetFrames = Double(sampleRate) / 2
 
         guard let nodeFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
                                              channels: 2, interleaved: false) else { return nil }
@@ -207,6 +226,25 @@ final class MachineAudio {
                     }
                 }
                 // Take everything the guest has played so far into the buffer.
+                var arrived = 0
+                defer {
+                    // The rate the guest produces at, then more or less of it as the buffer is
+                    // above or below half a second, so that it neither runs dry nor lags behind.
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    if lastTick != 0, now > lastTick {
+                        let dt = min(Double(now - lastTick) / 1e9, 0.5)
+                        let k = min(dt, 1)
+                        inflowPerSecond += (Double(arrived) / max(dt, 1e-3) - inflowPerSecond) * k
+                    }
+                    lastTick = now
+                    if playing {
+                        let fill = min(max(Double(fifoCount) / targetFrames, 0.7), 1.4)
+                        let want = Float(min(max(inflowPerSecond / sampleRate * fill, 0.5), 1.1))
+                        rate += (want - rate) * 0.05
+                        AudioUnitSetParameter(stretch, kNewTimePitchParam_Rate, kAudioUnitScope_Global, 0, rate, 0)
+                        MachineAudio.playbackRate = rate
+                    }
+                }
                 while guestIs16BitStereo, fifoCount < fifoFrames {
                     let want = min(frameCapacity, fifoFrames - fifoCount)
                     let got = read(scratch, want * 4) / 4
@@ -218,6 +256,7 @@ final class MachineAudio {
                         fifo[at * 2 + 1] = scratch[i * 2 + 1]
                     }
                     fifoCount += got
+                    arrived += got
                 }
             }
             if !playing && fifoCount >= startFrames { playing = true }

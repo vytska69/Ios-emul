@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-01
+- Sound: no more stop-and-start when the emulated phone is slower than real time. Its sound now plays a little slower, at the same pitch, without gaps; Settings → Emulator → Sound shows how fast it plays.
 - Sound: less crackle. The tiny silent holes left where the emulated phone fell behind are now taken out of the sound however short they are, not only the longer ones.
 
 ## 2026-10-31

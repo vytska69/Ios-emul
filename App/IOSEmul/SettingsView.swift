@@ -510,6 +510,7 @@ private struct EmulatorPage: View {
                             Hint(text: "Engine running: \(MachineAudio.shared.engineRunning ? "yes" : "no")")
                             Hint(text: "Guest sound source attached: \(MachineAudio.shared.guestSourceAttached ? "yes" : "no")")
                             Hint(text: "Guest audio read so far: \(MachineAudio.totalGuestBytesRead / 1024) KB")
+                            Hint(text: "Sound plays at \(Int((MachineAudio.playbackRate * 100).rounded())) % of normal speed (lower when the emulated phone falls behind)")
                             Hint(text: "Emulated phone has played sound: \(MachineAudio.shared.guestPlayedFormat ?? "no")")
                             Hint(text: "Engine restarts: \(MachineAudio.shared.restarts)\(MachineAudio.shared.lastError.map { " · last error: \($0)" } ?? "")")
                         }
