@@ -1,0 +1,20 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 2d2cb1d..531876f 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -23,13 +23,8 @@
+ #include "qemu/error-report.h"
+ #include "qemu/fifo32.h"
+ 
+-#if 0
+-#define MCA_DPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+-#else
+-#define MCA_DPRINTF(fmt, ...) \
+-    do {                      \
+-    } while (0)
+-#endif
++#include "qemu/log.h"
++#define MCA_DPRINTF(fmt, ...) qemu_log_mask(LOG_GUEST_ERROR, "MCA: " fmt, ##__VA_ARGS__)
+ 
+ // MMIO Index 0: SmartIO MCA
+ #define MCA_SIO_REG_STRIDE (0x4000)
