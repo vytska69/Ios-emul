@@ -1,0 +1,54 @@
+# Virtualus GPU: darbo užrašai
+
+Tikslas: iOS piešimą, kurį dabar emuliuotas procesorius atlieka programiškai (QuartzCore
+`CA::OGL::SWContext`, nes AGX GPU nėra), perkelti į emuliatorių: iš pradžių į tiesiogiai
+vykdomą kodą, vėliau į įrenginio GPU per Metal.
+
+## 1. Kanalas: hiperkvietimas `HINT #127`
+
+`qemu/patches/inferno/0048-ios-hypercall-channel.patch`.
+
+- Instrukcija `hint #127` (`0xD5032FFF`). Tikrame procesoriuje ji yra NOP, o QEMU kviečia
+  `helper_ios_hcall`.
+- `x16` – kvietimo numeris, `x0`–`x5` – argumentai, `x0` – rezultatas.
+- 0 `PING`: `x0 = 'IOSG'` (`0x494f5347`), `x1` = protokolo versija (1).
+- 1 `MEMMOVE(dst, src, len)`: pirmiausia patikrina visus puslapius (klaida įvyksta prieš
+  bet kokį įrašymą, o kvietimas po to kartojamas iš naujo); persidengiančius kopijuoja per buferį.
+- 2 `MEMSET(dst, byte, len)`.
+- Svečio pusėje funkcijos dalis pakeičiama į `mov x16, #N; hint #127; ret`
+  (`SharedCachePatches`, 18A373). Taip daroma `_platform_memmove` nuo 4 KB
+  (0x1C7996610) ir `_platform_memset`/`_platform_bzero` nuo 32 KB (0x1C7996DC4, 0x1C7996D60).
+- Patikrinta CI: iOS įsijungia, atsirakina, Settings veikia, ringtonai groja.
+
+## 2. iOS 14 programinis piešimas (QuartzCore, 18A373)
+
+- `CA::OGL::SWContext::draw_elements(PrimitiveMode, count, const u16 *indices, const Vertex *,
+  u32, u32, const ClipPlane *)` (0x183703608). Gauna visą piešimo paketą.
+  - `x0` = SWContext; `[ctx+0x8]` – piešimo būsena (`x21`): tekstūrų vienetai, kiekvienam
+    `u16` režimas ties `+0xbc + 2*i` (1–2: vaizdas, 3: ?, 4: kvadratas/apskritimas),
+    tekstūros rodyklė ties `+0xe0 + 8*i`, vienetų skaičius pagal `tex_image_count[ [state+0x10] ]`.
+  - Kiekvienam vienetui kuriama 0x58 baitų `SamplerData` (steke ties `sp+0x1a0`).
+  - Tekstūros objektas: `+0x10` paviršius (IOSurface ar Image), `+0x3c` vėliavos,
+    `+0x50` IOSurface, `+0x58` formatas (-1: nežinomas), `+0x78` vėliava.
+  - Paskirties sritis: `ctx+0x6c0..0x6cc` (x0, y0, x1, y1), apkarpoma pagal `ctx+0x18..0x24`,
+    kai `ctx+0x38` ≠ 0.
+  - Sampler funkcijos pagal formatą: lentelė `CA::OGL::SW::sampler_functions(unsigned)::samplers`
+    (formatai 0..0x1c, po 16 įrašų).
+- `CA::OGL::SW::scan_convert(RenderState const*, Poly*, unsigned)` dalija daugiakampius į
+  eilutes. Kiekvienai eilutei kviečiama sampler grandinė.
+- `render_sampler<T, bool, bool>(const SamplerData *, unsigned count, T *out, unsigned unit)`
+  (pvz., 0x18370c898): per `[[sd]+0x38][unit]` iškviečia žemesnį sampler, kuris užpildo
+  laikiną buferį. Tada kiekvienam pikseliui:
+  `v = clamp(byte * k * sd[0x44] + sd[0x4c] + 0.5, 0, 1) * 255 + 0.5`, ir baitas pakartojamas į
+  visus 4 kanalus (alfa kaukė).
+- Kitos funkcijos: `image_sampler<Format, T, …>`, `square_sampler`, `circle_sampler`,
+  `gaussian_sampler`, `sample_texture`, `tex_color_matrix_4x4_bias`, maišymo režimai
+  (`…DarkenSover…`).
+
+## 3. Planas
+
+1. Dažniausiai naudojamas sampler funkcijas (pagal profilį `image_sampler` variantus ir
+   `tex_color_matrix`) perrašyti C kalba emuliatoriuje taip, kad rezultatai sutaptų bitas į bitą, ir
+   nukreipti per hiperkvietimą. Tikrinti, ar ekrano kadrai sutampa su programiniu piešimu.
+2. Perimti visą `draw_elements`: piešimo būseną ir trikampius perduoti emuliatoriui, o šis
+   piešia per Metal tiesiai į svečio paviršių.
