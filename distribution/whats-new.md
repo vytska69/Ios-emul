@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-01
+- Faster: the everyday decimal-number math of the emulated phone (most of what it does to draw the screen, since there is no graphics chip) now runs directly on your device's processor; only unusual cases are still calculated step by step in software.
 - Touch: a finger that moves is now passed to the emulated phone as it moves, with its speed, instead of a few points a fraction of a second apart. This should make the swipe up to go home from inside an app work.
 - Faster: the pixel blending the emulated phone does when drawing also runs directly on your device's processor, several pixels at once.
 - Faster: the emulator no longer stops and restarts its fast path every time the emulated phone's system switches between apps or handles an event, so less time goes to overhead.
