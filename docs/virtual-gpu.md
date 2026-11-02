@@ -45,7 +45,25 @@ vykdomą kodą, vėliau į įrenginio GPU per Metal.
   `gaussian_sampler`, `sample_texture`, `tex_color_matrix_4x4_bias`, maišymo režimai
   (`…DarkenSover…`).
 
-## 3. Planas
+## 3. Jau vykdoma tiesiogiai (hiperkvietimai)
+
+| Nr. | Funkcija | Adresas (18A373) | Pataisa | Patikrinta |
+|---|---|---|---|---|
+| 3 | `image_sampler<ARGB8_Host, unsigned, 1,1,1,1>` (perspektyvinis, 5 kraštų režimai) | 0x183720c2c | 0050 | Unicorn, 200 atvejų, 0 skirtumų (be `atan2f` režimo) |
+| 4 | `image_sampler<XRGB8_Host, unsigned, 0,0,0,1>` (afininis) | 0x1837200e4 | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
+| 5 | `image_sampler<ARGB8_Host, unsigned, 0,0,0,1>` (afininis) | 0x1837211ac | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
+| 6 | `tex_color_matrix_4x4_bias` | 0x183708fd8 | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
+
+`SamplerData` (iš kodo): `+0x00` tekstūra, `+0x10`/`+0x18` rodyklės į `w` ir `dw` (`+0xc`),
+`+0x30` kraštų režimas, `+0x34/+0x38` u ir du, `+0x3c/+0x40` v ir dv (16.16), `+0x54..+0x60`
+režimų koeficientai. Tekstūra: `+0x00` pikseliai, `+0x10` eilutės ilgis baitais, `+0x18/+0x1c` plotis
+ir aukštis, `+0x20/+0x24` didžiausios koordinatės (16.16), `+0x28/+0x2c` mastelis.
+
+Profilis braukiant (prieš šiuos pakeitimus): branduolys apie 75 % emuliuotų procesorių laiko,
+programos apie 25 %. Iš programų laiko visas QuartzCore piešimas sudaro apie 6–8 % viso laiko,
+iš to šios keturios funkcijos apie 5 %.
+
+## 4. Planas
 
 1. Dažniausiai naudojamas sampler funkcijas (pagal profilį `image_sampler` variantus ir
    `tex_color_matrix`) perrašyti C kalba emuliatoriuje taip, kad rezultatai sutaptų bitas į bitą, ir
