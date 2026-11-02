@@ -1,0 +1,72 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 7cc9fe5..2aeb779 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -226,6 +226,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     tb = qatomic_read(&jc->array[hash].tb);
+     if (likely(tb &&
+                jc->array[hash].pc == s.pc &&
++               tb_jmp_cache_gen_ok(jc, hash, s.pc) &&
+                tb->cs_base == s.cs_base &&
+                tb->flags == s.flags &&
+                tb_cflags(tb) == s.cflags)) {
+@@ -238,6 +239,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     }
+ 
+     jc->array[hash].pc = s.pc;
++    jc->array[hash].gen = jc->user_gen;
+     qatomic_set(&jc->array[hash].tb, tb);
+ 
+ hit:
+@@ -933,6 +935,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
+                 h = tb_jmp_cache_hash_func(s.pc);
+                 jc = cpu->tb_jmp_cache;
+                 jc->array[h].pc = s.pc;
++                jc->array[h].gen = jc->user_gen;
+                 qatomic_set(&jc->array[h].tb, tb);
+             }
+ 
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 1fde7e8..f289446 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -458,11 +458,7 @@ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
+     if (jc) {
+-        for (int i = 0; i < TB_JMP_CACHE_SIZE; i++) {
+-            if ((jc->array[i].pc >> 63) == 0) {
+-                qatomic_set(&jc->array[i].tb, NULL);
+-            }
+-        }
++        jc->user_gen++;
+     }
+     qatomic_set(&cpu->neg.tlb.c.part_flush_count,
+                 cpu->neg.tlb.c.part_flush_count + 1);
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index b5f63ad..0295ec7 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -30,10 +30,22 @@
+  */
+ typedef struct CPUJumpCache {
+     struct rcu_head rcu;
++    /*
++     * Entries for lower-half PCs are valid only while their gen equals
++     * user_gen; tlb_flush_lower_half bumps it instead of clearing them.
++     */
++    uint64_t user_gen;
+     struct {
+         TranslationBlock *tb;
+         vaddr pc;
++        uint64_t gen;
+     } array[TB_JMP_CACHE_SIZE];
+ } CPUJumpCache;
+ 
++static inline bool tb_jmp_cache_gen_ok(CPUJumpCache *jc, uint32_t hash,
++                                       vaddr pc)
++{
++    return (int64_t)pc < 0 || jc->array[hash].gen == jc->user_gen;
++}
++
+ #endif /* ACCEL_TCG_TB_JMP_CACHE_H */
