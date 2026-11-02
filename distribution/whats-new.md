@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-02
+- Faster: the emulated screen no longer checks 60 times a second, on top of the refreshes the app already asks for, which parts of the picture changed.
 - Groundwork for the virtual graphics chip: the emulator can now run chosen parts of the emulated phone's system directly on your device. The first are large memory copies and fills (on a new install).
 - Faster: when the emulated phone's system clears what it remembers about one app, the emulator no longer stops all four of its processors and clears everything.
 - Fewer freezes: the emulated phone's security chip now answers the system's credential requests at once. Unanswered, each one held parts of the system (keychain, VoiceOver, Settings) for 5 to 10 seconds, often enough to look frozen or to have VoiceOver ended as hung.

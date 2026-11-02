@@ -1,0 +1,20 @@
+diff --git a/hw/display/apple_displaypipe_v4.c b/hw/display/apple_displaypipe_v4.c
+index 20fdc90..66912d7 100644
+--- a/hw/display/apple_displaypipe_v4.c
++++ b/hw/display/apple_displaypipe_v4.c
+@@ -691,8 +691,14 @@ static void adp_v4_vsync(void *opaque)
+ {
+     AppleDisplayPipeV4State *adp = opaque;
+ 
++    /*
++     * Only the interrupt: whoever shows the screen (VNC, a screendump) refreshes it
++     * through gfx_update, and finding the dirty lines walks every CPU's TLB, which
++     * done here as well, 60 times a second, was several percent of all the time.
++     */
+     if (adp->vram_mr != NULL) {
+-        adp_v4_gfx_update(adp);
++        qatomic_or(&adp->int_status, R_CONTROL_INT_OUTPUT_READY_MASK);
++        adp_v4_update_irqs(adp);
+     }
+     timer_mod(adp->vsync_timer,
+               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ADP_V4_VSYNC_NS);
