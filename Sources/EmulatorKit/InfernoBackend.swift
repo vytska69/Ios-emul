@@ -325,8 +325,11 @@ public struct InfernoBackend: EmulatorBackend {
         }
         // Under emulation SpringBoard and the apps it launches start many times slower than on a
         // device; backboardd's watchdogs would kill them before they finish launching.
+        // No vibration with rings and alerts: the emulated phone has no vibration motor, and an
+        // alert played with vibration (a ringtone preview in Settings) played no sound at all.
         let springboard = "mobile/Library/Preferences/com.apple.springboard.plist"
-        if let data = try? PropertyListSerialization.data(fromPropertyList: ["BKNoWatchdogs": true], format: .binary, options: 0) {
+        let springboardPrefs: [String: Any] = ["BKNoWatchdogs": true, "ring-vibrate": false, "silent-vibrate": false]
+        if let data = try? PropertyListSerialization.data(fromPropertyList: springboardPrefs, format: .binary, options: 0) {
             tree.files[springboard] = data
             tree.attributes[springboard] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
         }

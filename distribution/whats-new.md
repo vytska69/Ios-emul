@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-02
+- Sound: ringtones play when you pick them in Settings → Sounds & Haptics. The emulated phone has no vibration motor, and a ringtone played with vibration made no sound at all; vibration for rings and alerts is now off on a new install (on an existing one, turn off "Vibrate on Ring" and "Vibrate on Silent" there).
+
 ## 2026-11-01
 - Faster: when the emulated phone switches between apps and services (hundreds of times a second), the emulator now forgets only what belongs to the app it leaves, instead of everything it knew about the phone's system as well.
 - Faster: the emulator remembers four times as many places in the emulated phone's code it has already prepared to run, so it looks them up less often.
