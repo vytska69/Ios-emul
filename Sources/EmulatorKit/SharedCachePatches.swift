@@ -54,6 +54,29 @@ public enum SharedCachePatches {
                   reason: "QuartzCore release_iosurface: no renderer without Metal, skip blraa x9, x8 (nop)"),
             Patch(address: 0x1_8367_74E0, original: 0x5288_E828, replacement: 0xD65F_03C0,
                   reason: "QuartzCore get_compressed_agx_universal_rgb_fourcc: keep surfaces uncompressed (ret)"),
+            // Large copies and fills run natively: the emulator's hypercall (HINT #127, a NOP on
+            // hardware; qemu/patches/inferno/0048) with x16 = 1 (memmove) or 2 (memset) does the
+            // whole call on the host, where the guest's own loop runs 32 bytes per translated step.
+            // Only the paths for big sizes are replaced (x0 destination, x1 source or byte, x2
+            // length, as the function received them); short ones stay as they are.
+            Patch(address: 0x1_C799_6610, original: 0x9100_8063, replacement: 0xD280_0030,
+                  reason: "libsystem_platform _platform_memmove, 4 KB and more: mov x16, #1 (hypercall memmove)"),
+            Patch(address: 0x1_C799_6614, original: 0x927B_E863, replacement: 0xD503_2FFF,
+                  reason: "libsystem_platform _platform_memmove, 4 KB and more: hint #127 (hypercall)"),
+            Patch(address: 0x1_C799_6618, original: 0xAC40_0C22, replacement: 0xD65F_03C0,
+                  reason: "libsystem_platform _platform_memmove, 4 KB and more: ret"),
+            Patch(address: 0x1_C799_6DC4, original: 0xB4FF_FCE1, replacement: 0xD280_0050,
+                  reason: "libsystem_platform _platform_memset, 32 KB and more: mov x16, #2 (hypercall memset)"),
+            Patch(address: 0x1_C799_6DC8, original: 0xAC00_0000, replacement: 0xD503_2FFF,
+                  reason: "libsystem_platform _platform_memset, 32 KB and more: hint #127 (hypercall)"),
+            Patch(address: 0x1_C799_6DCC, original: 0xAC01_0000, replacement: 0xD65F_03C0,
+                  reason: "libsystem_platform _platform_memset, 32 KB and more: ret"),
+            Patch(address: 0x1_C799_6D60, original: 0xAC00_0000, replacement: 0xD280_0050,
+                  reason: "libsystem_platform _platform_bzero, 32 KB and more: mov x16, #2 (hypercall memset, x1 = 0)"),
+            Patch(address: 0x1_C799_6D64, original: 0xAC01_0000, replacement: 0xD503_2FFF,
+                  reason: "libsystem_platform _platform_bzero, 32 KB and more: hint #127 (hypercall)"),
+            Patch(address: 0x1_C799_6D68, original: 0x9101_0003, replacement: 0xD65F_03C0,
+                  reason: "libsystem_platform _platform_bzero, 32 KB and more: ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system

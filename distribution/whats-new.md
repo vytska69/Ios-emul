@@ -9,7 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-02
-- Groundwork for the virtual graphics chip: the emulator can now run chosen parts of the emulated phone's system directly on your device (not used by anything yet).
+- Groundwork for the virtual graphics chip: the emulator can now run chosen parts of the emulated phone's system directly on your device. The first are large memory copies and fills (on a new install).
 - Faster: when the emulated phone's system clears what it remembers about one app, the emulator no longer stops all four of its processors and clears everything.
 - Fewer freezes: the emulated phone's security chip now answers the system's credential requests at once. Unanswered, each one held parts of the system (keychain, VoiceOver, Settings) for 5 to 10 seconds, often enough to look frozen or to have VoiceOver ended as hung.
 - The interpreter engine (for running without JIT) is in the app again: it had not been built since the last few updates, so the app said it would come with a newer build.
