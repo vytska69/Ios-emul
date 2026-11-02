@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-02
+- Faster: when the emulated phone's system clears what it remembers about one app, the emulator no longer stops all four of its processors and clears everything.
 - Fewer freezes: the emulated phone's security chip now answers the system's credential requests at once. Unanswered, each one held parts of the system (keychain, VoiceOver, Settings) for 5 to 10 seconds, often enough to look frozen or to have VoiceOver ended as hung.
 - The interpreter engine (for running without JIT) is in the app again: it had not been built since the last few updates, so the app said it would come with a newer build.
 - Sound: ringtones play when you pick them in Settings → Sounds & Haptics. The emulated phone has no vibration motor, and a ringtone played with vibration made no sound at all; vibration for rings and alerts is now off on a new install (on an existing one, turn off "Vibrate on Ring" and "Vibrate on Silent" there).

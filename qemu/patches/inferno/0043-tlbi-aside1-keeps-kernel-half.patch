@@ -55,10 +55,10 @@ index f3b71fe..041feb4 100644
  {
  }
 diff --git a/target/arm/tcg/tlb-insns.c b/target/arm/tcg/tlb-insns.c
-index 9277ede..965714e 100644
+index 9277ede..5563640 100644
 --- a/target/arm/tcg/tlb-insns.c
 +++ b/target/arm/tcg/tlb-insns.c
-@@ -319,6 +319,58 @@ static void tlbi_aa64_vmalle1is_write(CPUARMState *env, const ARMCPRegInfo *ri,
+@@ -319,6 +319,57 @@ static void tlbi_aa64_vmalle1is_write(CPUARMState *env, const ARMCPRegInfo *ri,
      tlb_flush_by_mmuidx_all_cpus_synced(cs, mask);
  }
  
@@ -72,10 +72,9 @@ index 9277ede..965714e 100644
 +{
 +    static int full = -1;
 +
-+    /* Off unless QEMU_ASIDE1_HALF=1: the guest stopped early with it (being looked into). */
 +    if (full < 0) {
-+        const char *v = getenv("QEMU_ASIDE1_HALF");
-+        full = !(v && v[0] == '1');
++        const char *v = getenv("QEMU_FULL_ASID_FLUSH");
++        full = v && v[0] == '1';
 +    }
 +    return full;
 +}
@@ -117,7 +116,7 @@ index 9277ede..965714e 100644
  static void tlbi_aa64_vmalle1_write(CPUARMState *env, const ARMCPRegInfo *ri,
                                      uint64_t value)
  {
-@@ -644,7 +696,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
+@@ -644,7 +695,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
        .access = PL1_W, .accessfn = access_ttlbis,
        .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
        .fgt = FGT_TLBIASIDE1IS,
@@ -126,7 +125,7 @@ index 9277ede..965714e 100644
      { .name = "TLBI_VAAE1IS", .state = ARM_CP_STATE_AA64,
        .opc0 = 1, .opc1 = 0, .crn = 8, .crm = 3, .opc2 = 3,
        .access = PL1_W, .accessfn = access_ttlbis,
-@@ -680,7 +732,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
+@@ -680,7 +731,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
        .access = PL1_W, .accessfn = access_ttlb,
        .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
        .fgt = FGT_TLBIASIDE1,
@@ -135,7 +134,7 @@ index 9277ede..965714e 100644
      { .name = "TLBI_VAAE1", .state = ARM_CP_STATE_AA64,
        .opc0 = 1, .opc1 = 0, .crn = 8, .crm = 7, .opc2 = 3,
        .access = PL1_W, .accessfn = access_ttlb,
-@@ -1170,7 +1222,7 @@ static const ARMCPRegInfo tlbios_reginfo[] = {
+@@ -1170,7 +1221,7 @@ static const ARMCPRegInfo tlbios_reginfo[] = {
        .access = PL1_W, .accessfn = access_ttlbos,
        .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
        .fgt = FGT_TLBIASIDE1OS,
