@@ -77,6 +77,19 @@ public enum SharedCachePatches {
                   reason: "libsystem_platform _platform_bzero, 32 KB and more: hint #127 (hypercall)"),
             Patch(address: 0x1_C799_6D68, original: 0x9101_0003, replacement: 0xD65F_03C0,
                   reason: "libsystem_platform _platform_bzero, 32 KB and more: ret"),
+            // The CPU renderer's hottest function, its bilinear read of 32-bit textures
+            // (CA::OGL::SW::image_sampler<ARGB8_Host, unsigned, true, true, true, true>), runs
+            // natively too: hypercall 3 (qemu/patches/inferno/0050) does what it does, pixel for
+            // pixel (checked against this code run in an ARM emulator). x17 gets the function's
+            // address, for the constants it reads.
+            Patch(address: 0x1_8372_0C2C, original: 0xD503_237F, replacement: 0x1000_0011,
+                  reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): adr x17, #0"),
+            Patch(address: 0x1_8372_0C30, original: 0xD102_C3FF, replacement: 0xD280_0070,
+                  reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): mov x16, #3"),
+            Patch(address: 0x1_8372_0C34, original: 0x6D01_3BEF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8372_0C38, original: 0x6D02_33ED, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
