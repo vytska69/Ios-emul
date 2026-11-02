@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-02
+- The interpreter engine (for running without JIT) is in the app again: it had not been built since the last few updates, so the app said it would come with a newer build.
 - Sound: ringtones play when you pick them in Settings → Sounds & Haptics. The emulated phone has no vibration motor, and a ringtone played with vibration made no sound at all; vibration for rings and alerts is now off on a new install (on an existing one, turn off "Vibrate on Ring" and "Vibrate on Silent" there).
 
 ## 2026-11-01

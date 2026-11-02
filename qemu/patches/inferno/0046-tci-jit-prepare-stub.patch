@@ -1,0 +1,28 @@
+diff --git a/tcg/region.c b/tcg/region.c
+index 453bc39..c7169b4 100644
+--- a/tcg/region.c
++++ b/tcg/region.c
+@@ -735,6 +735,23 @@ static int alloc_code_gen_buffer_splitwx_vmremap(size_t size, Error **errp)
+ #endif /* CONFIG_DARWIN */
+ #endif /* CONFIG_TCG_INTERPRETER */
+ 
++#if defined(CONFIG_TCG_INTERPRETER) && defined(CONFIG_DARWIN)
++#include <TargetConditionals.h>
++#if TARGET_OS_IPHONE
++/*
++ * The interpreter has no generated code to map, but the app's exported symbol
++ * list (system/qemu.symbols) names this for the JIT build too, and the link
++ * failed without it. The app does not call it when it runs the interpreter.
++ */
++int qemu_ios_jit_prepare(size_t size);
++int qemu_ios_jit_prepare(size_t size)
++{
++    (void)size;
++    return -1;
++}
++#endif
++#endif
++
+ static int alloc_code_gen_buffer_splitwx(size_t size, Error **errp)
+ {
+ #ifndef CONFIG_TCG_INTERPRETER
