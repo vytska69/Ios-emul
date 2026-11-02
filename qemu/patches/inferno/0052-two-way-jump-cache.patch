@@ -1,0 +1,50 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 2aeb779..9e672f5 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -232,12 +232,31 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+                tb_cflags(tb) == s.cflags)) {
+         goto hit;
+     }
++    /*
++     * Two ways: the neighbouring entry too. The same code often runs with two
++     * sets of flags in turn (a kernel copying from user memory toggles PAN),
++     * and with one entry each switch went to the hash table.
++     */
++    uint32_t alt = hash ^ 1;
++    tb = qatomic_read(&jc->array[alt].tb);
++    if (tb &&
++        jc->array[alt].pc == s.pc &&
++        tb_jmp_cache_gen_ok(jc, alt, s.pc) &&
++        tb->cs_base == s.cs_base &&
++        tb->flags == s.flags &&
++        tb_cflags(tb) == s.cflags) {
++        goto hit;
++    }
+ 
+     tb = tb_htable_lookup(cpu, s);
+     if (tb == NULL) {
+         return NULL;
+     }
+ 
++    /* The entry it replaces moves to the other way. */
++    jc->array[alt].pc = jc->array[hash].pc;
++    jc->array[alt].gen = jc->array[hash].gen;
++    qatomic_set(&jc->array[alt].tb, qatomic_read(&jc->array[hash].tb));
+     jc->array[hash].pc = s.pc;
+     jc->array[hash].gen = jc->user_gen;
+     qatomic_set(&jc->array[hash].tb, tb);
+diff --git a/accel/tcg/tb-maint.c b/accel/tcg/tb-maint.c
+index 510c62e..6676f9f 100644
+--- a/accel/tcg/tb-maint.c
++++ b/accel/tcg/tb-maint.c
+@@ -813,6 +813,9 @@ static void tb_jmp_cache_inval_tb(TranslationBlock *tb)
+             if (qatomic_read(&jc->array[h].tb) == tb) {
+                 qatomic_set(&jc->array[h].tb, NULL);
+             }
++            if (qatomic_read(&jc->array[h ^ 1].tb) == tb) {
++                qatomic_set(&jc->array[h ^ 1].tb, NULL);
++            }
+         }
+     }
+ }
