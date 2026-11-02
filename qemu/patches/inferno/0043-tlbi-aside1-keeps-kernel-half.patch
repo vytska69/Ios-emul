@@ -1,0 +1,145 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index f14f1d6..1fde7e8 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -468,6 +468,25 @@ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
+                 cpu->neg.tlb.c.part_flush_count + 1);
+ }
+ 
++static void tlb_flush_lower_half_async_work(CPUState *cpu, run_on_cpu_data d)
++{
++    tlb_flush_lower_half(cpu, (MMUIdxMap)(d.host_ulong & 0xffffffffu),
++                         (MMUIdxMap)((uint64_t)d.host_ulong >> 32));
++}
++
++static void flush_all_helper(CPUState *src, run_on_cpu_func fn,
++                             run_on_cpu_data d);
++
++void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu, MMUIdxMap fullmap,
++                                          MMUIdxMap halfmap)
++{
++    run_on_cpu_data d =
++        RUN_ON_CPU_HOST_ULONG(fullmap | ((uint64_t)halfmap << 32));
++
++    flush_all_helper(src_cpu, tlb_flush_lower_half_async_work, d);
++    async_safe_run_on_cpu(src_cpu, tlb_flush_lower_half_async_work, d);
++}
++
+ void tlb_flush_by_mmuidx(CPUState *cpu, MMUIdxMap idxmap)
+ {
+     tlb_debug("mmu_idx: 0x%" PRIx32 "\n", idxmap);
+diff --git a/include/exec/cputlb.h b/include/exec/cputlb.h
+index f3b71fe..041feb4 100644
+--- a/include/exec/cputlb.h
++++ b/include/exec/cputlb.h
+@@ -136,6 +136,9 @@ void tlb_flush(CPUState *cpu);
+  * For an address space ID change in a guest whose upper half is global.
+  */
+ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap);
++/* The same on every CPU, done when the calling CPU next leaves its TB. */
++void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu, MMUIdxMap fullmap,
++                                          MMUIdxMap halfmap);
+ 
+ /**
+  * tlb_flush_all_cpus_synced:
+@@ -251,6 +254,11 @@ static inline void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap,
+                                         MMUIdxMap halfmap)
+ {
+ }
++static inline void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu,
++                                                        MMUIdxMap fullmap,
++                                                        MMUIdxMap halfmap)
++{
++}
+ static inline void tlb_flush_all_cpus_synced(CPUState *src_cpu)
+ {
+ }
+diff --git a/target/arm/tcg/tlb-insns.c b/target/arm/tcg/tlb-insns.c
+index 9277ede..5563640 100644
+--- a/target/arm/tcg/tlb-insns.c
++++ b/target/arm/tcg/tlb-insns.c
+@@ -319,6 +319,57 @@ static void tlbi_aa64_vmalle1is_write(CPUARMState *env, const ARMCPRegInfo *ri,
+     tlb_flush_by_mmuidx_all_cpus_synced(cs, mask);
+ }
+ 
++/*
++ * TLBI ASIDE1{,IS,OS}: only the non-global entries of the ASID go, so a guest
++ * whose upper half is global (XNU's kernel) keeps those. QEMU does not tag its
++ * TLB with ASIDs, so the whole lower half goes (the TTBR0 user half); it was a
++ * full flush of every EL1&0 TLB on every CPU. QEMU_FULL_ASID_FLUSH=1: as before.
++ */
++static bool tlbi_full_asid_flush(void)
++{
++    static int full = -1;
++
++    if (full < 0) {
++        const char *v = getenv("QEMU_FULL_ASID_FLUSH");
++        full = v && v[0] == '1';
++    }
++    return full;
++}
++
++static void tlbi_aa64_aside1_common(CPUARMState *env, bool broadcast)
++{
++    CPUState *cs = env_cpu(env);
++    int mask = vae1_tlbmask(env);
++
++    if (!(mask & ARMMMUIdxBit_E10_1) || tlbi_full_asid_flush()) {
++        if (broadcast) {
++            tlb_flush_by_mmuidx_all_cpus_synced(cs, mask);
++        } else {
++            tlb_flush_by_mmuidx(cs, mask);
++        }
++        return;
++    }
++    if (broadcast) {
++        tlb_flush_lower_half_all_cpus_synced(cs, mask & ARMMMUIdxBit_E10_0,
++                                             mask & ~ARMMMUIdxBit_E10_0);
++    } else {
++        tlb_flush_lower_half(cs, mask & ARMMMUIdxBit_E10_0,
++                             mask & ~ARMMMUIdxBit_E10_0);
++    }
++}
++
++static void tlbi_aa64_aside1is_write(CPUARMState *env, const ARMCPRegInfo *ri,
++                                     uint64_t value)
++{
++    tlbi_aa64_aside1_common(env, true);
++}
++
++static void tlbi_aa64_aside1_write(CPUARMState *env, const ARMCPRegInfo *ri,
++                                   uint64_t value)
++{
++    tlbi_aa64_aside1_common(env, tlb_force_broadcast(env));
++}
++
+ static void tlbi_aa64_vmalle1_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                                     uint64_t value)
+ {
+@@ -644,7 +695,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
+       .access = PL1_W, .accessfn = access_ttlbis,
+       .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
+       .fgt = FGT_TLBIASIDE1IS,
+-      .writefn = tlbi_aa64_vmalle1is_write },
++      .writefn = tlbi_aa64_aside1is_write },
+     { .name = "TLBI_VAAE1IS", .state = ARM_CP_STATE_AA64,
+       .opc0 = 1, .opc1 = 0, .crn = 8, .crm = 3, .opc2 = 3,
+       .access = PL1_W, .accessfn = access_ttlbis,
+@@ -680,7 +731,7 @@ static const ARMCPRegInfo tlbi_v8_cp_reginfo[] = {
+       .access = PL1_W, .accessfn = access_ttlb,
+       .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
+       .fgt = FGT_TLBIASIDE1,
+-      .writefn = tlbi_aa64_vmalle1_write },
++      .writefn = tlbi_aa64_aside1_write },
+     { .name = "TLBI_VAAE1", .state = ARM_CP_STATE_AA64,
+       .opc0 = 1, .opc1 = 0, .crn = 8, .crm = 7, .opc2 = 3,
+       .access = PL1_W, .accessfn = access_ttlb,
+@@ -1170,7 +1221,7 @@ static const ARMCPRegInfo tlbios_reginfo[] = {
+       .access = PL1_W, .accessfn = access_ttlbos,
+       .type = ARM_CP_NO_RAW | ARM_CP_ADD_TLBI_NXS,
+       .fgt = FGT_TLBIASIDE1OS,
+-      .writefn = tlbi_aa64_vmalle1is_write },
++      .writefn = tlbi_aa64_aside1is_write },
+     { .name = "TLBI_VAAE1OS", .state = ARM_CP_STATE_AA64,
+       .opc0 = 1, .opc1 = 0, .crn = 8, .crm = 1, .opc2 = 3,
+       .access = PL1_W, .accessfn = access_ttlbos,
