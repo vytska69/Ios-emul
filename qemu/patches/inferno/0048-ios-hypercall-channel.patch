@@ -1,0 +1,191 @@
+diff --git a/target/arm/tcg/a64.decode b/target/arm/tcg/a64.decode
+index 70ed961..73bd564 100644
+--- a/target/arm/tcg/a64.decode
++++ b/target/arm/tcg/a64.decode
+@@ -246,6 +246,8 @@ ERETA           1101011 0100 11111 00001 m:1 11111 11111 &reta  # ERETAA, ERETAB
+     AUTIASP     1101 0101 0000 0011 0010 0011 101 11111
+     AUTIBZ      1101 0101 0000 0011 0010 0011 110 11111
+     AUTIBSP     1101 0101 0000 0011 0010 0011 111 11111
++    # HINT #127: IOSEmul hypercall (a NOP on hardware; see helper_ios_hcall)
++    IOS_HCALL   1101 0101 0000 0011 0010 1111 111 11111
+   ]
+   # The canonical NOP has CRm == op2 == 0, but all of the space
+   # that isn't specifically allocated to an instruction must NOP
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 61fcdf1..cb26966 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1880,3 +1880,144 @@ uint64_t HELPER(wkdmd)(CPUARMState *env, uint64_t vaddr_in, uint64_t vaddr_out)
+ 
+     return 0x3000;
+ }
++
++/*
++ * IOSEmul hypercalls: HINT #127, a NOP on hardware, which the installer puts at
++ * the start of guest functions that the emulator then runs natively. x16 is
++ * the call, x0-x5 its arguments, x0 its result. The channel the virtual GPU is
++ * built on; for now it carries the C library's memmove and memset, which
++ * otherwise run a few bytes per translated instruction.
++ */
++enum {
++    IOS_HCALL_PING = 0,
++    IOS_HCALL_MEMMOVE = 1,
++    IOS_HCALL_MEMSET = 2,
++};
++
++/* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
++static bool ios_hcall_pages(CPUARMState *env, uint64_t addr, uint64_t len,
++                            MMUAccessType type, int mmu_idx, uintptr_t ra)
++{
++    while (len) {
++        uint64_t in_page = TARGET_PAGE_SIZE - (addr & ~TARGET_PAGE_MASK);
++        uint64_t n = MIN(len, in_page);
++        if (!probe_access(env, addr, n, type, mmu_idx, ra)) {
++            return false;
++        }
++        addr += n;
++        len -= n;
++    }
++    return true;
++}
++
++static void *ios_hcall_host(CPUARMState *env, uint64_t addr, uint64_t n,
++                            MMUAccessType type, int mmu_idx, uintptr_t ra)
++{
++    return probe_access(env, addr, n, type, mmu_idx, ra);
++}
++
++static void ios_hcall_memmove(CPUARMState *env, uint64_t dst, uint64_t src,
++                              uint64_t len, uintptr_t ra)
++{
++    int mmu_idx = arm_env_mmu_index(env);
++    bool ram;
++
++    /* Every page first, so a fault (handled by the guest, then the call
++     * restarted) comes before anything is written. */
++    ram = ios_hcall_pages(env, src, len, MMU_DATA_LOAD, mmu_idx, ra) &&
++          ios_hcall_pages(env, dst, len, MMU_DATA_STORE, mmu_idx, ra);
++    if (ram && ((dst > src && dst < src + len) || (src > dst && src < dst + len))) {
++        /* Overlapping RAM: through a buffer. */
++        uint8_t *tmp = g_malloc(len);
++        uint64_t done = 0;
++        while (done < len) {
++            uint64_t n = MIN(len - done,
++                             TARGET_PAGE_SIZE - ((src + done) & ~TARGET_PAGE_MASK));
++            memcpy(tmp + done, ios_hcall_host(env, src + done, n, MMU_DATA_LOAD,
++                                              mmu_idx, ra), n);
++            done += n;
++        }
++        done = 0;
++        while (done < len) {
++            uint64_t n = MIN(len - done,
++                             TARGET_PAGE_SIZE - ((dst + done) & ~TARGET_PAGE_MASK));
++            memcpy(ios_hcall_host(env, dst + done, n, MMU_DATA_STORE, mmu_idx, ra),
++                   tmp + done, n);
++            done += n;
++        }
++        g_free(tmp);
++        return;
++    }
++    if (!ram) {
++        /* Device memory: byte by byte in the right direction. */
++        if (dst > src) {
++            for (uint64_t i = len; i-- > 0;) {
++                cpu_stb_mmuidx_ra(env, dst + i,
++                                  cpu_ldub_mmuidx_ra(env, src + i, mmu_idx, ra),
++                                  mmu_idx, ra);
++            }
++        } else {
++            for (uint64_t i = 0; i < len; i++) {
++                cpu_stb_mmuidx_ra(env, dst + i,
++                                  cpu_ldub_mmuidx_ra(env, src + i, mmu_idx, ra),
++                                  mmu_idx, ra);
++            }
++        }
++        return;
++    }
++    while (len) {
++        uint64_t n = MIN(len, TARGET_PAGE_SIZE - (src & ~TARGET_PAGE_MASK));
++        n = MIN(n, TARGET_PAGE_SIZE - (dst & ~TARGET_PAGE_MASK));
++        void *s = ios_hcall_host(env, src, n, MMU_DATA_LOAD, mmu_idx, ra);
++        void *d = ios_hcall_host(env, dst, n, MMU_DATA_STORE, mmu_idx, ra);
++        memmove(d, s, n);
++        src += n;
++        dst += n;
++        len -= n;
++    }
++}
++
++static void ios_hcall_memset(CPUARMState *env, uint64_t dst, int c,
++                             uint64_t len, uintptr_t ra)
++{
++    int mmu_idx = arm_env_mmu_index(env);
++
++    if (!ios_hcall_pages(env, dst, len, MMU_DATA_STORE, mmu_idx, ra)) {
++        for (uint64_t i = 0; i < len; i++) {
++            cpu_stb_mmuidx_ra(env, dst + i, c, mmu_idx, ra);
++        }
++        return;
++    }
++    while (len) {
++        uint64_t n = MIN(len, TARGET_PAGE_SIZE - (dst & ~TARGET_PAGE_MASK));
++        memset(ios_hcall_host(env, dst, n, MMU_DATA_STORE, mmu_idx, ra), c, n);
++        dst += n;
++        len -= n;
++    }
++}
++
++void HELPER(ios_hcall)(CPUARMState *env)
++{
++    uintptr_t ra = GETPC();
++    uint64_t *x = env->xregs;
++
++    switch (x[16]) {
++    case IOS_HCALL_PING:
++        x[0] = 0x494f5347; /* 'IOSG' */
++        x[1] = 1;          /* protocol version */
++        break;
++    case IOS_HCALL_MEMMOVE:
++        if (x[2]) {
++            ios_hcall_memmove(env, x[0], x[1], x[2], ra);
++        }
++        break;              /* x0 stays dst */
++    case IOS_HCALL_MEMSET:
++        if (x[2]) {
++            ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);
++        }
++        break;
++    default:
++        x[0] = (uint64_t)-1;
++        break;
++    }
++}
+diff --git a/target/arm/tcg/helper-a64.h b/target/arm/tcg/helper-a64.h
+index bfa330a..03f7c11 100644
+--- a/target/arm/tcg/helper-a64.h
++++ b/target/arm/tcg/helper-a64.h
+@@ -17,6 +17,7 @@
+  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+  */
+ DEF_HELPER_FLAGS_2(udiv64, TCG_CALL_NO_RWG_SE, i64, i64, i64)
++DEF_HELPER_1(ios_hcall, void, env)
+ DEF_HELPER_FLAGS_2(sdiv64, TCG_CALL_NO_RWG_SE, s64, s64, s64)
+ DEF_HELPER_FLAGS_1(rbit64, TCG_CALL_NO_RWG_SE, i64, i64)
+ DEF_HELPER_2(msr_i_spsel, void, env, i32)
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index d6fe602..38da015 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -1914,6 +1914,12 @@ static bool trans_NOP(DisasContext *s, arg_NOP *a)
+     return true;
+ }
+ 
++static bool trans_IOS_HCALL(DisasContext *s, arg_IOS_HCALL *a)
++{
++    gen_helper_ios_hcall(tcg_env);
++    return true;
++}
++
+ static bool trans_YIELD(DisasContext *s, arg_YIELD *a)
+ {
+     /*
