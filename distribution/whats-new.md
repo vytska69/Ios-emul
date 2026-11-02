@@ -11,6 +11,7 @@ published with each build (scripts/make-sidestore-source.py).
 ## 2026-11-01
 - Faster: when the emulated phone switches between apps and services (hundreds of times a second), the emulator now forgets only what belongs to the app it leaves, instead of everything it knew about the phone's system as well.
 - Faster: when the emulated phone's system clears what it remembers about one app, the emulator no longer stops all four of its processors and clears everything.
+- Faster: the emulator remembers four times as many places in the emulated phone's code it has already prepared to run, so it looks them up less often.
 - Faster: the everyday decimal-number math of the emulated phone (most of what it does to draw the screen, since there is no graphics chip) now runs directly on your device's processor; only unusual cases are still calculated step by step in software.
 - Faster: the pixel blending the emulated phone does when drawing also runs directly on your device's processor, several pixels at once.
 - Faster: the emulator no longer stops and restarts its fast path every time the emulated phone's system switches between apps or handles an event, so less time goes to overhead.

@@ -1,0 +1,19 @@
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index c3a505e..b5f63ad 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -12,7 +12,13 @@
+ #include "qemu/rcu.h"
+ #include "exec/cpu-common.h"
+ 
+-#define TB_JMP_CACHE_BITS 12
++/*
++ * 16384 entries per CPU (was 4096): every function return of an arm64e guest
++ * (retab) is an indirect jump looked up here, and iOS's kernel and shared
++ * cache code missed in 4096 often enough that the hash table walk behind it
++ * was a large part of QEMU's time.
++ */
++#define TB_JMP_CACHE_BITS 14
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*
