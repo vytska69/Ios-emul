@@ -9,10 +9,10 @@ index 44e4813..4a94e94 100644
 -    apple_mt_spi_buf_push_word(&packet->buf, ABS(x_delta) / ts_delta * 1000);
 -    apple_mt_spi_buf_push_word(&packet->buf, ABS(y_delta) / ts_delta * 1000);
 +    /*
-+     * Velocity in sensor units per second, signed. It was |delta| / ns * 1000, which is
-+     * always 0: iOS saw every swipe as a finger that does not move.
++     * Velocity in sensor units per second, signed, with MT_VELOCITY set (being tested;
++     * reported as 0 otherwise, as before).
 +     */
-+    if (getenv("MT_OLD_VELOCITY")) {
++    if (!getenv("MT_VELOCITY")) {
 +        x_delta = y_delta = 0;
 +    }
 +    apple_mt_spi_buf_push_word(&packet->buf,
@@ -29,11 +29,10 @@ index 44e4813..4a94e94 100644
 +    } else if ((s->prev_btn_state & MOUSE_EVENT_LBUTTON) != 0 &&
 +               (s->btn_state & MOUSE_EVENT_LBUTTON) != 0 &&
 +               (s->x != s->prev_x || s->y != s->prev_y) &&
-+               !getenv("MT_OLD_VELOCITY")) {
++               getenv("MT_MOVE_REPORTS")) {
 +        /*
-+         * A moving finger is reported as it moves, not only on the 20 Hz tick: a
-+         * swipe from the bottom edge (home, from inside an app) came through as a
-+         * few points far apart and was not recognised.
++         * With MT_MOVE_REPORTS set, a moving finger is reported as it moves, not
++         * only on the 20 Hz tick (being tested for the home swipe inside apps).
 +         */
 +        apple_mt_spi_schedule_touch_update(s, PATH_STAGE_TOUCHING);
      } else if ((s->prev_btn_state & MOUSE_EVENT_LBUTTON) != 0 &&
