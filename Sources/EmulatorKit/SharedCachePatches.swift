@@ -113,6 +113,26 @@ public enum SharedCachePatches {
                   reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): hint #127 (hypercall)"),
             Patch(address: 0x1_8370_8FE4, original: 0x1E2E_1001, replacement: 0xD65F_03C0,
                   reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): ret"),
+            // And three more (hypercalls 7-9, patch 0053, checked the same way): the nearest-texel
+            // ARGB8 read, tex_multiply_color and the DarkenSover blend loop.
+            Patch(address: 0x1_8372_1590, original: 0x3400_01C1, replacement: 0xD280_00F0,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, nearest> (virtual GPU): mov x16, #7"),
+            Patch(address: 0x1_8372_1594, original: 0xF940_000A, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, nearest> (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8372_1598, original: 0x2946_A408, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, nearest> (virtual GPU): ret"),
+            Patch(address: 0x1_8370_8A8C, original: 0xB400_0383, replacement: 0xD280_0110,
+                  reason: "QuartzCore tex_multiply_color (virtual GPU): mov x16, #8"),
+            Patch(address: 0x1_8370_8A90, original: 0x5318_7C48, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore tex_multiply_color (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8370_8A94, original: 0x5310_5C49, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore tex_multiply_color (virtual GPU): ret"),
+            Patch(address: 0x1_8370_C264, original: 0xD503_237F, replacement: 0xD280_0130,
+                  reason: "QuartzCore Blend::Mode<DarkenSover>::blend (virtual GPU): mov x16, #9"),
+            Patch(address: 0x1_8370_C268, original: 0xD101_03FF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore Blend::Mode<DarkenSover>::blend (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8370_C26C, original: 0xA901_57F6, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore Blend::Mode<DarkenSover>::blend (virtual GPU): ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system

@@ -10,7 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-11-02
 - Faster: the emulator keeps two prepared versions of the same piece of the phone's code side by side, where it used to keep one and redo the lookup each time the system switched between them.
-- Virtual graphics chip, second step: three more parts of the emulated phone's drawing (plain picture reads and the color changes behind blurs) run directly on your device, with the same pixels (on a new install).
+- Virtual graphics chip, second step: six more parts of the emulated phone's drawing (plain picture reads, tinting, blending and the color changes behind blurs) run directly on your device, with the same pixels (on a new install).
 - Virtual graphics chip, first step: the part of the emulated phone's drawing that takes the most time (reading pictures to put on screen) now runs directly on your device, giving the same pixels (on a new install).
 - Faster: the emulated screen no longer checks 60 times a second, on top of the refreshes the app already asks for, which parts of the picture changed.
 - Groundwork for the virtual graphics chip: the emulator can now run chosen parts of the emulated phone's system directly on your device. The first are large memory copies and fills (on a new install).

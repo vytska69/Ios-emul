@@ -25,3 +25,12 @@ python3 check_affine_colormatrix.py
 ```
 
 Rezultatas 2026-11-02: 150 atvejų, 0 skirtingų pikselių.
+
+`image_sampler<ARGB8, nearest>`, `tex_multiply_color`, `Blend::Mode<DarkenSover>::blend` (`0053`):
+
+```
+gcc -O2 -ffp-contract=off -o t3 nearest_multiply_darken_harness.c -lm
+python3 check_nearest_multiply_darken.py
+```
+
+Rezultatas 2026-11-02: 150 atvejų, 0 skirtingų pikselių.
