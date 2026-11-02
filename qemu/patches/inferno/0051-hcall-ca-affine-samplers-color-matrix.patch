@@ -1,0 +1,178 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 34f8a27..478a87a 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1893,6 +1893,9 @@ enum {
+     IOS_HCALL_MEMMOVE = 1,
+     IOS_HCALL_MEMSET = 2,
+     IOS_HCALL_CA_IMAGE_SAMPLER_ARGB8 = 3,
++    IOS_HCALL_CA_AFFINE_SAMPLER_XRGB8 = 4,
++    IOS_HCALL_CA_AFFINE_SAMPLER_ARGB8 = 5,
++    IOS_HCALL_CA_COLOR_MATRIX = 6,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2178,6 +2181,148 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+     }
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::image_sampler<Format::XRGB8_Host / ARGB8_Host,
++ * unsigned int, false, false, false, true>: the affine (no perspective, no edge
++ * mode) bilinear read, written from its code like the ARGB8 one above. XRGB8
++ * sets alpha to 0xff on every texel it reads.
++ */
++static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrgb)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    uint64_t sd = x[0], out = x[2];
++    uint32_t count = (uint32_t)x[1];
++
++    if (!count) {
++        return;
++    }
++    uint64_t tex = cpu_ldq_le_mmuidx_ra(env, sd, mmu, ra);
++    uint64_t base = cpu_ldq_le_mmuidx_ra(env, tex, mmu, ra);
++    uint64_t stride = cpu_ldq_le_mmuidx_ra(env, tex + 0x10, mmu, ra);
++    int32_t u = cpu_ldl_le_mmuidx_ra(env, sd + 0x34, mmu, ra);
++    int32_t du = cpu_ldl_le_mmuidx_ra(env, sd + 0x38, mmu, ra);
++    int32_t v = cpu_ldl_le_mmuidx_ra(env, sd + 0x3c, mmu, ra);
++    int32_t y0 = v - 0x8000, y1 = v + 0x8000;
++    uint64_t row0 = base + stride * (int64_t)(int16_t)(y0 >> 16);
++    uint64_t row1 = base + stride * (int64_t)(int16_t)(y1 >> 16);
++    int16_t fy = ((uint32_t)y0 >> 1) & 0x7f80;
++    uint32_t or = xrgb ? 0xff000000u : 0;
++    int32_t xf = u - 0x8000;
++
++    while (count--) {
++        int64_t c0 = xf >> 16, c1 = (int32_t)(xf + 0x10000) >> 16;
++        uint32_t px[4] = {
++            cpu_ldl_le_mmuidx_ra(env, row0 + c0 * 4, mmu, ra) | or,
++            cpu_ldl_le_mmuidx_ra(env, row0 + c1 * 4, mmu, ra) | or,
++            cpu_ldl_le_mmuidx_ra(env, row1 + c0 * 4, mmu, ra) | or,
++            cpu_ldl_le_mmuidx_ra(env, row1 + c1 * 4, mmu, ra) | or,
++        };
++        int16_t fx = ((uint32_t)xf >> 1) & 0x7f80;
++        int16_t r[8];
++        for (int i = 0; i < 8; i++) {
++            uint8_t a = px[i >> 2] >> (8 * (i & 3));
++            uint8_t b = px[2 + (i >> 2)] >> (8 * (i & 3));
++            r[i] = (int16_t)(ca_sqrdmulh16((int16_t)((uint16_t)b - (uint16_t)a), fy) + a);
++        }
++        uint32_t o = 0;
++        for (int i = 0; i < 4; i++) {
++            int16_t q = (int16_t)(r[i] + ca_sqrdmulh16((int16_t)(r[4 + i] - r[i]), fx));
++            o |= (uint32_t)(uint8_t)q << (8 * i);
++        }
++        cpu_stl_le_mmuidx_ra(env, out, o, mmu, ra);
++        out += 4;
++        xf += du;
++    }
++}
++
++/*
++ * QuartzCore (18A373) CA::OGL::SW::tex_color_matrix_4x4_bias(unsigned *out,
++ * unsigned const *in, unsigned long count, float const *m): a color matrix on
++ * premultiplied pixels (unpremultiply, 4x4 matrix plus bias, premultiply),
++ * written from its code. x17 is the function's address, for its constant.
++ */
++#define CA_COLOR_MATRIX_ADDR 0x183708fd8ull
++#define CA_COLOR_MATRIX_K0 0x183876c24ull
++
++static inline float ca_clamp01(float f)
++{
++    /* fmin then fmax (not the number-preferring forms). */
++    f = (f != f || f < 1.0f) ? f : 1.0f;
++    f = (f != f || f > 0.0f) ? f : 0.0f;
++    return f;
++}
++
++static inline uint32_t ca_fcvtzu(float f)
++{
++    if (f != f || f <= 0.0f) {
++        return 0;
++    }
++    if (f >= 4294967296.0f) {
++        return UINT32_MAX;
++    }
++    return (uint32_t)f;
++}
++
++static void ios_hcall_ca_color_matrix(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    uint64_t out = x[0], in = x[1], n = x[2], mp = x[3];
++    float m[20];
++
++    if (!n) {
++        return;
++    }
++    for (int i = 0; i < 20; i++) {
++        m[i] = ca_ldf(env, mp + 4 * i, mmu, ra);
++    }
++    float k0 = ca_ldf(env, CA_COLOR_MATRIX_K0 + (x[17] - CA_COLOR_MATRIX_ADDR), mmu, ra);
++
++    while (n--) {
++        uint32_t p = cpu_ldl_le_mmuidx_ra(env, in, mmu, ra), o = 0;
++        uint32_t a8 = p >> 24;
++
++        if (a8) {
++            float fa = (float)a8;
++            float aa = fa * k0;
++            float inv = 1.0f / fa;
++            float r = inv * (float)((p >> 16) & 0xff);
++            float g = inv * (float)((p >> 8) & 0xff);
++            float b = inv * (float)(p & 0xff);
++            float s16 = g * m[4];
++            s16 = fmaf(r, m[0], s16);
++            s16 = fmaf(b, m[8], s16);
++            s16 = fmaf(aa, m[12], s16);
++            float l0 = m[6] * g, l1 = m[7] * g;
++            l0 = fmaf(m[2], r, l0);
++            l1 = fmaf(m[3], r, l1);
++            float s7 = g * m[5];
++            float s6 = fmaf(r, m[1], s7);
++            float R = m[16] + s16;
++            l0 = fmaf(m[10], b, l0);
++            l1 = fmaf(m[11], b, l1);
++            l0 = fmaf(m[14], aa, l0);
++            l1 = fmaf(m[15], aa, l1);
++            float B = m[18] + l0, A = m[19] + l1;
++            R = R * A;
++            float G = fmaf(b, m[9], s6);
++            G = fmaf(aa, m[13], G);
++            G = m[17] + G;
++            G = G * A;
++            B = A * B;
++            uint32_t ia = ca_fcvtzu(fmaf(ca_clamp01(A), 255.0f, 0.5f));
++            uint32_t ir = ca_fcvtzu(fmaf(ca_clamp01(R), 255.0f, 0.5f));
++            uint32_t ig = ca_fcvtzu(fmaf(ca_clamp01(G), 255.0f, 0.5f));
++            uint32_t ib = ca_fcvtzu(fmaf(ca_clamp01(B), 255.0f, 0.5f));
++            o = (ia << 24) | (ir << 16) | (ig << 8) | ib;
++        }
++        cpu_stl_le_mmuidx_ra(env, out, o, mmu, ra);
++        out += 4;
++        in += 4;
++    }
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -2196,6 +2341,14 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_IMAGE_SAMPLER_ARGB8:
+         ios_hcall_ca_image_sampler_argb8(env, ra);
+         break;
++    case IOS_HCALL_CA_AFFINE_SAMPLER_XRGB8:
++    case IOS_HCALL_CA_AFFINE_SAMPLER_ARGB8:
++        ios_hcall_ca_affine_sampler(env, ra,
++                                    x[16] == IOS_HCALL_CA_AFFINE_SAMPLER_XRGB8);
++        break;
++    case IOS_HCALL_CA_COLOR_MATRIX:
++        ios_hcall_ca_color_matrix(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

@@ -16,3 +16,12 @@ python3 check_image_sampler.py 0 1 3 4 5   # kraštų režimų baitai; 2 (atan2f
 ```
 
 Rezultatas 2026-11-02: 200 atvejų, 0 skirtingų pikselių.
+
+Afininiai `image_sampler<XRGB8/ARGB8, …, 0,0,0,1>` ir `tex_color_matrix_4x4_bias` (`0051`):
+
+```
+gcc -O2 -ffp-contract=off -o t2 affine_colormatrix_harness.c -lm
+python3 check_affine_colormatrix.py
+```
+
+Rezultatas 2026-11-02: 150 atvejų, 0 skirtingų pikselių.

@@ -90,6 +90,29 @@ public enum SharedCachePatches {
                   reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): hint #127 (hypercall)"),
             Patch(address: 0x1_8372_0C38, original: 0x6D02_33ED, replacement: 0xD65F_03C0,
                   reason: "QuartzCore image_sampler<ARGB8_Host> (virtual GPU): ret"),
+            // Next hottest in the CPU renderer, also native (hypercalls 4-6, patch 0051, checked the
+            // same way): the affine bilinear reads of XRGB8 and ARGB8 textures and the color matrix
+            // (with unpremultiply and premultiply) behind blurs and vibrancy.
+            Patch(address: 0x1_8372_00E4, original: 0x3400_05C1, replacement: 0xD280_0090,
+                  reason: "QuartzCore image_sampler<XRGB8_Host, affine> (virtual GPU): mov x16, #4"),
+            Patch(address: 0x1_8372_00E8, original: 0xF940_0008, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore image_sampler<XRGB8_Host, affine> (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8372_00EC, original: 0xF940_010A, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore image_sampler<XRGB8_Host, affine> (virtual GPU): ret"),
+            Patch(address: 0x1_8372_11AC, original: 0x3400_0501, replacement: 0xD280_00B0,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, affine> (virtual GPU): mov x16, #5"),
+            Patch(address: 0x1_8372_11B0, original: 0xF940_0008, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, affine> (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8372_11B4, original: 0xF940_010A, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore image_sampler<ARGB8_Host, affine> (virtual GPU): ret"),
+            Patch(address: 0x1_8370_8FD8, original: 0xB400_09C2, replacement: 0x1000_0011,
+                  reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): adr x17, #0"),
+            Patch(address: 0x1_8370_8FDC, original: 0xD000_0B68, replacement: 0xD280_00D0,
+                  reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): mov x16, #6"),
+            Patch(address: 0x1_8370_8FE0, original: 0xBD4C_2500, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): hint #127 (hypercall)"),
+            Patch(address: 0x1_8370_8FE4, original: 0x1E2E_1001, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore tex_color_matrix_4x4_bias (virtual GPU): ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
