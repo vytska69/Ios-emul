@@ -1,0 +1,163 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 58fa9c5..879000f 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -43,6 +43,7 @@
+ #include "tb-internal.h"
+ #include "trace.h"
+ #include "tb-hash.h"
++#include "tb-jmp-cache.h"
+ #include "tb-internal.h"
+ #include "tlb-bounds.h"
+ #include "internal-common.h"
+@@ -402,6 +403,69 @@ static void tlb_flush_by_mmuidx_async_work(CPUState *cpu, run_on_cpu_data data)
+     }
+ }
+ 
++/*
++ * For a change of address space ID: flushes every entry of @fullmap's TLBs, and
++ * only the lower half of the address space (TTBR0; the user's) from @halfmap's,
++ * keeping the kernel's (TTBR1, the same in every address space). The jump cache
++ * keeps its entries for upper-half PCs the same way. A full flush made the
++ * kernel find all its code and data again after every context switch.
++ */
++static inline bool tlb_entry_is_upper(const CPUTLBEntry *te)
++{
++    uint64_t a = te->addr_read != -1 ? te->addr_read
++               : te->addr_write != -1 ? te->addr_write : te->addr_code;
++    return (a >> 63) != 0;
++}
++
++void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
++{
++    int64_t now = get_clock_realtime();
++    MMUIdxMap work;
++    CPUJumpCache *jc = cpu->tb_jmp_cache;
++
++    assert_cpu_is_self(cpu);
++    qemu_spin_lock(&cpu->neg.tlb.c.lock);
++    for (work = fullmap & cpu->neg.tlb.c.dirty; work != 0; work &= work - 1) {
++        int mmu_idx = ctz32(work);
++        tlb_flush_one_mmuidx_locked(cpu, mmu_idx, now);
++        cpu->neg.tlb.c.dirty &= ~(1 << mmu_idx);
++    }
++    for (work = halfmap & ~fullmap & cpu->neg.tlb.c.dirty; work != 0;
++         work &= work - 1) {
++        int mmu_idx = ctz32(work);
++        CPUTLBDesc *d = &cpu->neg.tlb.d[mmu_idx];
++        CPUTLBDescFast *f = cpu_tlb_fast(cpu, mmu_idx);
++        size_t n = tlb_n_entries(f);
++
++        for (size_t i = 0; i < n; i++) {
++            CPUTLBEntry *te = &f->table[i];
++            if (!tlb_entry_is_empty(te) && !tlb_entry_is_upper(te)) {
++                memset(te, -1, sizeof(*te));
++                if (d->n_used_entries) {
++                    d->n_used_entries--;
++                }
++            }
++        }
++        for (int k = 0; k < CPU_VTLB_SIZE; k++) {
++            CPUTLBEntry *te = &d->vtable[k];
++            if (!tlb_entry_is_empty(te) && !tlb_entry_is_upper(te)) {
++                memset(te, -1, sizeof(*te));
++            }
++        }
++    }
++    qemu_spin_unlock(&cpu->neg.tlb.c.lock);
++
++    if (jc) {
++        for (int i = 0; i < TB_JMP_CACHE_SIZE; i++) {
++            if ((jc->array[i].pc >> 63) == 0) {
++                qatomic_set(&jc->array[i].tb, NULL);
++            }
++        }
++    }
++    qatomic_set(&cpu->neg.tlb.c.part_flush_count,
++                cpu->neg.tlb.c.part_flush_count + 1);
++}
++
+ void tlb_flush_by_mmuidx(CPUState *cpu, MMUIdxMap idxmap)
+ {
+     tlb_debug("mmu_idx: 0x%" PRIx32 "\n", idxmap);
+diff --git a/include/exec/cputlb.h b/include/exec/cputlb.h
+index 318283b..f3b71fe 100644
+--- a/include/exec/cputlb.h
++++ b/include/exec/cputlb.h
+@@ -127,6 +127,16 @@ void tlb_flush_page_all_cpus_synced(CPUState *src, vaddr addr);
+  */
+ void tlb_flush(CPUState *cpu);
+ 
++/**
++ * tlb_flush_lower_half:
++ * @cpu: CPU whose TLB should be flushed (the calling CPU)
++ * @fullmap: MMU indexes to flush entirely
++ * @halfmap: MMU indexes to flush only for lower-half (TTBR0) addresses
++ *
++ * For an address space ID change in a guest whose upper half is global.
++ */
++void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap);
++
+ /**
+  * tlb_flush_all_cpus_synced:
+  * @cpu: src CPU of the flush
+@@ -237,6 +247,10 @@ static inline void tlb_flush_page_all_cpus_synced(CPUState *src, vaddr addr)
+ static inline void tlb_flush(CPUState *cpu)
+ {
+ }
++static inline void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap,
++                                        MMUIdxMap halfmap)
++{
++}
+ static inline void tlb_flush_all_cpus_synced(CPUState *src_cpu)
+ {
+ }
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index d848a87..55e1174 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -2674,6 +2674,18 @@ static void vmsa_tcr_el12_write(CPUARMState *env, const ARMCPRegInfo *ri,
+     raw_write(env, ri, value);
+ }
+ 
++/* QEMU_FULL_ASID_FLUSH=1 in the environment: flush everything, as before. */
++static bool arm_full_asid_flush(void)
++{
++    static int full = -1;
++
++    if (full < 0) {
++        const char *v = getenv("QEMU_FULL_ASID_FLUSH");
++        full = v && v[0] == '1';
++    }
++    return full;
++}
++
+ static void vmsa_ttbr_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                             uint64_t value)
+ {
+@@ -2681,7 +2693,24 @@ static void vmsa_ttbr_write(CPUARMState *env, const ARMCPRegInfo *ri,
+     if (cpreg_field_is_64bit(ri) &&
+         extract64(raw_read(env, ri) ^ value, 48, 16) != 0) {
+         ARMCPU *cpu = env_archcpu(env);
+-        tlb_flush(CPU(cpu));
++        /*
++         * TTBR0_EL1 holding the ASID (TCR_EL1.A1 = 0), outside an EL2&0
++         * regime: only the user's half of the EL1&0 TLBs depends on it (a
++         * guest like XNU keeps the kernel global in TTBR1), and the TLBs of
++         * other regimes and of physical addresses not at all.
++         */
++        if (ri->crn == 2 && ri->crm == 0 && ri->opc1 == 0 && ri->opc2 == 0 &&
++            ri->state == ARM_CP_STATE_AA64 &&
++            !(env->cp15.tcr_el[1] & TTBCR_A1) &&
++            !(arm_hcr_el2_eff(env) & HCR_E2H) &&
++            !arm_full_asid_flush()) {
++            tlb_flush_lower_half(CPU(cpu), ARMMMUIdxBit_E10_0,
++                                 ARMMMUIdxBit_E10_1 | ARMMMUIdxBit_E10_1_PAN |
++                                 ARMMMUIdxBit_GE10_1 |
++                                 ARMMMUIdxBit_GE10_1_PAN);
++        } else {
++            tlb_flush(CPU(cpu));
++        }
+     }
+     raw_write(env, ri, value);
+ }
