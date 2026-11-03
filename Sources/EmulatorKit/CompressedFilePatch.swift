@@ -129,12 +129,34 @@ enum CompressedFilePatch {
                 : decode(file.inline, type: file.type == 7 ? 8 : 12, rawSize: size)
             guard let data, data.count == size else { throw fail("does not decompress") }
             return data
-        case 4, 8, 12:
+        case 4, 8, 9, 12:
             guard size > 0 else { return Data() }
             var fork = Data()
             for extent in file.fork {
                 guard extent.logical == UInt64(fork.count) else { throw fail("fork has a hole") }
                 fork += try container.readBytes(at: extent.offset, count: Int(extent.length))
+            }
+            // Type 9 keeps the bytes uncompressed in the fork: as they are, or in chunks after an
+            // offset table like LZVN's.
+            if file.type == 9 {
+                let chunks = (size + chunkSize - 1) / chunkSize
+                let tableSize = (chunks + 1) * 4
+                if fork.count >= tableSize, Int(fork.le32(at: 0)) == tableSize {
+                    var out = Data(capacity: size)
+                    for i in 0..<chunks {
+                        let start = Int(fork.le32(at: i * 4)), end = Int(fork.le32(at: i * 4 + 4))
+                        guard start <= end, end <= fork.count else { throw fail("chunk \(i)") }
+                        var chunk = fork.subdata(in: start..<end)
+                        // A stored chunk may carry a one-byte marker.
+                        let rawSize = min(chunkSize, size - i * chunkSize)
+                        if chunk.count == rawSize + 1 { chunk = chunk.dropFirst() }
+                        guard chunk.count == rawSize else { throw fail("chunk \(i) size") }
+                        out += chunk
+                    }
+                    return out
+                }
+                guard fork.count >= size else { throw fail("short fork") }
+                return fork.prefix(size)
             }
             let chunks = (size + chunkSize - 1) / chunkSize
             var out = Data(capacity: size)

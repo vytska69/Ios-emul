@@ -347,7 +347,13 @@ public struct InfernoBackend: EmulatorBackend {
     /// Adds the System volume's private/var/staged_system_apps (the removable apps) to `tree`,
     /// with their owners and permissions. File bytes are read (and decompressed) only when the
     /// volume is written, one file at a time. Returns a one-line summary.
-    static func addStagedSystemApps(to tree: inout APFSContainer.Tree, from container: APFSContainer) throws -> String {
+    final class CopyLog {
+        private(set) var lines: [String] = []
+        func add(_ line: String) { lines.append(line) }
+    }
+
+    static func addStagedSystemApps(to tree: inout APFSContainer.Tree, from container: APFSContainer,
+                                    log: CopyLog = CopyLog()) throws -> String {
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == APFSContainer.Role.system.rawValue }) ?? volumes.first else {
             return "removable apps: no system volume"
@@ -355,6 +361,19 @@ public struct InfernoBackend: EmulatorBackend {
         let root = "staged_system_apps"
         let entries = try container.walk(volume: system.oid, path: "private/var/" + root)
         var apps = 0, files = 0, bytes = 0, skipped: [String] = []
+        // A file that cannot be read while the volume is written must not fail the whole install:
+        // it is written as zeros and named in staged-apps.txt (failures).
+        let failures = log
+        func readable(_ path: String, _ size: Int, _ read: () throws -> Data) -> Data {
+            do {
+                let data = try read()
+                if data.count == size { return data }
+                failures.add("\(path): \(data.count) of \(size) bytes")
+            } catch {
+                failures.add("\(path): \(error)")
+            }
+            return Data(count: size)
+        }
         for entry in entries {
             let path = root + "/" + entry.path
             switch entry.kind {
@@ -364,11 +383,19 @@ public struct InfernoBackend: EmulatorBackend {
             case .file:
                 let size = Int(entry.size)
                 if let compressed = entry.compressed {
+                    // A compression the copy cannot read would fail the whole install when the
+                    // volume is written; such a file is left out (and its app may not open).
+                    guard [1, 3, 4, 7, 8, 9, 11, 12].contains(compressed.type) else {
+                        skipped.append("\(entry.path) (compression \(compressed.type))")
+                        continue
+                    }
                     tree.lazyFiles[path] = APFSContainer.LazyFile(size: size) {
-                        try CompressedFilePatch.contents(of: compressed, container: container)
+                        readable(path, size) { try CompressedFilePatch.contents(of: compressed, container: container) }
                     }
                 } else {
-                    tree.lazyFiles[path] = APFSContainer.LazyFile(size: size) { try container.contents(of: entry) }
+                    tree.lazyFiles[path] = APFSContainer.LazyFile(size: size) {
+                        readable(path, size) { try container.contents(of: entry) }
+                    }
                 }
                 files += 1; bytes += size
             case .symlink, .other:
@@ -379,7 +406,7 @@ public struct InfernoBackend: EmulatorBackend {
         }
         tree.attributes[root] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
         return "removable apps: \(apps) apps, \(files) files, \(bytes / 1_048_576) MB"
-            + (skipped.isEmpty ? "" : "; skipped \(skipped.count) (links): " + skipped.prefix(5).joined(separator: ", "))
+            + (skipped.isEmpty ? "" : "; skipped \(skipped.count): " + skipped.prefix(8).joined(separator: ", "))
     }
 
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
@@ -530,15 +557,20 @@ public struct InfernoBackend: EmulatorBackend {
                 // The apps iOS lets the user delete are not in /Applications: the System volume
                 // keeps them in /private/var/staged_system_apps, and a restore copies that onto the
                 // Data volume, from where iOS installs them on the first start.
+                let copyLog = CopyLog()
+                var copyLine: String?
                 if ctx.removableApps {
                     ctx.progress("OS", 0.97)
-                    let line: String
-                    do { line = try Self.addStagedSystemApps(to: &dataTree, from: container) }
-                    catch { line = "removable apps not copied: \(error)" }
-                    try? (line + "\n").write(to: disk.deletingLastPathComponent().appendingPathComponent("staged-apps.txt"),
-                                             atomically: true, encoding: .utf8)
+                    do { copyLine = try Self.addStagedSystemApps(to: &dataTree, from: container, log: copyLog) }
+                    catch { copyLine = "removable apps not copied: \(error)" }
                 }
                 try container.addVolume(name: "Data", role: .data, tree: dataTree)
+                if let copyLine {
+                    let failed = copyLog.lines.isEmpty ? [] : ["failures (\(copyLog.lines.count)):"] + copyLog.lines.prefix(50)
+                    try? (([copyLine] + failed).joined(separator: "\n") + "\n")
+                        .write(to: disk.deletingLastPathComponent().appendingPathComponent("staged-apps.txt"),
+                               atomically: true, encoding: .utf8)
+                }
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.
