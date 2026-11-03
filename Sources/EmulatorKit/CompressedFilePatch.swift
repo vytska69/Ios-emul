@@ -117,6 +117,12 @@ enum CompressedFilePatch {
         case 1:
             guard file.inline.count >= size else { throw fail("short") }
             return file.inline.prefix(size)
+        // Type 9 with no resource fork keeps the bytes uncompressed after the header (small
+        // files such as PkgInfo), sometimes after a one-byte marker.
+        case 9 where file.fork.isEmpty:
+            if file.inline.count == size { return file.inline }
+            if file.inline.count == size + 1 { return file.inline.dropFirst() }
+            throw fail("\(file.inline.count) inline bytes for \(size)")
         case 3, 7, 11:
             guard size > 0 else { return Data() }
             guard let first = file.inline.first else { throw fail("no data") }
@@ -129,7 +135,7 @@ enum CompressedFilePatch {
                 : decode(file.inline, type: file.type == 7 ? 8 : 12, rawSize: size)
             guard let data, data.count == size else { throw fail("does not decompress") }
             return data
-        case 4, 8, 9, 12:
+        case 4, 8, 9, 10, 12:
             guard size > 0 else { return Data() }
             var fork = Data()
             for extent in file.fork {
@@ -138,7 +144,7 @@ enum CompressedFilePatch {
             }
             // Type 9 keeps the bytes uncompressed in the fork: as they are, or in chunks after an
             // offset table like LZVN's.
-            if file.type == 9 {
+            if file.type == 9 || file.type == 10 {
                 let chunks = (size + chunkSize - 1) / chunkSize
                 let tableSize = (chunks + 1) * 4
                 if fork.count >= tableSize, Int(fork.le32(at: 0)) == tableSize {

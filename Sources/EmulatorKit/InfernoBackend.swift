@@ -322,7 +322,9 @@ public struct InfernoBackend: EmulatorBackend {
             "lastBuildVersion": build, "LastSystemVersion": build,
             "DMUserDataDisposition": ["SyntheticDidUpgrade": false, "buildVersion": build],
         ]
-        if let migration = try? PropertyListSerialization.data(fromPropertyList: migrated, format: .binary, options: 0) {
+        // IOSEMUL_NO_MIGRATION_PLIST=1 (tests) leaves it out, so datamigrator migrates as after a restore.
+        if ProcessInfo.processInfo.environment["IOSEMUL_NO_MIGRATION_PLIST"] != "1",
+           let migration = try? PropertyListSerialization.data(fromPropertyList: migrated, format: .binary, options: 0) {
             tree.files["mobile/Library/Preferences/com.apple.migration.plist"] = migration
             tree.attributes["mobile/Library/Preferences/com.apple.migration.plist"] =
                 APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
@@ -385,7 +387,7 @@ public struct InfernoBackend: EmulatorBackend {
                 if let compressed = entry.compressed {
                     // A compression the copy cannot read would fail the whole install when the
                     // volume is written; such a file is left out (and its app may not open).
-                    guard [1, 3, 4, 7, 8, 9, 11, 12].contains(compressed.type) else {
+                    guard [1, 3, 4, 7, 8, 9, 10, 11, 12].contains(compressed.type) else {
                         skipped.append("\(entry.path) (compression \(compressed.type))")
                         continue
                     }
