@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-03
+- A first Mac version for Apple Silicon Macs: IOSEmul-mac.zip on the Rolling release. Add an IPSW, press Boot, and the phone opens in its own window; click and drag to touch, with Home, Lock and volume buttons in the toolbar. It is not notarized: after unzipping, right-click the app and choose Open the first time.
 - New installs now include the apps iOS lets you delete: Music, Calendar, Weather, Mail, Notes, Maps, Contacts, Calculator and the rest. A switch on the machine card ("Include removable apps") leaves them out if you prefer a lighter install.
 
 ## 2026-11-02

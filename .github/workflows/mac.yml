@@ -1,0 +1,83 @@
+name: Mac app
+
+# Builds the Mac version (iOS Emul.app with QEMU inside) as a zip. On the default branch it also
+# goes to the Rolling release as IOSEmul-mac.zip.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/ipsw-emulator-app, main, master]
+    paths:
+      - "App/Mac/**"
+      - "Sources/IPSWKit/**"
+      - "Sources/EmulatorKit/**"
+      - "qemu/**"
+      - "scripts/build-inferno-macos.sh"
+      - "scripts/bundle-qemu-macos.sh"
+      - "project.yml"
+      - "Package.swift"
+      - ".github/workflows/mac.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same QEMU build and cache as the boot tests.
+      - id: rev
+        run: |
+          rev=$(sed -n 's/^INFERNO_REV="${INFERNO_REV:-\([0-9a-f]*\)}"$/\1/p' scripts/build-qemu-ios.sh)
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "key=${rev:0:12}-${{ hashFiles('qemu/patches/**') }}" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: qemu-bin
+          key: inferno-macos-v2-${{ steps.rev.outputs.key }}
+      - name: Build QEMU
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build-inferno-macos.sh "${{ steps.rev.outputs.rev }}" "$GITHUB_WORKSPACE/qemu-bin"
+
+      - name: Host tools
+        # QEMU's libraries must be installed for dylibbundler to copy them (a cached build skips
+        # the step that installs them).
+        run: brew install xcodegen dylibbundler glib pixman nettle libtasn1 lzfse gnutls libslirp
+
+      - name: Build app
+        run: |
+          xcodegen generate
+          xcodebuild -project IOSEmul.xcodeproj -scheme IOSEmulMac -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath build \
+            MARKETING_VERSION="0.1.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build | tail -n 80
+          exit ${PIPESTATUS[0]}
+
+      - name: Bundle QEMU
+        run: |
+          app="build/Build/Products/Release/iOS Emul.app"
+          scripts/bundle-qemu-macos.sh "$app" "$GITHUB_WORKSPACE/qemu-bin"
+          # The helper starts and knows the machine.
+          "$app/Contents/MacOS/qemu-system-aarch64" -L "$app/Contents/Resources/qemu" -machine help | grep -i t8030
+          mkdir -p out
+          ditto -c -k --keepParent "$app" out/IOSEmul-mac.zip
+          ls -lh out/IOSEmul-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IOSEmul-mac
+          path: out/IOSEmul-mac.zip
+          if-no-files-found: error
+
+      - name: Publish to the rolling release
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload Rolling out/IOSEmul-mac.zip --clobber

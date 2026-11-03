@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.iosemul
   deploymentTarget:
     iOS: "16.0"
+    macOS: "13.0"
 packages:
   IOSEmulCore:
     path: .
@@ -72,3 +73,39 @@ targets:
               codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --preserve-metadata=identifier,entitlements "$DST/$(basename "$fw")"
             fi
           done
+  # The Mac version: the same installer (EmulatorKit) with QEMU as a helper process in
+  # Contents/MacOS, put there by scripts/bundle-qemu-macos.sh.
+  IOSEmulMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: App/Mac
+    dependencies:
+      - package: IOSEmulCore
+        product: IPSWKit
+      - package: IOSEmulCore
+        product: EmulatorKit
+    entitlements:
+      path: App/Mac/IOSEmulMac.entitlements
+      properties:
+        # QEMU's Hypervisor.framework accelerator (-accel hvf) runs in the helper process,
+        # which is signed with the same entitlement.
+        com.apple.security.hypervisor: true
+    info:
+      path: App/Mac/Info.plist
+      properties:
+        CFBundleDisplayName: iOS Emul
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: "13.0"
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iosemul.mac
+        PRODUCT_NAME: iOS Emul
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: NO

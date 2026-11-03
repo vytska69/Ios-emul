@@ -10,3 +10,5 @@ App/Frameworks/
 App/QEMUData/
 build-qemu/
 *.ipsw
+App/Mac/Info.plist
+App/Mac/IOSEmulMac.entitlements
