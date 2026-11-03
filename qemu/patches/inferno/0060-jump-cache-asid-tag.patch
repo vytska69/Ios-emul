@@ -1,0 +1,161 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 9e672f5..027d7ff 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -256,9 +256,11 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     /* The entry it replaces moves to the other way. */
+     jc->array[alt].pc = jc->array[hash].pc;
+     jc->array[alt].gen = jc->array[hash].gen;
++    jc->array[alt].tag = jc->array[hash].tag;
+     qatomic_set(&jc->array[alt].tb, qatomic_read(&jc->array[hash].tb));
+     jc->array[hash].pc = s.pc;
+     jc->array[hash].gen = jc->user_gen;
++    jc->array[hash].tag = jc->user_tag;
+     qatomic_set(&jc->array[hash].tb, tb);
+ 
+ hit:
+@@ -955,6 +957,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
+                 jc = cpu->tb_jmp_cache;
+                 jc->array[h].pc = s.pc;
+                 jc->array[h].gen = jc->user_gen;
++                jc->array[h].tag = jc->user_tag;
+                 qatomic_set(&jc->array[h].tb, tb);
+             }
+ 
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index f289446..42efe0d 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -419,11 +419,10 @@ static inline bool tlb_entry_is_upper(const CPUTLBEntry *te)
+     return (a >> 63) != 0;
+ }
+ 
+-void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
++static void tlb_flush_lower_half_tlb(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
+ {
+     int64_t now = get_clock_realtime();
+     MMUIdxMap work;
+-    CPUJumpCache *jc = cpu->tb_jmp_cache;
+ 
+     assert_cpu_is_self(cpu);
+     qemu_spin_lock(&cpu->neg.tlb.c.lock);
+@@ -456,12 +455,29 @@ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
+         }
+     }
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
++    qatomic_set(&cpu->neg.tlb.c.part_flush_count,
++                cpu->neg.tlb.c.part_flush_count + 1);
++}
++
++void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
++{
++    CPUJumpCache *jc = cpu->tb_jmp_cache;
+ 
++    tlb_flush_lower_half_tlb(cpu, fullmap, halfmap);
+     if (jc) {
+         jc->user_gen++;
+     }
+-    qatomic_set(&cpu->neg.tlb.c.part_flush_count,
+-                cpu->neg.tlb.c.part_flush_count + 1);
++}
++
++void tlb_switch_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap,
++                           uint64_t tag)
++{
++    CPUJumpCache *jc = cpu->tb_jmp_cache;
++
++    tlb_flush_lower_half_tlb(cpu, fullmap, halfmap);
++    if (jc) {
++        jc->user_tag = tag;
++    }
+ }
+ 
+ static void tlb_flush_lower_half_async_work(CPUState *cpu, run_on_cpu_data d)
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index 0295ec7..d9590f8 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -35,17 +35,26 @@ typedef struct CPUJumpCache {
+      * user_gen; tlb_flush_lower_half bumps it instead of clearing them.
+      */
+     uint64_t user_gen;
++    /*
++     * And while their tag equals user_tag: the address space they were cached
++     * in (TTBR0). Switching to another address space changes user_tag only, so
++     * the entries of a process are still there when it runs again; a TLB
++     * invalidation of the user half (TLBI ASIDE1 and the like) bumps user_gen.
++     */
++    uint64_t user_tag;
+     struct {
+         TranslationBlock *tb;
+         vaddr pc;
+         uint64_t gen;
++        uint64_t tag;
+     } array[TB_JMP_CACHE_SIZE];
+ } CPUJumpCache;
+ 
+ static inline bool tb_jmp_cache_gen_ok(CPUJumpCache *jc, uint32_t hash,
+                                        vaddr pc)
+ {
+-    return (int64_t)pc < 0 || jc->array[hash].gen == jc->user_gen;
++    return (int64_t)pc < 0 ||
++           (jc->array[hash].gen == jc->user_gen && jc->array[hash].tag == jc->user_tag);
+ }
+ 
+ #endif /* ACCEL_TCG_TB_JMP_CACHE_H */
+diff --git a/include/exec/cputlb.h b/include/exec/cputlb.h
+index 041feb4..c177e93 100644
+--- a/include/exec/cputlb.h
++++ b/include/exec/cputlb.h
+@@ -136,6 +136,8 @@ void tlb_flush(CPUState *cpu);
+  * For an address space ID change in a guest whose upper half is global.
+  */
+ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap);
++/* The same for a switch to the address space @tag (TTBR0), whose jump cache entries stay valid. */
++void tlb_switch_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap, uint64_t tag);
+ /* The same on every CPU, done when the calling CPU next leaves its TB. */
+ void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu, MMUIdxMap fullmap,
+                                           MMUIdxMap halfmap);
+@@ -254,6 +256,10 @@ static inline void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap,
+                                         MMUIdxMap halfmap)
+ {
+ }
++static inline void tlb_switch_lower_half(CPUState *cpu, MMUIdxMap fullmap,
++                                         MMUIdxMap halfmap, uint64_t tag)
++{
++}
+ static inline void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu,
+                                                         MMUIdxMap fullmap,
+                                                         MMUIdxMap halfmap)
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index 55e1174..38a8880 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -2704,10 +2704,23 @@ static void vmsa_ttbr_write(CPUARMState *env, const ARMCPRegInfo *ri,
+             !(env->cp15.tcr_el[1] & TTBCR_A1) &&
+             !(arm_hcr_el2_eff(env) & HCR_E2H) &&
+             !arm_full_asid_flush()) {
+-            tlb_flush_lower_half(CPU(cpu), ARMMMUIdxBit_E10_0,
+-                                 ARMMMUIdxBit_E10_1 | ARMMMUIdxBit_E10_1_PAN |
+-                                 ARMMMUIdxBit_GE10_1 |
+-                                 ARMMMUIdxBit_GE10_1_PAN);
++            /* The jump cache keeps each address space's entries (QEMU_JC_ASID_TAG=0: as before). */
++            static int tagged = -1;
++            if (tagged < 0) {
++                const char *v = getenv("QEMU_JC_ASID_TAG");
++                tagged = !(v && v[0] == '0');
++            }
++            if (tagged) {
++                tlb_switch_lower_half(CPU(cpu), ARMMMUIdxBit_E10_0,
++                                      ARMMMUIdxBit_E10_1 | ARMMMUIdxBit_E10_1_PAN |
++                                      ARMMMUIdxBit_GE10_1 |
++                                      ARMMMUIdxBit_GE10_1_PAN, value);
++            } else {
++                tlb_flush_lower_half(CPU(cpu), ARMMMUIdxBit_E10_0,
++                                     ARMMMUIdxBit_E10_1 | ARMMMUIdxBit_E10_1_PAN |
++                                     ARMMMUIdxBit_GE10_1 |
++                                     ARMMMUIdxBit_GE10_1_PAN);
++            }
+         } else {
+             tlb_flush(CPU(cpu));
+         }
