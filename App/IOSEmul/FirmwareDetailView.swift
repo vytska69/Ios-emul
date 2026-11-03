@@ -282,7 +282,7 @@ struct FirmwareDetailView: View {
                     Stepper(value: $cpus, in: 1...8) { InfoRow(label: "CPU cores", value: "\(cpus)") }
                     if bootMode == .direct {
                         ToggleRow(title: "Include removable apps",
-                                  detail: "Music, Calendar, Weather, Mail, Notes, Maps and the other apps iOS lets you delete. Applies when iOS is installed on a new machine.",
+                                  detail: "Music, Calendar, Weather, Mail, Notes, Maps and the other apps iOS lets you delete. Applies when iOS is installed on a new machine; the first start then takes longer while iOS installs them.",
                                   isOn: $removableApps)
                     }
                 }

@@ -351,6 +351,13 @@ final class IPSWKitTests: XCTestCase {
             from: plain.files["mobile/Library/Preferences/com.apple.migration.plist"]!, format: nil) as? [String: Any])
         XCTAssertEqual(migration["lastBuildVersion"] as? String, "18A373")
         XCTAssertEqual(migration["LastSystemVersion"] as? String, "18A373")
+        // With the removable apps datamigrator runs and migration is not recorded as done.
+        let apps = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373", systemApps: true)
+        XCTAssertNil(apps.files["mobile/Library/Preferences/com.apple.migration.plist"])
+        let appsDisabled = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: apps.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
+        XCTAssertNil(appsDisabled["com.apple.datamigrator"])
+        XCTAssertEqual(appsDisabled["com.apple.CommCenter"], true)
         let springboard = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["mobile/Library/Preferences/com.apple.springboard.plist"]!, format: nil) as? [String: Any])
         XCTAssertEqual(springboard["BKNoWatchdogs"] as? Bool, true)

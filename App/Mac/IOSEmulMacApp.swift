@@ -379,7 +379,7 @@ struct FirmwareDetail: View {
                     Section("When iOS is installed") {
                         Toggle("Include removable apps (Music, Calendar, Weather, …)", isOn: $removableApps)
                         Toggle("Skip the setup assistant", isOn: $skipSetup)
-                        Text("Applies to a new machine. Wipe the machine to install again with other settings.")
+                        Text("Applies to a new machine. With the removable apps the first start takes longer while iOS installs them. Wipe the machine to install again with other settings.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Section {

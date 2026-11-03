@@ -299,7 +299,11 @@ public struct InfernoBackend: EmulatorBackend {
     /// It also records data migration as done for `build` (`lastBuildVersion`). After the first-boot
     /// obliteration datamigrator still runs every DataClassMigrator ("erase" context) before
     /// SpringBoard starts; under emulation that hangs in CoreLocationMigrator.
-    static func dataVolumeTree(tweaks: GuestTweaks, build: String) -> APFSContainer.Tree {
+    ///
+    /// With `systemApps` (the removable apps copied into staged_system_apps) datamigrator runs and
+    /// migration is not recorded as done: its SystemAppMigrator installs those apps on the first
+    /// start, which then takes longer.
+    static func dataVolumeTree(tweaks: GuestTweaks, build: String, systemApps: Bool = false) -> APFSContainer.Tree {
         var tree = dataVolumeTree
         // CommCenter (the cellular service) aborts every few seconds without a modem, and
         // locationd's synchronous CoreTelephony calls to it never return, so the post-erase data
@@ -309,8 +313,8 @@ public struct InfernoBackend: EmulatorBackend {
         // and SpringBoard wait; under emulation that takes most of the first start (10+ minutes
         // in CI). A fresh install has nothing to migrate: with the service off, the clients'
         // migration requests fail at once and they go on.
-        // IOSEMUL_DATAMIGRATOR=1 (tests) leaves datamigrator on, to measure what it costs now.
-        let keepMigrator = ProcessInfo.processInfo.environment["IOSEMUL_DATAMIGRATOR"] == "1"
+        // It is needed for the removable apps (SystemAppMigrator); IOSEMUL_DATAMIGRATOR=1 also keeps it.
+        let keepMigrator = systemApps || ProcessInfo.processInfo.environment["IOSEMUL_DATAMIGRATOR"] == "1"
         var services = ["com.apple.CommCenter": true]
         if !keepMigrator { services["com.apple.datamigrator"] = true }
         if let disabled = try? PropertyListSerialization.data(fromPropertyList: services,
@@ -322,8 +326,9 @@ public struct InfernoBackend: EmulatorBackend {
             "lastBuildVersion": build, "LastSystemVersion": build,
             "DMUserDataDisposition": ["SyntheticDidUpgrade": false, "buildVersion": build],
         ]
-        // IOSEMUL_NO_MIGRATION_PLIST=1 (tests) leaves it out, so datamigrator migrates as after a restore.
-        if ProcessInfo.processInfo.environment["IOSEMUL_NO_MIGRATION_PLIST"] != "1",
+        // Left out for the removable apps (or with IOSEMUL_NO_MIGRATION_PLIST=1), so datamigrator
+        // migrates as after a restore: with migration recorded as done it skips SystemAppMigrator.
+        if !systemApps, ProcessInfo.processInfo.environment["IOSEMUL_NO_MIGRATION_PLIST"] != "1",
            let migration = try? PropertyListSerialization.data(fromPropertyList: migrated, format: .binary, options: 0) {
             tree.files["mobile/Library/Preferences/com.apple.migration.plist"] = migration
             tree.attributes["mobile/Library/Preferences/com.apple.migration.plist"] =
@@ -573,8 +578,11 @@ public struct InfernoBackend: EmulatorBackend {
                 var copyLine: String?
                 if ctx.removableApps {
                     ctx.progress("OS", 0.97)
-                    do { copyLine = try Self.addStagedSystemApps(to: &dataTree, from: container, log: copyLog) }
-                    catch { copyLine = "removable apps not copied: \(error)" }
+                    var withApps = Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build, systemApps: true)
+                    do {
+                        copyLine = try Self.addStagedSystemApps(to: &withApps, from: container, log: copyLog)
+                        dataTree = withApps
+                    } catch { copyLine = "removable apps not copied: \(error)" }
                 }
                 try container.addVolume(name: "Data", role: .data, tree: dataTree)
                 if let copyLine {
