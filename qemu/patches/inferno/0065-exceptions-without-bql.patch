@@ -1,0 +1,203 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 62f5551..02d987a 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -708,10 +708,17 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
+ 
+     if (replay_exception()) {
+         const TCGCPUOps *tcg_ops = cpu->cc->tcg_ops;
++        bool lock = replay_mode != REPLAY_MODE_NONE ||
++                    !tcg_ops->do_interrupt_needs_bql ||
++                    tcg_ops->do_interrupt_needs_bql(cpu);
+ 
+-        bql_lock();
++        if (lock) {
++            bql_lock();
++        }
+         tcg_ops->do_interrupt(cpu);
+-        bql_unlock();
++        if (lock) {
++            bql_unlock();
++        }
+         cpu->exception_index = -1;
+ 
+         if (unlikely(cpu->singlestep_enabled)) {
+diff --git a/include/accel/tcg/cpu-ops.h b/include/accel/tcg/cpu-ops.h
+index 56218ef..b92b458 100644
+--- a/include/accel/tcg/cpu-ops.h
++++ b/include/accel/tcg/cpu-ops.h
+@@ -102,6 +102,13 @@ struct TCGCPUOps {
+ 
+     /** @do_interrupt: Callback for interrupt handling.  */
+     void (*do_interrupt)(CPUState *cpu);
++    /**
++     * @do_interrupt_needs_bql: Optional. False when do_interrupt for the
++     * pending exception_index only changes this CPU's own state, so cpu_exec
++     * can deliver a synchronous exception (a syscall, a page fault) without
++     * the BQL. Absent: the BQL is always taken.
++     */
++    bool (*do_interrupt_needs_bql)(CPUState *cpu);
+     /** @cpu_exec_interrupt: Callback for processing interrupts in cpu_exec */
+     bool (*cpu_exec_interrupt)(CPUState *cpu, int interrupt_request);
+     /**
+diff --git a/target/arm/cpu.c b/target/arm/cpu.c
+index ba3cbb4..ab149a9 100644
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -153,6 +153,9 @@ void arm_register_pre_el_change_hook(ARMCPU *cpu, ARMELChangeHookFn *hook,
+     entry->opaque = opaque;
+ 
+     QLIST_INSERT_HEAD(&cpu->pre_el_change_hooks, entry, node);
++    if (hook != pmu_pre_el_change) {
++        cpu->el_change_hooks_always = true;
++    }
+ }
+ 
+ void arm_register_el_change_hook(ARMCPU *cpu, ARMELChangeHookFn *hook,
+@@ -164,6 +167,9 @@ void arm_register_el_change_hook(ARMCPU *cpu, ARMELChangeHookFn *hook,
+     entry->opaque = opaque;
+ 
+     QLIST_INSERT_HEAD(&cpu->el_change_hooks, entry, node);
++    if (hook != pmu_post_el_change) {
++        cpu->el_change_hooks_always = true;
++    }
+ }
+ 
+ static void cp_reg_reset(ARMCPRegInfo *ri, ARMCPU *cpu)
+@@ -2112,6 +2118,7 @@ static const TCGCPUOps arm_tcg_ops = {
+     .pointer_wrap = aprofile_pointer_wrap,
+     .cpu_exec_interrupt = arm_cpu_exec_interrupt,
+     .cpu_exec_interrupt_masked = arm_cpu_exec_interrupt_masked,
++    .do_interrupt_needs_bql = arm_cpu_do_interrupt_needs_bql,
+     .cpu_exec_halt = arm_cpu_exec_halt,
+     .cpu_exec_reset = cpu_reset,
+     .do_interrupt = arm_cpu_do_interrupt,
+diff --git a/target/arm/cpu.h b/target/arm/cpu.h
+index 698ab4d..a125fb1 100644
+--- a/target/arm/cpu.h
++++ b/target/arm/cpu.h
+@@ -1181,6 +1181,8 @@ struct ArchCPU {
+ 
+     QLIST_HEAD(, ARMELChangeHook) pre_el_change_hooks;
+     QLIST_HEAD(, ARMELChangeHook) el_change_hooks;
++    /* An EL change hook other than the PMU's is registered (GICv3, RME). */
++    bool el_change_hooks_always;
+ 
+     int32_t node_id; /* NUMA node this CPU belongs to */
+ 
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index a5012c0..dddf2ce 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -9004,13 +9004,16 @@ void arm_cpu_do_interrupt(CPUState *cs)
+ #endif
+ 
+     /*
+-     * Hooks may change global state so BQL should be held, also the
+-     * BQL needs to be held for any modification of
+-     * cs->interrupt_request.
++     * Hooks may change global state so BQL should be held. They only have
++     * work while the PMU counts (or with RME); otherwise a synchronous
++     * exception is delivered without the BQL (see arm_cpu_do_interrupt_needs_bql).
+      */
+-    assert(bql_locked());
++    bool el_hooks = arm_el_change_hooks_active(cpu);
+ 
+-    arm_call_pre_el_change_hook(cpu);
++    if (el_hooks) {
++        assert(bql_locked());
++        arm_call_pre_el_change_hook(cpu);
++    }
+ 
+     assert(!excp_is_internal(cs->exception_index));
+     if (arm_el_is_aa64(env, new_el)) {
+@@ -9019,11 +9022,47 @@ void arm_cpu_do_interrupt(CPUState *cs)
+         arm_cpu_do_interrupt_aarch32(cs);
+     }
+ 
+-    arm_call_el_change_hook(cpu);
++    if (el_hooks) {
++        arm_call_el_change_hook(cpu);
++    }
+ 
+     if (!kvm_enabled()) {
+-        cpu_set_interrupt(cs, CPU_INTERRUPT_EXITTB);
++        /*
++         * Without the BQL this is a synchronous exception from cpu_exec,
++         * which starts over with no last TB to chain from anyway; setting
++         * EXITTB would only make the next loop iteration take the BQL.
++         */
++        if (bql_locked()) {
++            cpu_set_interrupt(cs, CPU_INTERRUPT_EXITTB);
++        }
++    }
++}
++
++/*
++ * A synchronous exception (SVC, a data or instruction abort, GENTER and the
++ * like) only changes this CPU's registers, unless it is a PSCI call or a
++ * semihosting call, or the PMU's EL change hooks have work. iOS takes one
++ * for every syscall and every PPL call, and taking the BQL for each made the
++ * vCPUs wait for each other. QEMU_EXC_NOBQL=0 takes it as before.
++ */
++bool arm_cpu_do_interrupt_needs_bql(CPUState *cs)
++{
++    ARMCPU *cpu = ARM_CPU(cs);
++    CPUARMState *env = &cpu->env;
++    static int enabled = -1;
++
++    if (enabled < 0) {
++        const char *v = getenv("QEMU_EXC_NOBQL");
++        enabled = !(v && v[0] == '0');
++    }
++    if (!enabled || qemu_loglevel_mask(CPU_LOG_INT) ||
++        cs->exception_index == EXCP_SEMIHOST ||
++        arm_is_psci_call(cpu, cs->exception_index) ||
++        arm_el_change_hooks_active(cpu) ||
++        !arm_el_is_aa64(env, env->exception.target_el)) {
++        return true;
+     }
++    return false;
+ }
+ 
+ uint64_t arm_sctlr(CPUARMState *env, int el)
+diff --git a/target/arm/internals.h b/target/arm/internals.h
+index 3a99dbd..be18d03 100644
+--- a/target/arm/internals.h
++++ b/target/arm/internals.h
+@@ -1336,6 +1336,7 @@ static inline const char *aarch32_mode_name(uint32_t psr)
+  */
+ bool arm_cpu_exec_interrupt(CPUState *cs, int interrupt_request);
+ bool arm_cpu_exec_interrupt_masked(CPUState *cs, int interrupt_request);
++bool arm_cpu_do_interrupt_needs_bql(CPUState *cs);
+ 
+ /**
+  * arm_cpu_update_virq: Update CPU_INTERRUPT_VIRQ bit in cs->interrupt_request
+@@ -2007,4 +2008,14 @@ bool arm_pan_enabled(CPUARMState *env);
+ /* Compare uint64_t for qsort and bsearch. */
+ int compare_u64(const void *a, const void *b);
+ 
++
++/*
++ * True when an EL change has to run the EL change hooks (and so take the BQL):
++ * the PMU counts, or another hook (GICv3, RME) is registered.
++ */
++static inline bool arm_el_change_hooks_active(ARMCPU *cpu)
++{
++    return cpu->el_change_hooks_always || (cpu->env.cp15.c9_pmcr & PMCRE);
++}
++
+ #endif
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 395257b..6e2690e 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -705,7 +705,7 @@ void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
+      * PMCR0) they have nothing to do, and taking the BQL on every ERET (each
+      * syscall and interrupt return) made the vCPUs wait for each other.
+      */
+-    bool el_hooks = (env->cp15.c9_pmcr & PMCRE) || cpu_isar_feature(aa64_rme, cpu);
++    bool el_hooks = arm_el_change_hooks_active(cpu);
+     if (el_hooks) {
+         bql_lock();
+         arm_call_pre_el_change_hook(cpu);
