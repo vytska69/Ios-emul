@@ -1,0 +1,49 @@
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index 7e6f610..2d666e6 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -758,6 +758,14 @@ static int xhci_ring_chain_length(XHCIState *xhci, const XHCIRing *ring)
+         le32_to_cpus(&trb.control);
+ 
+         if ((trb.control & TRB_C) != ccs) {
++            /*
++             * Apple's xHCI driver queues a control transfer's status stage
++             * only after the data stage completes: run the setup (and data)
++             * stage that is there, the status TRB follows on its own.
++             */
++            if (control_td_set && length > 0) {
++                return length;
++            }
+             return -length;
+         }
+ 
+@@ -1694,13 +1702,28 @@ static int xhci_fire_ctl_transfer(XHCIState *xhci, XHCITransfer *xfer)
+         trb_status--;
+     }
+ 
++    /* A status stage queued on its own, after its setup and data stages ran. */
++    if (TRB_TYPE(*trb_setup) == TR_STATUS) {
++        xfer->in_xfer = false;
++        xfer->iso_xfer = false;
++        xfer->timed_xfer = false;
++        xfer->packet.actual_length = 0;
++        xfer->running_async = 0;
++        xfer->running_retry = 0;
++        xfer->complete = 1;
++        xfer->status = CC_SUCCESS;
++        xhci_xfer_report(xfer);
++        return 0;
++    }
++
+     /* do some sanity checks */
+     if (TRB_TYPE(*trb_setup) != TR_SETUP) {
+         DPRINTF("xhci: ep0 first TD not SETUP: %d\n",
+                 TRB_TYPE(*trb_setup));
+         return -1;
+     }
+-    if (TRB_TYPE(*trb_status) != TR_STATUS) {
++    if (TRB_TYPE(*trb_status) != TR_STATUS && TRB_TYPE(*trb_status) != TR_DATA &&
++        TRB_TYPE(*trb_status) != TR_SETUP) {
+         DPRINTF("xhci: ep0 last TD not STATUS: %d\n",
+                 TRB_TYPE(*trb_status));
+         return -1;
