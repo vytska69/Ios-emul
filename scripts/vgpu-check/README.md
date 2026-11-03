@@ -34,3 +34,12 @@ python3 check_nearest_multiply_darken.py
 ```
 
 Rezultatas 2026-11-02: 150 atvejų, 0 skirtingų pikselių.
+
+`image_sampler<ARGB8, 0,1,0,1>` (kraštai prispausti, `0057`):
+
+```
+gcc -O2 -ffp-contract=off -o t4 clamp_argb8_harness.c -lm
+python3 check_clamp_argb8.py
+```
+
+Rezultatas 2026-11-03: 200 atvejų, 0 skirtingų pikselių.

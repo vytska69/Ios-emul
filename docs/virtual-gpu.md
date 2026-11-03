@@ -56,6 +56,9 @@ vykdomą kodą, vėliau į įrenginio GPU per Metal.
 | 7 | `image_sampler<ARGB8_Host, unsigned, 0,0,0,0>` (artimiausias taškas) | 0x183721590 | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
 | 8 | `tex_multiply_color` | 0x183708a8c | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
 | 9 | `Blend::Mode<DarkenSover, false>::blend` (su `DarkenSover::f`) | 0x18370c264 | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
+| 10 | `image_sampler<ARGB8_Host, unsigned, 0,1,0,1>` (afininis, kraštai prispausti) | 0x183721014 | 0057 | Unicorn, 200 atvejų, 0 skirtumų |
+
+Puslapių talpykla (`0055`): hiperkvietimai adresą verčia kartą puslapiui, o ne kiekvienam pikseliui; jų laikas emuliuotų procesorių laike sumažėjo nuo ~2,8 % iki ~1,4 %.
 
 Išmatuota (CI, braukiant): `image_sampler<ARGB8_Host, 1,1,1,1>` emuliuotų procesorių laike
 nukrito nuo ~3,3 % iki ~0,4 %. Su 3 ir 4–6 numeriais emuliuotas iOS piešia taip pat, kaip
