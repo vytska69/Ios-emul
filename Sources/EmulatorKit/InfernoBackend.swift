@@ -516,7 +516,8 @@ public struct InfernoBackend: EmulatorBackend {
                 // system as the IPSW has it.
                 let report: [String]
                 do { report = try SharedCachePatches.apply(build: ctx.ipsw.build, container: container,
-                                                                    skipSetup: ctx.guestTweaks.skipSetupAssistant) }
+                                                                    skipSetup: ctx.guestTweaks.skipSetupAssistant,
+                                                                    hypercalls: ctx.hypercalls) }
                 catch { report = ["not patched: \(error)"] }
                 try? (report.joined(separator: "\n") + "\n").write(
                     to: disk.deletingLastPathComponent().appendingPathComponent("shared-cache-patches.txt"),

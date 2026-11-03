@@ -198,9 +198,12 @@ final class MacLibrary: ObservableObject {
     }
 
     /// The machine's folder for this IPSW and backend.
+    /// A Hypervisor.framework machine has its own disk: its install leaves out the shared-cache
+    /// patches that only TCG runs.
     func workDirectory(_ firmware: MacFirmware, backend: EmulatorBackend) -> URL {
         let name = (firmware.ipsw.map { "\($0.devices.first?.productType ?? "device")-\($0.build)" } ?? firmware.url.lastPathComponent)
-        return MacPref.machinesDirectory.appendingPathComponent(name).appendingPathComponent(backend.id)
+        let hvf = MacPref.defaults.string(forKey: MacPref.accelerator) == Accelerator.hvf.rawValue
+        return MacPref.machinesDirectory.appendingPathComponent(name).appendingPathComponent(backend.id + (hvf ? "-hvf" : ""))
     }
 
     func wipe(_ firmware: MacFirmware) {
@@ -222,7 +225,8 @@ final class MacLibrary: ObservableObject {
                                  workDirectory: workDirectory(firmware, backend: backend), externalAssets: [:],
                                  bootMode: .direct, memoryMB: d.integer(forKey: MacPref.memoryMB),
                                  cpuCount: d.integer(forKey: MacPref.cpus), translationCacheMB: cacheMB,
-                                 guestTweaks: tweaks, removableApps: d.bool(forKey: MacPref.removableApps)) { [weak self] name, fraction in
+                                 guestTweaks: tweaks, removableApps: d.bool(forKey: MacPref.removableApps),
+                                 hypercalls: accelerator == .tcg) { [weak self] name, fraction in
             Task { @MainActor in self?.progress = (name, fraction) }
         }
         progress = ("OS", 0)

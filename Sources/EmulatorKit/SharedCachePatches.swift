@@ -226,8 +226,12 @@ public enum SharedCachePatches {
     /// Applies the patches for `build` (and with `skipSetup` the setup assistant ones) to the shared
     /// cache on the container's system volume. Returns a line per patch saying what happened.
     @discardableResult
-    public static func apply(build: String, container: APFSContainer, skipSetup: Bool = false) throws -> [String] {
-        let patches = (byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : [])
+    /// Without `hypercalls` the functions that call into the emulator (`hint #127`) are left as they
+    /// are: only our TCG answers that hint, a real CPU (Hypervisor.framework) runs it as a NOP.
+    public static func apply(build: String, container: APFSContainer, skipSetup: Bool = false,
+                             hypercalls: Bool = true) throws -> [String] {
+        let patches = ((byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : []))
+            .filter { hypercalls || !$0.reason.contains("hypercall") }
         guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == 0x1 }) ?? volumes.first else { return [] }

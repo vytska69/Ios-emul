@@ -83,13 +83,15 @@ public struct PrepareContext {
     /// Install the apps iOS lets the user delete (Music, Weather, Calendar, …), as a restore does;
     /// off leaves them out of a direct install.
     public let removableApps: Bool
+    /// Patch the shared cache to call into the emulator (TCG only; off for Hypervisor.framework).
+    public let hypercalls: Bool
     public let progress: (String, Double) -> Void
 
     public init(ipsw: IPSW, identity: BuildManifest.Identity, device: DeviceInfo, workDirectory: URL,
                 externalAssets: [String: URL], bootMode: BootMode, memoryMB: Int, cpuCount: Int,
                 verboseBoot: Bool = true, translationCacheMB: Int = QEMURunner.defaultTranslationCacheMB,
                 extraBootArgs: String = "", firstBootErase: Bool = true, guestTweaks: GuestTweaks = GuestTweaks(),
-                removableApps: Bool = true,
+                removableApps: Bool = true, hypercalls: Bool = true,
                 progress: @escaping (String, Double) -> Void = { _, _ in }) {
         self.ipsw = ipsw; self.identity = identity; self.device = device; self.workDirectory = workDirectory
         self.externalAssets = externalAssets; self.bootMode = bootMode; self.memoryMB = memoryMB
@@ -97,6 +99,7 @@ public struct PrepareContext {
         self.extraBootArgs = extraBootArgs; self.firstBootErase = firstBootErase
         self.guestTweaks = guestTweaks
         self.removableApps = removableApps
+        self.hypercalls = hypercalls
         self.progress = progress
     }
 }
