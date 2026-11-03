@@ -51,7 +51,7 @@ index b92b458..e10de72 100644
      void (*cpu_exec_reset)(CPUState *cpu);
      /**
 diff --git a/target/arm/cpu-irq.c b/target/arm/cpu-irq.c
-index 8498dcc..a650069 100644
+index 8498dcc..02e8490 100644
 --- a/target/arm/cpu-irq.c
 +++ b/target/arm/cpu-irq.c
 @@ -10,6 +10,7 @@
@@ -80,7 +80,7 @@ index 8498dcc..a650069 100644
 + * registers while no EL change hook has work (see arm_cpu_do_interrupt).
 + * -1 for anything else: an interrupt kind it does not handle, NMIs, an
 + * AArch32 target. QEMU_IRQ_MASKED_NOBQL=0 takes the BQL as before;
-+ * QEMU_IRQ_TAKE_NOBQL=0 only for taking an interrupt.
++ * taking an interrupt here needs QEMU_IRQ_TAKE_NOBQL=1.
   */
 -bool arm_cpu_exec_interrupt_masked(CPUState *cs, int interrupt_request)
 +int arm_cpu_exec_interrupt_nobql(CPUState *cs, int interrupt_request)
@@ -114,7 +114,7 @@ index 8498dcc..a650069 100644
      }
      cur_el = arm_current_el(env);
      secure = arm_is_secure(env);
-@@ -214,12 +216,27 @@ bool arm_cpu_exec_interrupt_masked(CPUState *cs, int interrupt_request)
+@@ -214,12 +216,32 @@ bool arm_cpu_exec_interrupt_masked(CPUState *cs, int interrupt_request)
          }
          target_el = irqs[i].phys ?
              arm_phys_excp_target_el(cs, irqs[i].excp, cur_el, secure) : 1;
@@ -124,13 +124,18 @@ index 8498dcc..a650069 100644
 +        if (!arm_excp_unmasked(cs, irqs[i].excp, target_el, cur_el, secure,
 +                               hcr_el2)) {
 +            continue;
-+        }
+         }
 +        static int take = -1;
 +
 +        if (take < 0) {
++            /*
++             * Off unless QEMU_IRQ_TAKE_NOBQL=1: measured on iOS 14 it made
++             * the boot and the UI slower (an interrupt taken before the
++             * device that raised it lets go of the BQL is often spurious).
++             */
 +            const char *v = getenv("QEMU_IRQ_TAKE_NOBQL");
-+            take = !(v && v[0] == '0');
-         }
++            take = v && v[0] == '1';
++        }
 +        if (!take || arm_el_change_hooks_active(env_archcpu(env)) ||
 +            qemu_loglevel_mask(CPU_LOG_INT) ||
 +            !arm_el_is_aa64(env, target_el)) {
