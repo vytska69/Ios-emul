@@ -53,6 +53,16 @@ vykdomą kodą, vėliau į įrenginio GPU per Metal.
 | 4 | `image_sampler<XRGB8_Host, unsigned, 0,0,0,1>` (afininis) | 0x1837200e4 | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
 | 5 | `image_sampler<ARGB8_Host, unsigned, 0,0,0,1>` (afininis) | 0x1837211ac | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
 | 6 | `tex_color_matrix_4x4_bias` | 0x183708fd8 | 0051 | Unicorn, 50 atvejų, 0 skirtumų |
+| 7 | `image_sampler<ARGB8_Host, unsigned, 0,0,0,0>` (artimiausias taškas) | 0x183721590 | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
+| 8 | `tex_multiply_color` | 0x183708a8c | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
+| 9 | `Blend::Mode<DarkenSover, false>::blend` (su `DarkenSover::f`) | 0x18370c264 | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
+
+Išmatuota (CI, braukiant): `image_sampler<ARGB8_Host, 1,1,1,1>` emuliuotų procesorių laike
+nukrito nuo ~3,3 % iki ~0,4 %. Su 3 ir 4–6 numeriais emuliuotas iOS piešia taip pat, kaip
+be jų (užrakinimo ir pagrindinio ekrano, Settings ekrano nuotraukos).
+
+Laiko skaitymas (`mach_absolute_time`, `mach_continuous_time`, ~3,6 %) nėra klaida:
+`isb; mrs cntvct_el0`, kviečiama labai dažnai. Hiperkvietimas čia nepadėtų.
 
 `SamplerData` (iš kodo): `+0x00` tekstūra, `+0x10`/`+0x18` rodyklės į `w` ir `dw` (`+0xc`),
 `+0x30` kraštų režimas, `+0x34/+0x38` u ir du, `+0x3c/+0x40` v ir dv (16.16), `+0x54..+0x60`
