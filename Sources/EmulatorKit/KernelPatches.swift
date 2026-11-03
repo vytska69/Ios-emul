@@ -96,6 +96,23 @@ public enum KernelPatches {
                 }
             }
         }
+        // With force-usbhost the port records transport type 2, connect type 4 (host), but
+        // AppleUSB30XHCITypeCPort::cableChangeOccurred starts the host port only for transport
+        // type 3, the one a Lightning accessory reports ("no action for transport type 2 connect
+        // type 4"): `cmp w8, #3; b.ne; ldr w8, [..]; and w8, w8, #~1; cmp w8, #4`. Accept 2.
+        for log in image.codeAfter(string: "%06lu.%06u %s@%s: %s::%s: no action for transport type %d connect type %d restricted mode %d\n", within: 1) {
+            for back in 1...1500 {
+                let at = log - UInt64(4 * back)
+                guard image.word(at) != 0xD503_237F else { break }
+                if image.word(at) == 0x7100_0D1F, image.word(at + 4) & 0xFF00_001F == 0x5400_0001,
+                   image.word(at + 12) == 0x121F_7908, image.word(at + 16) == 0x7100_111F, !seen.contains(at) {
+                    seen.insert(at)
+                    patches.append(Patch(address: at, original: image.word(at), replacement: 0x7100_081F,
+                                         reason: "AppleUSB30XHCITypeCPort::cableChangeOccurred: start the host port for a forced host (cmp w8, #2)"))
+                    break
+                }
+            }
+        }
         return patches
     }
 
