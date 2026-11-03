@@ -66,6 +66,7 @@ jobs:
           scripts/bundle-qemu-macos.sh "$app" "$GITHUB_WORKSPACE/qemu-bin"
           # The helper starts and knows the machine.
           "$app/Contents/MacOS/qemu-system-aarch64" -L "$app/Contents/Resources/qemu" -machine help | grep -i t8030
+          "$app/Contents/MacOS/qemu-system-aarch64" -accel help
           mkdir -p out
           ditto -c -k --keepParent "$app" out/IOSEmul-mac.zip
           ls -lh out/IOSEmul-mac.zip

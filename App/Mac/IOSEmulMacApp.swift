@@ -85,10 +85,24 @@ final class MacMachine: ObservableObject, Identifiable {
         runner.onStateChange = { [weak self] state in
             Task { @MainActor in
                 self?.state = state
-                if case .stopped(let code) = state { self?.status = "Machine stopped (exit \(code))" }
+                if case .stopped(let code) = state {
+                    self?.status = "Machine stopped (exit \(code))"
+                    self?.readLogTail()
+                }
             }
         }
         connect()
+    }
+
+    /// The end of QEMU's output and the guest's serial log, shown when the machine stops.
+    @Published var logTail = ""
+    func readLogTail() {
+        let dir = runner.configuration.workingDirectory
+        func tail(_ name: String) -> String {
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { return "" }
+            return String(decoding: data.suffix(4000), as: UTF8.self)
+        }
+        logTail = "qemu.log:\n" + tail("qemu.log") + "\n\nserial.log:\n" + tail("serial.log")
     }
 
     private func connect() {
@@ -375,9 +389,17 @@ struct MacMachineView: View {
                     .aspectRatio(aspect, contentMode: .fit)
                 } else {
                     VStack(spacing: 12) {
-                        ProgressView()
+                        if case .running = machine.state { ProgressView() }
                         Text(machine.status).foregroundStyle(.white)
+                        if case .running = machine.state {} else {
+                            ScrollView {
+                                Text(machine.logTail).font(.caption.monospaced()).foregroundStyle(.green)
+                                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 360)
+                        }
                     }
+                    .padding(20)
                 }
             }
             .frame(minWidth: 300, idealWidth: 414, minHeight: 600, idealHeight: 896)
@@ -389,6 +411,8 @@ struct MacMachineView: View {
                 .keyboardShortcut("l", modifiers: [.command])
             Button { machine.press(0xFFC1) } label: { Label("Volume up", systemImage: "speaker.plus") }
             Button { machine.press(0xFFC0) } label: { Label("Volume down", systemImage: "speaker.minus") }
+            Button { NSWorkspace.shared.activateFileViewerSelecting([machine.runner.configuration.workingDirectory
+                .appendingPathComponent("qemu.log")]) } label: { Label("Show logs", systemImage: "doc.text.magnifyingglass") }
             Button(role: .destructive) { machine.stop() } label: { Label("Stop", systemImage: "power") }
         }
         .navigationTitle(machine.title)
