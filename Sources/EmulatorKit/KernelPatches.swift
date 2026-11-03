@@ -76,6 +76,26 @@ public enum KernelPatches {
             patches.append(Patch(address: at, original: image.word(at), replacement: 0x529D_4C00,
                                  reason: "AppleCS42L77AudioDSP::_enableHWService: wait 60 s for the DSP firmware (mov w0, #60000)"))
         }
+        // A USB keyboard needs the port in host mode (AppleEmbeddedUSBArbitrator-force-usbhost),
+        // and then AppleUSBHostPort::initBusCurrent refuses the port: the emulated phone has no
+        // accessory power to grant it ("insufficient power to enable this port"). The function
+        // starts by asking for the port's power source and returns success at once for one
+        // value (`cmp w0, #2; b.ne; mov w20, #0`); without the branch every port is powered.
+        // Optional: only the USB keyboard needs it.
+        var seen = Set<UInt64>()
+        for log in image.codeAfter(string: "%06lu.%06u %s@%s: %s::%s: insufficient power to enable this port\n", within: 1) {
+            for back in 1...1200 {
+                let at = log - UInt64(4 * back)
+                guard image.word(at) != 0xD503_237F else { break }                     // pacibsp: function start
+                if image.word(at) == 0x7100_081F, image.word(at + 4) & 0xFF00_001F == 0x5400_0001,
+                   image.word(at + 8) == 0x5280_0014, !seen.contains(at + 4) {
+                    seen.insert(at + 4)
+                    patches.append(Patch(address: at + 4, original: image.word(at + 4), replacement: 0xD503_201F,
+                                         reason: "AppleUSBHostPort::initBusCurrent: power the port without an accessory (nop)"))
+                    break
+                }
+            }
+        }
         return patches
     }
 
