@@ -268,7 +268,7 @@ struct MachineView: View {
                 let aspect = CGFloat(frame.width) / CGFloat(max(frame.height, 1))
                 Image(decorative: frame, scale: 1)
                     .resizable()
-                    .interpolation(.medium)
+                    .interpolation(.high)
                     .aspectRatio(aspect, contentMode: .fit)
                     .overlay(TouchSurface(display: display))
                     .accessibilityLabel("Emulated screen")

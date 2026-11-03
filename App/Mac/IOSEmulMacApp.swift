@@ -435,7 +435,7 @@ struct MacMachineView: View {
                 if let frame = machine.frame {
                     let aspect = CGFloat(frame.width) / CGFloat(max(frame.height, 1))
                     GeometryReader { geo in
-                        Image(decorative: frame, scale: 1).resizable().interpolation(.medium)
+                        Image(decorative: frame, scale: 1).resizable().interpolation(.high)
                             .frame(width: geo.size.width, height: geo.size.height)
                             .contentShape(Rectangle())
                             .gesture(DragGesture(minimumDistance: 0)
