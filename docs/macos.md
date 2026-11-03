@@ -33,6 +33,9 @@ nėra. HVF tikrinamas tik tikrame Mac'e.
 - **Laikmačiai ir IPI.** iOS laikmatį ir greitus IPI gauna kaip FIQ. QEMU HVF virtualų laikmatį
   jungia prie GIC; T8030 mašinoje jį reikės nukreipti į AIC/FIQ
   (`hv_vcpu_set_pending_interrupt(..., HV_INTERRUPT_TYPE_FIQ)`).
+- **Hiperkvietimai.** `SharedCachePatches` virtualaus GPU funkcijas pakeičia `hint #127`, kurį
+  vykdo tik mūsų TCG. Tikras procesorius su HVF jį vykdo kaip NOP, todėl HVF diegimui šios
+  pataisos turi būti išjungtos (disko diegimas priklauso nuo variklio).
 - **Procesoriaus ID registrai.** HVF rodo tikro Mac'o procesorių. Branduolys tikrina MIDR (A13 –
   Lightning/Thunder), todėl MIDR ir kiti ID registrai turi būti A13.
 
