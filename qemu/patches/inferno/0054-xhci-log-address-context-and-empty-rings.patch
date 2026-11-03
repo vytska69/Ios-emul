@@ -1,0 +1,33 @@
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index 292c378..e2c9323 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -1962,6 +1962,12 @@ static void xhci_kick_epctx(XHCIEPContext *epctx, unsigned int streamid)
+     while (1) {
+         length = xhci_ring_chain_length(xhci, ring);
+         if (length <= 0) {
++            XHCITRB head;
++            dma_memory_read(xhci->as, ring->dequeue, &head, TRB_SIZE, MEMTXATTRS_UNSPECIFIED);
++            qemu_log_mask(LOG_GUEST_ERROR, "xhci: kick slot %u ep %u: ring empty at 0x%" PRIx64
++                          " ccs %d, trb %016" PRIx64 " %08x %08x (len %d)\n", epctx->slotid, epctx->epid,
++                          (uint64_t)ring->dequeue, ring->ccs, le64_to_cpu(head.parameter),
++                          le32_to_cpu(head.status), le32_to_cpu(head.control), length);
+             if (epctx->type == ET_ISO_OUT || epctx->type == ET_ISO_IN) {
+                 /* 4.10.3.1 */
+                 XHCIEvent ev = { ER_TRANSFER };
+@@ -2122,6 +2128,15 @@ static TRBCCode xhci_address_slot(XHCIState *xhci, unsigned int slotid,
+ 
+     xhci_dma_read_u32s(xhci, ictx+32, slot_ctx, sizeof(slot_ctx));
+     xhci_dma_read_u32s(xhci, ictx+64, ep0_ctx, sizeof(ep0_ctx));
++    {
++        uint32_t raw[48];
++        xhci_dma_read_u32s(xhci, ictx, raw, sizeof(raw));
++        qemu_log_mask(LOG_GUEST_ERROR, "xhci: address slot %u input ctx 0x%" PRIx64 ":", slotid, (uint64_t)ictx);
++        for (int k = 0; k < 48; k++) {
++            qemu_log_mask(LOG_GUEST_ERROR, " %08x", raw[k]);
++        }
++        qemu_log_mask(LOG_GUEST_ERROR, "\n");
++    }
+ 
+     DPRINTF("xhci: input slot context: %08x %08x %08x %08x\n",
+             slot_ctx[0], slot_ctx[1], slot_ctx[2], slot_ctx[3]);
