@@ -150,15 +150,6 @@ final class MacMachine: ObservableObject, Identifiable {
         }
     }
 
-    /// Three quick presses of the side button: the Accessibility Shortcut (VoiceOver on or off).
-    func accessibilityShortcut() {
-        guard let vnc else { return }
-        for i in 0..<3 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * Double(i)) { vnc.keyEvent(0xFFC2, down: true) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * Double(i) + 0.07) { vnc.keyEvent(0xFFC2, down: false) }
-        }
-    }
-
     // MARK: Keyboard (the emulated iPhone's USB keyboard)
 
     private var heldModifiers = Set<UInt16>()
@@ -472,7 +463,6 @@ struct MacMachineView: View {
         .toolbar {
             Button { machine.goHome() } label: { Label("Home", systemImage: "house") }
             Button { machine.press(0xFFC2) } label: { Label("Lock", systemImage: "lock") }
-            Button { machine.accessibilityShortcut() } label: { Label("VoiceOver", systemImage: "figure.walk.circle") }
             Button { machine.press(0xFFC1) } label: { Label("Volume up", systemImage: "speaker.plus") }
             Button { machine.press(0xFFC0) } label: { Label("Volume down", systemImage: "speaker.minus") }
             Button { NSWorkspace.shared.activateFileViewerSelecting([machine.runner.configuration.workingDirectory

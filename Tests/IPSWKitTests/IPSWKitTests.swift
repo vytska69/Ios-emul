@@ -342,11 +342,7 @@ final class IPSWKitTests: XCTestCase {
         let plain = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373")
         XCTAssertEqual(Set(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist",
                                                "mobile/Library/Preferences/com.apple.springboard.plist",
-                                               "mobile/Library/Preferences/com.apple.Accessibility.plist",
                                                "db/com.apple.xpc.launchd/disabled.plist"])
-        let shortcut = try XCTUnwrap(PropertyListSerialization.propertyList(
-            from: plain.files["mobile/Library/Preferences/com.apple.Accessibility.plist"]!, format: nil) as? [String: Any])
-        XCTAssertEqual(shortcut["TripleClickOptions"] as? [Int], [1])
         let disabled = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
         XCTAssertEqual(disabled["com.apple.CommCenter"], true)

@@ -49,10 +49,7 @@ public struct GuestTweaks: Equatable {
             out[path] = (data, attributes)
         }
 
-        // Accessibility Shortcut: three presses of the side button turn VoiceOver on or off (Settings >
-        // Accessibility > Accessibility Shortcut). Set on every install, so a phone with VoiceOver on
-        // can always be brought back, also from the app's VoiceOver button.
-        var accessibility: [String: Any] = ["TripleClickOptions": [1]]
+        var accessibility: [String: Any] = [:]
         if voiceOver { accessibility["VoiceOverTouchEnabled"] = true }
         if zoom { accessibility["ZoomTouchEnabled"] = true }
         if assistiveTouch { accessibility["AssistiveTouchEnabled"] = true }
