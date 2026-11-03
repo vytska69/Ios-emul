@@ -1,0 +1,223 @@
+diff --git a/target/arm/cpu.c b/target/arm/cpu.c
+index ab149a9..3685a37 100644
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -1541,6 +1541,10 @@ static void arm_cpu_realizefn(DeviceState *dev, Error **errp)
+     {
+         uint64_t scale = gt_cntfrq_period_ns(cpu);
+ 
++        qemu_mutex_init(&cpu->gt_lock);
++        for (int i = 0; i < NUM_GTIMERS; i++) {
++            cpu->gt_irq_level[i] = -1;
++        }
+         cpu->gt_timer[GTIMER_PHYS] = timer_new(QEMU_CLOCK_VIRTUAL, scale,
+                                                arm_gt_ptimer_cb, cpu);
+         cpu->gt_timer[GTIMER_VIRT] = timer_new(QEMU_CLOCK_VIRTUAL, scale,
+diff --git a/target/arm/cpu.h b/target/arm/cpu.h
+index a125fb1..aff1f8e 100644
+--- a/target/arm/cpu.h
++++ b/target/arm/cpu.h
+@@ -1004,6 +1004,14 @@ struct ArchCPU {
+ 
+     /* GPIO outputs for generic timer */
+     qemu_irq gt_timer_outputs[NUM_GTIMERS];
++    /*
++     * The generic timer's EL0/EL1 registers are accessed without the BQL:
++     * gt_lock serializes their state (ctl, cval) with the timer callbacks, and
++     * gt_irq_level is the level last set on gt_timer_outputs (-1: not yet),
++     * so that the BQL is only taken when the line has to change.
++     */
++    QemuMutex gt_lock;
++    int gt_irq_level[NUM_GTIMERS];
+     /* GPIO output for GICv3 maintenance interrupt signal */
+     qemu_irq gicv3_maintenance_interrupt;
+     /* GPIO output for the PMU interrupt */
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index dddf2ce..3ba90b8 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -1291,7 +1291,7 @@ uint64_t gt_get_countervalue(CPUARMState *env)
+     return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / gt_cntfrq_period_ns(cpu);
+ }
+ 
+-static void gt_update_irq(ARMCPU *cpu, int timeridx)
++static int gt_irq_state(ARMCPU *cpu, int timeridx)
+ {
+     CPUARMState *env = &cpu->env;
+     uint64_t cnthctl = env->cp15.cnthctl_el2;
+@@ -1308,11 +1308,52 @@ static void gt_update_irq(ARMCPU *cpu, int timeridx)
+          (timeridx == GTIMER_PHYS && (cnthctl & R_CNTHCTL_CNTPMASK_MASK)))) {
+         irqstate = 0;
+     }
++    return irqstate;
++}
+ 
++/* Sets the timer's output to @irqstate; the caller holds the BQL. */
++static void gt_set_irq(ARMCPU *cpu, int timeridx, int irqstate)
++{
++    cpu->gt_irq_level[timeridx] = irqstate;
+     qemu_set_irq(cpu->gt_timer_outputs[timeridx], irqstate);
+     trace_arm_gt_update_irq(timeridx, irqstate);
+ }
+ 
++/*
++ * Without the BQL (a guest access to CNTP_* / CNTV_*): when the output
++ * already has @irqstate there is nothing more to do; otherwise take the BQL
++ * and set it from the state as it is then.
++ */
++static void gt_set_irq_unlocked(ARMCPU *cpu, int timeridx, int irqstate)
++{
++    if (qatomic_read(&cpu->gt_irq_level[timeridx]) == irqstate) {
++        return;
++    }
++    bql_lock();
++    qemu_mutex_lock(&cpu->gt_lock);
++    irqstate = gt_irq_state(cpu, timeridx);
++    qemu_mutex_unlock(&cpu->gt_lock);
++    gt_set_irq(cpu, timeridx, irqstate);
++    bql_unlock();
++}
++
++static void gt_update_irq(ARMCPU *cpu, int timeridx)
++{
++    int irqstate;
++
++    if (bql_locked()) {
++        qemu_mutex_lock(&cpu->gt_lock);
++        irqstate = gt_irq_state(cpu, timeridx);
++        qemu_mutex_unlock(&cpu->gt_lock);
++        gt_set_irq(cpu, timeridx, irqstate);
++    } else {
++        qemu_mutex_lock(&cpu->gt_lock);
++        irqstate = gt_irq_state(cpu, timeridx);
++        qemu_mutex_unlock(&cpu->gt_lock);
++        gt_set_irq_unlocked(cpu, timeridx, irqstate);
++    }
++}
++
+ void gt_rme_post_el_change(ARMCPU *cpu, void *ignored)
+ {
+     /*
+@@ -1411,7 +1452,8 @@ uint64_t gt_direct_access_timer_offset(CPUARMState *env, int timeridx)
+     }
+ }
+ 
+-static void gt_recalc_timer(ARMCPU *cpu, int timeridx)
++/* Recomputes ISTATUS and the next expiry; the caller holds gt_lock. */
++static void gt_recalc_timer_state(ARMCPU *cpu, int timeridx)
+ {
+     ARMGenericTimer *gt = &cpu->env.cp15.c14_timer[timeridx];
+ 
+@@ -1470,7 +1512,21 @@ static void gt_recalc_timer(ARMCPU *cpu, int timeridx)
+         timer_del(cpu->gt_timer[timeridx]);
+         trace_arm_gt_recalc_disabled(timeridx);
+     }
+-    gt_update_irq(cpu, timeridx);
++}
++
++static void gt_recalc_timer(ARMCPU *cpu, int timeridx)
++{
++    int irqstate;
++
++    qemu_mutex_lock(&cpu->gt_lock);
++    gt_recalc_timer_state(cpu, timeridx);
++    irqstate = gt_irq_state(cpu, timeridx);
++    qemu_mutex_unlock(&cpu->gt_lock);
++    if (bql_locked()) {
++        gt_set_irq(cpu, timeridx, irqstate);
++    } else {
++        gt_set_irq_unlocked(cpu, timeridx, irqstate);
++    }
+ }
+ 
+ static void gt_timer_reset(CPUARMState *env, const ARMCPRegInfo *ri,
+@@ -1498,7 +1554,7 @@ static void gt_cval_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                           uint64_t value)
+ {
+     trace_arm_gt_cval_write(timeridx, value);
+-    env->cp15.c14_timer[timeridx].cval = value;
++    qatomic_set(&env->cp15.c14_timer[timeridx].cval, value);
+     gt_recalc_timer(env_archcpu(env), timeridx);
+ }
+ 
+@@ -1520,8 +1576,8 @@ static void do_tval_write(CPUARMState *env, int timeridx, uint64_t value,
+                           uint64_t offset)
+ {
+     trace_arm_gt_tval_write(timeridx, value);
+-    env->cp15.c14_timer[timeridx].cval = gt_get_countervalue(env) - offset +
+-                                         sextract64(value, 0, 32);
++    qatomic_set(&env->cp15.c14_timer[timeridx].cval,
++                gt_get_countervalue(env) - offset + sextract64(value, 0, 32));
+     gt_recalc_timer(env_archcpu(env), timeridx);
+ }
+ 
+@@ -1539,10 +1595,14 @@ static void gt_ctl_write(CPUARMState *env, const ARMCPRegInfo *ri,
+                          uint64_t value)
+ {
+     ARMCPU *cpu = env_archcpu(env);
+-    uint32_t oldval = env->cp15.c14_timer[timeridx].ctl;
++    uint32_t oldval;
+ 
+     trace_arm_gt_ctl_write(timeridx, value);
++    /* The timer callback updates ISTATUS in the same word. */
++    qemu_mutex_lock(&cpu->gt_lock);
++    oldval = env->cp15.c14_timer[timeridx].ctl;
+     env->cp15.c14_timer[timeridx].ctl = deposit64(oldval, 0, 2, value);
++    qemu_mutex_unlock(&cpu->gt_lock);
+     if ((oldval ^ value) & 1) {
+         /* Enable toggled */
+         gt_recalc_timer(cpu, timeridx);
+@@ -2019,7 +2079,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     },
+     { .name = "CNTP_CTL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 2, .opc2 = 1,
+-      .type = ARM_CP_IO, .access = PL0_RW,
++      .type = 0 /* no BQL: see gt_lock */, .access = PL0_RW,
+       .accessfn = gt_ptimer_access,
+       .nv2_redirect_offset = 0x180 | NV2_REDIR_NV1,
+       .fieldoffset = offsetof(CPUARMState, cp15.c14_timer[GTIMER_PHYS].ctl),
+@@ -2037,7 +2097,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     },
+     { .name = "CNTV_CTL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 3, .opc2 = 1,
+-      .type = ARM_CP_IO, .access = PL0_RW,
++      .type = 0 /* no BQL: see gt_lock */, .access = PL0_RW,
+       .accessfn = gt_vtimer_access,
+       .nv2_redirect_offset = 0x170 | NV2_REDIR_NV1,
+       .fieldoffset = offsetof(CPUARMState, cp15.c14_timer[GTIMER_VIRT].ctl),
+@@ -2061,7 +2121,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     },
+     { .name = "CNTP_TVAL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 2, .opc2 = 0,
+-      .type = ARM_CP_NO_RAW | ARM_CP_IO, .access = PL0_RW,
++      .type = ARM_CP_NO_RAW, .access = PL0_RW,
+       .accessfn = gt_ptimer_access, .resetfn = gt_phys_timer_reset,
+       .readfn = gt_phys_redir_tval_read, .writefn = gt_phys_redir_tval_write,
+     },
+@@ -2072,7 +2132,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     },
+     { .name = "CNTV_TVAL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 3, .opc2 = 0,
+-      .type = ARM_CP_NO_RAW | ARM_CP_IO, .access = PL0_RW,
++      .type = ARM_CP_NO_RAW, .access = PL0_RW,
+       .accessfn = gt_vtimer_access, .resetfn = gt_virt_timer_reset,
+       .readfn = gt_virt_redir_tval_read, .writefn = gt_virt_redir_tval_write,
+     },
+@@ -2125,7 +2185,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     { .name = "CNTP_CVAL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 2, .opc2 = 2,
+       .access = PL0_RW,
+-      .type = ARM_CP_IO,
++      .type = 0 /* no BQL: see gt_lock */,
+       .nv2_redirect_offset = 0x178 | NV2_REDIR_NV1,
+       .fieldoffset = offsetof(CPUARMState, cp15.c14_timer[GTIMER_PHYS].cval),
+       .resetvalue = 0, .accessfn = gt_ptimer_access,
+@@ -2143,7 +2203,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     { .name = "CNTV_CVAL_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 3, .opc2 = 2,
+       .access = PL0_RW,
+-      .type = ARM_CP_IO,
++      .type = 0 /* no BQL: see gt_lock */,
+       .nv2_redirect_offset = 0x168 | NV2_REDIR_NV1,
+       .fieldoffset = offsetof(CPUARMState, cp15.c14_timer[GTIMER_VIRT].cval),
+       .resetvalue = 0, .accessfn = gt_vtimer_access,
