@@ -1,0 +1,42 @@
+diff --git a/hw/usb/hcd-dwc3.c b/hw/usb/hcd-dwc3.c
+index e5e6498..7a173db 100644
+--- a/hw/usb/hcd-dwc3.c
++++ b/hw/usb/hcd-dwc3.c
+@@ -108,15 +108,24 @@ static int dwc3_packet_find_epid(DWC3State *s, USBPacket *p)
+     return -1;
+ }
+ 
++/*
++ * The device controller's event interrupts and the xHCI host's share the same
++ * lines. In host mode the device side's (unserviced) events must not hold a
++ * line up, and neither side may lower a line the other one raised.
++ */
+ static void dwc3_update_irq(DWC3State *s)
+ {
+     int ip = 0;
++    bool host = GCTL_PRTCAP(s->gctl) == GCTL_PRTCAP_HOST;
+     for (uint32_t i = 0; i < s->numintrs; i++) {
+-        int level = 1;
++        int level = !host;
+         level &= !(s->gevntsiz(i) & GEVNTSIZ_EVNTINTRPTMASK);
+         level &= (s->intrs[i].count > 0);
+-        qemu_set_irq(s->sysbus_xhci.irq[i], level);
+         ip |= level;
++        if (i < DWC3_NUM_INTRS && s->host_intr_state[i]) {
++            level = 1;
++        }
++        qemu_set_irq(s->sysbus_xhci.irq[i], level);
+     }
+     if (ip) {
+         s->gsts |= GSTS_DEVICE_IP;
+@@ -143,6 +152,10 @@ static bool dwc3_host_intr_raise(XHCIState *xhci, int n, bool level)
+     } else {
+         s->gsts &= ~GSTS_HOST_IP;
+     }
++    if (!level && GCTL_PRTCAP(s->gctl) != GCTL_PRTCAP_HOST && n < s->numintrs &&
++        !(s->gevntsiz(n) & GEVNTSIZ_EVNTINTRPTMASK) && s->intrs[n].count > 0) {
++        level = true;   /* the device side still has events on this line */
++    }
+     qemu_set_irq(xhci_sysbus->irq[n], level);
+ 
+     return false;
