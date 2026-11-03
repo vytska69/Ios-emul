@@ -72,8 +72,13 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
   `AppleANS2NVMeController::start`. Priežastis dar nežinoma.
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
-- **Greitis.** ~78 % laiko CPU praleidžia branduolyje, ~22 % – vartotojo erdvėje. Apie trečdalis
-  mėginių – laukimas (`wfi`). Brangiausia dalis – iOS programinis ekrano piešimas.
+- **Greitis.** Svečio mėginiai (tamsus režimas, po pagrindinio ekrano): ~71 % branduolyje, ~26 % –
+  vartotojo erdvėje; ~38 % visų mėginių – laukimas (`wfi`). Programinis piešimas
+  (`CA::OGL::SW*`) po hiperkvietimų ([virtual-gpu.md](virtual-gpu.md)) – ~0,1 %. Vartotojo erdvėje
+  daugiausia Mach sisteminių kvietimų. QEMU pusėje BQL laukimas sumažėjo nuo ~3900 iki ~1150
+  mėginių (patch'ai 0061–0065: laikrodžiai, IPI, ERET, užmaskuoti pertraukimai ir sinchroninės
+  išimtys be BQL). Likę BQL laukimai: `mttcg_cpu_thread_fn` po `cpu_exec` grįžimo ir laikmačių
+  registrų rašymas (`helper_set_cp_reg64`).
 
 ## Kaip tiesioginis įdiegimas pasiekia userland
 
@@ -89,8 +94,9 @@ konteinerį įrašomi Preboot, xART ir Data tomai, o `fstab` pritaikomas. Pirmam
   `systembag.kb`.
 - **NVRAM** (patch 0022). `oblit-inprogress` nustatomas tik pirmam startui.
 - **Spinlock'ai.** Be `slto_us=100000000` userland'e kyla „Ticket spinlock timeout“ panika.
-- **Kas išjungta.** Kad startas būtų greitesnis, išjungti `datamigrator` ir `CommCenter` (modemo
-  nėra), o SpringBoard watchdog'as nebežudo lėtai startuojančių procesų.
+- **Kas išjungta.** Kad startas būtų greitesnis, išjungtas `CommCenter` (modemo nėra), o
+  SpringBoard watchdog'as nebežudo lėtai startuojančių procesų. `datamigrator` išjungiamas tik tada,
+  kai pašalinamos programos nediegiamos (jas įdiegia jo `SystemAppMigrator`).
 
 Ekranas. Be AGX GPU nėra nei Metal, nei OpenGL ES, todėl QuartzCore piešia `CA::OGL::SWContext`.
 Įdiegimas pataiso dyld shared cache instrukcijas (`Sources/EmulatorKit/SharedCachePatches.swift`):
