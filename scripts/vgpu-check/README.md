@@ -43,3 +43,9 @@ python3 check_clamp_argb8.py
 ```
 
 Rezultatas 2026-11-03: 200 atvejų, 0 skirtingų pikselių.
+
+Bilinijinis maišymas host NEON (`0062`) prieš skaliarinę versiją (paleisti AArch64 kompiuteryje):
+
+```
+cc -O2 -o bilerp bilerp_neon_check.c && ./bilerp
+```
