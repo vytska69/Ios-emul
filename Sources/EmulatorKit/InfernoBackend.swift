@@ -407,6 +407,16 @@ public struct InfernoBackend: EmulatorBackend {
             tree.attributes[path] = entry.attributes
         }
         tree.attributes[root] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
+        // installd stages each app in its caches folder and keeps its state next to it; a restore
+        // leaves these behind ("Failed to create temporary staging dir"). Owned by _installd.
+        let installd = APFSContainer.Attributes(uid: 33, gid: 33, mode: 0o755)
+        for dir in ["installd", "installd/Library", "installd/Library/Caches",
+                    "installd/Library/Caches/com.apple.mobile.installd.staging",
+                    "installd/Library/MobileInstallation", "installd/Library/Logs",
+                    "installd/Library/Logs/MobileInstallation"] {
+            tree.directories.append(dir)
+            tree.attributes[dir] = installd
+        }
         return "removable apps: \(apps) apps, \(files) files, \(bytes / 1_048_576) MB"
             + (skipped.isEmpty ? "" : "; skipped \(skipped.count): " + skipped.prefix(8).joined(separator: ", "))
     }

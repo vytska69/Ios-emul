@@ -1247,8 +1247,27 @@ extension APFSContainer {
     }
 
     func compression(fs: FSReader, id: UInt64, xattrs: [String: (flags: UInt16, data: Data)]) throws -> CompressedFile? {
-        guard let attr = xattrs["com.apple.decmpfs"], attr.flags & 0x2 != 0 else { return nil }
-        let decmpfs = attr.data
+        guard let attr = xattrs["com.apple.decmpfs"] else { return nil }
+        let decmpfs: Data
+        if attr.flags & 0x2 != 0 {
+            decmpfs = attr.data
+        } else if attr.flags & 0x1 != 0, attr.data.count >= 16 {
+            // Too large to embed: the attribute is a data stream of its own (j_xattr_dstream_t:
+            // the stream's object id, then its j_dstream_t, which starts with the size).
+            let stream = ByteReader(attr.data).u64(at: 0), size = Int(ByteReader(attr.data).u64(at: 8))
+            var bytes = Data()
+            let extents = try fs.records(id: stream, type: FSTree.typeFileExtent).map { record -> Extent in
+                let k = ByteReader(record.key), v = ByteReader(record.value)
+                return Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize, length: v.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF)
+            }.sorted { $0.logical < $1.logical }
+            for extent in extents where bytes.count < size {
+                bytes += try readBytes(at: extent.offset, count: min(Int(extent.length), size - bytes.count))
+            }
+            guard bytes.count == size else { throw Error.unsupported("short decmpfs stream") }
+            decmpfs = bytes
+        } else {
+            return nil
+        }
         guard decmpfs.count >= 16, ByteReader(decmpfs).u32(at: 0) == 0x636D_7066 else { return nil }  // "fpmc"
         var fork: [Extent] = []
         if let rsrc = xattrs["com.apple.ResourceFork"], rsrc.flags & 0x1 != 0 {
