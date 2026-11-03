@@ -309,7 +309,11 @@ public struct InfernoBackend: EmulatorBackend {
         // and SpringBoard wait; under emulation that takes most of the first start (10+ minutes
         // in CI). A fresh install has nothing to migrate: with the service off, the clients'
         // migration requests fail at once and they go on.
-        if let disabled = try? PropertyListSerialization.data(fromPropertyList: ["com.apple.CommCenter": true, "com.apple.datamigrator": true],
+        // IOSEMUL_DATAMIGRATOR=1 (tests) leaves datamigrator on, to measure what it costs now.
+        let keepMigrator = ProcessInfo.processInfo.environment["IOSEMUL_DATAMIGRATOR"] == "1"
+        var services = ["com.apple.CommCenter": true]
+        if !keepMigrator { services["com.apple.datamigrator"] = true }
+        if let disabled = try? PropertyListSerialization.data(fromPropertyList: services,
                                                               format: .xml, options: 0) {
             tree.files["db/com.apple.xpc.launchd/disabled.plist"] = disabled
             tree.attributes["db/com.apple.xpc.launchd/disabled.plist"] = APFSContainer.Attributes(uid: 0, gid: 0, mode: 0o644)
