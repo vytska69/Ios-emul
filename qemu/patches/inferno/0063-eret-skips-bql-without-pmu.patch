@@ -1,0 +1,41 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index a0cea25..395257b 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -699,9 +699,18 @@ void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
+         goto illegal_return;
+     }
+ 
+-    bql_lock();
+-    arm_call_pre_el_change_hook(cpu);
+-    bql_unlock();
++    /*
++     * The EL change hooks are the PMU's (and RME's): with the PMU's counters
++     * off (PMCR_EL0.E clear, as XNU leaves them: it counts with Apple's own
++     * PMCR0) they have nothing to do, and taking the BQL on every ERET (each
++     * syscall and interrupt return) made the vCPUs wait for each other.
++     */
++    bool el_hooks = (env->cp15.c9_pmcr & PMCRE) || cpu_isar_feature(aa64_rme, cpu);
++    if (el_hooks) {
++        bql_lock();
++        arm_call_pre_el_change_hook(cpu);
++        bql_unlock();
++    }
+ 
+     if (!return_to_aa64) {
+         env->aarch64 = false;
+@@ -766,9 +775,11 @@ void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
+      */
+     aarch64_sve_change_el(env, cur_el, new_el, return_to_aa64);
+ 
+-    bql_lock();
+-    arm_call_el_change_hook(cpu);
+-    bql_unlock();
++    if (el_hooks) {
++        bql_lock();
++        arm_call_el_change_hook(cpu);
++        bql_unlock();
++    }
+ 
+     return;
+ 
