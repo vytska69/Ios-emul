@@ -1,0 +1,86 @@
+diff --git a/hw/arm/apple-silicon/a13.c b/hw/arm/apple-silicon/a13.c
+index 9887033..67461c9 100644
+--- a/hw/arm/apple-silicon/a13.c
++++ b/hw/arm/apple-silicon/a13.c
+@@ -19,6 +19,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/main-loop.h"
+ #include "hw/arm/apple-silicon/a13.h"
+ #include "hw/arm/apple-silicon/a13_gxf.h"
+ #include "hw/arm/apple-silicon/dt.h"
+@@ -459,13 +460,14 @@ static uint64_t apple_a13_ipi_read_sr(CPUARMState *env, const ARMCPRegInfo *ri)
+     AppleA13State *acpu =
+         container_of(env_archcpu(env), AppleA13State, parent_obj);
+ 
+-    return acpu->ipi_sr;
++    return qatomic_read(&acpu->ipi_sr);
+ }
+ 
+ /* Acknowledge received IPI */
+ static void apple_a13_ipi_write_sr(CPUARMState *env, const ARMCPRegInfo *ri,
+                                    uint64_t value)
+ {
++    BQL_LOCK_GUARD();
+     AppleA13State *acpu =
+         container_of(env_archcpu(env), AppleA13State, parent_obj);
+     AppleA13Cluster *c = apple_a13_find_cluster(acpu->cluster_id);
+@@ -605,7 +607,7 @@ static const ARMCPRegInfo apple_a13_cp_reginfo_tcg[] = {
+         .crm = 1,
+         .opc2 = 1,
+         .access = PL1_RW,
+-        .type = ARM_CP_IO | ARM_CP_NO_RAW,
++        .type = ARM_CP_NO_RAW,  /* read on every FIQ: no BQL (the write takes it) */
+         .state = ARM_CP_STATE_AA64,
+         .readfn = apple_a13_ipi_read_sr,
+         .writefn = apple_a13_ipi_write_sr,
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index 38a8880..a5012c0 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -2082,9 +2082,16 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+       .accessfn = gt_pct_access,
+       .readfn = gt_cnt_read, .resetfn = arm_cp_reset_ignore,
+     },
++    /*
++     * The 64-bit counters are read without the big QEMU lock: the value comes
++     * from QEMU's virtual clock, which any vCPU thread may read. XNU reads them
++     * for every mach_absolute_time(), from the kernel and from every app, and
++     * each read took the lock that all vCPUs and devices share. (Only icount,
++     * which this build does not use, needed them as I/O.)
++     */
+     { .name = "CNTPCT_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 0, .opc2 = 1,
+-      .access = PL0_R, .type = ARM_CP_NO_RAW | ARM_CP_IO,
++      .access = PL0_R, .type = ARM_CP_NO_RAW,
+       .accessfn = gt_pct_access, .readfn = gt_cnt_read,
+     },
+     { .name = "CNTVCT", .cp = 15, .crm = 14, .opc1 = 1,
+@@ -2094,7 +2101,7 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
+     },
+     { .name = "CNTVCT_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 0, .opc2 = 2,
+-      .access = PL0_R, .type = ARM_CP_NO_RAW | ARM_CP_IO,
++      .access = PL0_R, .type = ARM_CP_NO_RAW,
+       .accessfn = gt_vct_access, .readfn = gt_virt_cnt_read,
+     },
+     /* Comparison value, indicating when the timer goes off */
+@@ -2185,7 +2192,7 @@ static const ARMCPRegInfo gen_timer_ecv_cp_reginfo[] = {
+     },
+     { .name = "CNTVCTSS_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 0, .opc2 = 6,
+-      .access = PL0_R, .type = ARM_CP_NO_RAW | ARM_CP_IO,
++      .access = PL0_R, .type = ARM_CP_NO_RAW,
+       .accessfn = gt_vct_access, .readfn = gt_virt_cnt_read,
+     },
+     { .name = "CNTPCTSS", .cp = 15, .crm = 14, .opc1 = 8,
+@@ -2195,7 +2202,7 @@ static const ARMCPRegInfo gen_timer_ecv_cp_reginfo[] = {
+     },
+     { .name = "CNTPCTSS_EL0", .state = ARM_CP_STATE_AA64,
+       .opc0 = 3, .opc1 = 3, .crn = 14, .crm = 0, .opc2 = 5,
+-      .access = PL0_R, .type = ARM_CP_NO_RAW | ARM_CP_IO,
++      .access = PL0_R, .type = ARM_CP_NO_RAW,
+       .accessfn = gt_pct_access, .readfn = gt_cnt_read,
+     },
+ };

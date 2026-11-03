@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-03
+- Faster everywhere: reading the clock, which iOS and every app do constantly, and checking a processor-to-processor wake-up no longer make all of the emulated phone's processors wait for each other.
 - Faster switching between apps and system services: the emulator now keeps the code it prepared for each running process when the phone switches to another one, instead of looking it all up again.
 - Faster drawing: the emulator's built-in versions of iOS's busiest drawing routines now read and write the screen's pixels directly instead of looking up every pixel's memory address. One more of them, used for images stretched up to their edges, now runs natively too.
 - Groundwork for typing on the emulated iPhone: keys from the Mac app's window, or from a keyboard connected to your iPhone or iPad, are now sent to the phone. The phone does not use them yet; the next step gives it a USB keyboard to receive them, and its USB port can now power one.
