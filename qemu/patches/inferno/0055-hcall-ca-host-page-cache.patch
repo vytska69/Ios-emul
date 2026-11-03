@@ -1,0 +1,275 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index bd80e30..8b1e3bd 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -2061,10 +2061,72 @@ static inline float ca_ldf(CPUARMState *env, uint64_t a, int mmu, uintptr_t ra)
+     return f;
+ }
+ 
++/*
++ * Host addresses of the guest pages a hypercall reads or writes, so a pixel
++ * costs a pointer access instead of a TLB lookup. Each page is probed once
++ * (probe_access: faults, watchpoints, dirty tracking); MMIO and accesses that
++ * cross a page go through the normal path.
++ */
++typedef struct CaCache {
++    uint64_t page[4];
++    uint8_t *host[4];
++    unsigned next;
++} CaCache;
++
++static inline void ca_cache_init(CaCache *c)
++{
++    for (int i = 0; i < 4; i++) {
++        c->page[i] = (uint64_t)-1;
++        c->host[i] = NULL;
++    }
++    c->next = 0;
++}
++
++static inline uint8_t *ca_cache_find(CPUARMState *env, CaCache *c, uint64_t a,
++                                     MMUAccessType type, int mmu, uintptr_t ra)
++{
++    uint64_t pg = a & TARGET_PAGE_MASK, off = a - pg;
++    if (off > TARGET_PAGE_SIZE - 4) {
++        return NULL;
++    }
++    for (int i = 0; i < 4; i++) {
++        if (c->page[i] == pg) {
++            return c->host[i] + off;
++        }
++    }
++    void *h = probe_access(env, a, 4, type, mmu, ra);
++    if (!h) {
++        return NULL;
++    }
++    unsigned i = c->next++ & 3;
++    c->page[i] = pg;
++    c->host[i] = (uint8_t *)h - off;
++    return h;
++}
++
++static inline uint32_t ca_ld32(CPUARMState *env, CaCache *c, uint64_t a, int mmu, uintptr_t ra)
++{
++    uint8_t *h = ca_cache_find(env, c, a, MMU_DATA_LOAD, mmu, ra);
++    return h ? ldl_le_p(h) : cpu_ldl_le_mmuidx_ra(env, a, mmu, ra);
++}
++
++static inline void ca_st32(CPUARMState *env, CaCache *c, uint64_t a, uint32_t v, int mmu, uintptr_t ra)
++{
++    uint8_t *h = ca_cache_find(env, c, a, MMU_DATA_STORE, mmu, ra);
++    if (h) {
++        stl_le_p(h, v);
++    } else {
++        cpu_stl_le_mmuidx_ra(env, a, v, mmu, ra);
++    }
++}
++
+ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2], slide = x[17] - CA_SAMPLER_ARGB8_ADDR;
+     uint32_t count = (uint32_t)x[1];
+ 
+@@ -2074,15 +2136,15 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+     uint64_t tex = cpu_ldq_le_mmuidx_ra(env, sd, mmu, ra);
+     uint64_t base = cpu_ldq_le_mmuidx_ra(env, tex, mmu, ra);
+     uint64_t stride = cpu_ldq_le_mmuidx_ra(env, tex + 0x10, mmu, ra);
+-    int32_t maxu = cpu_ldl_le_mmuidx_ra(env, tex + 0x20, mmu, ra);
+-    int32_t maxv = cpu_ldl_le_mmuidx_ra(env, tex + 0x24, mmu, ra);
+-    uint32_t tw = cpu_ldl_le_mmuidx_ra(env, tex + 0x18, mmu, ra);
+-    uint32_t th = cpu_ldl_le_mmuidx_ra(env, tex + 0x1c, mmu, ra);
++    int32_t maxu = ca_ld32(env, &lc, tex + 0x20, mmu, ra);
++    int32_t maxv = ca_ld32(env, &lc, tex + 0x24, mmu, ra);
++    uint32_t tw = ca_ld32(env, &lc, tex + 0x18, mmu, ra);
++    uint32_t th = ca_ld32(env, &lc, tex + 0x1c, mmu, ra);
+     float sx = ca_ldf(env, tex + 0x28, mmu, ra), sy = ca_ldf(env, tex + 0x2c, mmu, ra);
+-    int32_t u = cpu_ldl_le_mmuidx_ra(env, sd + 0x34, mmu, ra);
+-    int32_t du = cpu_ldl_le_mmuidx_ra(env, sd + 0x38, mmu, ra);
+-    int32_t v = cpu_ldl_le_mmuidx_ra(env, sd + 0x3c, mmu, ra);
+-    int32_t dv = cpu_ldl_le_mmuidx_ra(env, sd + 0x40, mmu, ra);
++    int32_t u = ca_ld32(env, &lc, sd + 0x34, mmu, ra);
++    int32_t du = ca_ld32(env, &lc, sd + 0x38, mmu, ra);
++    int32_t v = ca_ld32(env, &lc, sd + 0x3c, mmu, ra);
++    int32_t dv = ca_ld32(env, &lc, sd + 0x40, mmu, ra);
+     float w = ca_ldf(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x10, mmu, ra) + 0xc, mmu, ra);
+     float dw = ca_ldf(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x18, mmu, ra) + 0xc, mmu, ra);
+     uint32_t mode = (uint32_t)cpu_ldub_mmuidx_ra(env, sd + 0x30, mmu, ra) - 1;
+@@ -2156,10 +2218,10 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+         uint64_t row1 = base + stride * (int64_t)(int16_t)(y1 >> 16);
+         int64_t c0 = x0 >> 16, c1 = x1 >> 16;
+         uint32_t px[4] = {
+-            cpu_ldl_le_mmuidx_ra(env, row0 + c0 * 4, mmu, ra),
+-            cpu_ldl_le_mmuidx_ra(env, row0 + c1 * 4, mmu, ra),
+-            cpu_ldl_le_mmuidx_ra(env, row1 + c0 * 4, mmu, ra),
+-            cpu_ldl_le_mmuidx_ra(env, row1 + c1 * 4, mmu, ra),
++            ca_ld32(env, &lc, row0 + c0 * 4, mmu, ra),
++            ca_ld32(env, &lc, row0 + c1 * 4, mmu, ra),
++            ca_ld32(env, &lc, row1 + c0 * 4, mmu, ra),
++            ca_ld32(env, &lc, row1 + c1 * 4, mmu, ra),
+         };
+         int16_t fy = ((uint32_t)y0 >> 1) & 0x7f80;
+         int16_t fx = ((uint32_t)x0 >> 1) & 0x7f80;
+@@ -2176,7 +2238,7 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+             int16_t q = (int16_t)(r[i] + ca_sqrdmulh16(e, fx));
+             o |= (uint32_t)(uint8_t)q << (8 * i);
+         }
+-        cpu_stl_le_mmuidx_ra(env, out, o, mmu, ra);
++        ca_st32(env, &sc, out, o, mmu, ra);
+         out += 4;
+         w = dw + w;
+         u += du;
+@@ -2194,6 +2256,9 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2];
+     uint32_t count = (uint32_t)x[1];
+ 
+@@ -2203,9 +2268,9 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+     uint64_t tex = cpu_ldq_le_mmuidx_ra(env, sd, mmu, ra);
+     uint64_t base = cpu_ldq_le_mmuidx_ra(env, tex, mmu, ra);
+     uint64_t stride = cpu_ldq_le_mmuidx_ra(env, tex + 0x10, mmu, ra);
+-    int32_t u = cpu_ldl_le_mmuidx_ra(env, sd + 0x34, mmu, ra);
+-    int32_t du = cpu_ldl_le_mmuidx_ra(env, sd + 0x38, mmu, ra);
+-    int32_t v = cpu_ldl_le_mmuidx_ra(env, sd + 0x3c, mmu, ra);
++    int32_t u = ca_ld32(env, &lc, sd + 0x34, mmu, ra);
++    int32_t du = ca_ld32(env, &lc, sd + 0x38, mmu, ra);
++    int32_t v = ca_ld32(env, &lc, sd + 0x3c, mmu, ra);
+     int32_t y0 = v - 0x8000, y1 = v + 0x8000;
+     uint64_t row0 = base + stride * (int64_t)(int16_t)(y0 >> 16);
+     uint64_t row1 = base + stride * (int64_t)(int16_t)(y1 >> 16);
+@@ -2216,10 +2281,10 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+     while (count--) {
+         int64_t c0 = xf >> 16, c1 = (int32_t)(xf + 0x10000) >> 16;
+         uint32_t px[4] = {
+-            cpu_ldl_le_mmuidx_ra(env, row0 + c0 * 4, mmu, ra) | or,
+-            cpu_ldl_le_mmuidx_ra(env, row0 + c1 * 4, mmu, ra) | or,
+-            cpu_ldl_le_mmuidx_ra(env, row1 + c0 * 4, mmu, ra) | or,
+-            cpu_ldl_le_mmuidx_ra(env, row1 + c1 * 4, mmu, ra) | or,
++            ca_ld32(env, &lc, row0 + c0 * 4, mmu, ra) | or,
++            ca_ld32(env, &lc, row0 + c1 * 4, mmu, ra) | or,
++            ca_ld32(env, &lc, row1 + c0 * 4, mmu, ra) | or,
++            ca_ld32(env, &lc, row1 + c1 * 4, mmu, ra) | or,
+         };
+         int16_t fx = ((uint32_t)xf >> 1) & 0x7f80;
+         int16_t r[8];
+@@ -2233,7 +2298,7 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+             int16_t q = (int16_t)(r[i] + ca_sqrdmulh16((int16_t)(r[4 + i] - r[i]), fx));
+             o |= (uint32_t)(uint8_t)q << (8 * i);
+         }
+-        cpu_stl_le_mmuidx_ra(env, out, o, mmu, ra);
++        ca_st32(env, &sc, out, o, mmu, ra);
+         out += 4;
+         xf += du;
+     }
+@@ -2271,6 +2336,9 @@ static void ios_hcall_ca_color_matrix(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t out = x[0], in = x[1], n = x[2], mp = x[3];
+     float m[20];
+ 
+@@ -2283,7 +2351,7 @@ static void ios_hcall_ca_color_matrix(CPUARMState *env, uintptr_t ra)
+     float k0 = ca_ldf(env, CA_COLOR_MATRIX_K0 + (x[17] - CA_COLOR_MATRIX_ADDR), mmu, ra);
+ 
+     while (n--) {
+-        uint32_t p = cpu_ldl_le_mmuidx_ra(env, in, mmu, ra), o = 0;
++        uint32_t p = ca_ld32(env, &lc, in, mmu, ra), o = 0;
+         uint32_t a8 = p >> 24;
+ 
+         if (a8) {
+@@ -2320,7 +2388,7 @@ static void ios_hcall_ca_color_matrix(CPUARMState *env, uintptr_t ra)
+             uint32_t ib = ca_fcvtzu(fmaf(ca_clamp01(B), 255.0f, 0.5f));
+             o = (ia << 24) | (ir << 16) | (ig << 8) | ib;
+         }
+-        cpu_stl_le_mmuidx_ra(env, out, o, mmu, ra);
++        ca_st32(env, &sc, out, o, mmu, ra);
+         out += 4;
+         in += 4;
+     }
+@@ -2336,6 +2404,9 @@ static void ios_hcall_ca_nearest_argb8(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2];
+     uint32_t count = (uint32_t)x[1];
+ 
+@@ -2343,15 +2414,15 @@ static void ios_hcall_ca_nearest_argb8(CPUARMState *env, uintptr_t ra)
+         return;
+     }
+     uint64_t tex = cpu_ldq_le_mmuidx_ra(env, sd, mmu, ra);
+-    int32_t u = cpu_ldl_le_mmuidx_ra(env, sd + 0x34, mmu, ra);
+-    int32_t du = cpu_ldl_le_mmuidx_ra(env, sd + 0x38, mmu, ra);
+-    int32_t v = cpu_ldl_le_mmuidx_ra(env, sd + 0x3c, mmu, ra);
++    int32_t u = ca_ld32(env, &lc, sd + 0x34, mmu, ra);
++    int32_t du = ca_ld32(env, &lc, sd + 0x38, mmu, ra);
++    int32_t v = ca_ld32(env, &lc, sd + 0x3c, mmu, ra);
+     uint64_t row = cpu_ldq_le_mmuidx_ra(env, tex, mmu, ra) +
+                    cpu_ldq_le_mmuidx_ra(env, tex + 0x10, mmu, ra) * (int64_t)(int16_t)(v >> 16);
+ 
+     while (count--) {
+-        cpu_stl_le_mmuidx_ra(env, out,
+-                             cpu_ldl_le_mmuidx_ra(env, row + (int64_t)(u >> 16) * 4, mmu, ra),
++        ca_st32(env, &sc, out,
++                             ca_ld32(env, &lc, row + (int64_t)(u >> 16) * 4, mmu, ra),
+                              mmu, ra);
+         out += 4;
+         u += du;
+@@ -2362,19 +2433,22 @@ static void ios_hcall_ca_multiply_color(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t out = x[0], in = x[1], n = x[3];
+     uint32_t c = (uint32_t)x[2];
+     uint32_t ca = (c >> 24) + 1, cr = ((c >> 16) & 0xff) + 1;
+     uint32_t cg = ((c >> 8) & 0xff) + 1, cb = (c & 0xff) + 1;
+ 
+     while (n--) {
+-        uint32_t p = cpu_ldl_le_mmuidx_ra(env, in, mmu, ra);
++        uint32_t p = ca_ld32(env, &lc, in, mmu, ra);
+         uint32_t a = ((p >> 24) * ca) >> 8;
+         uint32_t r = ((((p >> 16) & 0xff) * cr) << 8) & 0x1ff0000;
+         uint32_t g = ((p >> 8) & 0xff) * cg;
+         uint32_t b = (p & 0xff) * cb;
+         uint32_t o = (uint32_t)((((uint64_t)a << 32) | b) >> 8);
+-        cpu_stl_le_mmuidx_ra(env, out, o | (g & 0x1ff00) | r, mmu, ra);
++        ca_st32(env, &sc, out, o | (g & 0x1ff00) | r, mmu, ra);
+         out += 4;
+         in += 4;
+     }
+@@ -2402,12 +2476,15 @@ static void ios_hcall_ca_darken_blend(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
+     uint64_t out = x[0], dst = x[1], src = x[2], n = x[3];
+ 
+     while (n--) {
+-        uint32_t s = cpu_ldl_le_mmuidx_ra(env, src, mmu, ra);
+-        uint32_t d = cpu_ldl_le_mmuidx_ra(env, dst, mmu, ra);
+-        cpu_stl_le_mmuidx_ra(env, out, ca_darken_sover(d, s), mmu, ra);
++        uint32_t s = ca_ld32(env, &lc, src, mmu, ra);
++        uint32_t d = ca_ld32(env, &lc, dst, mmu, ra);
++        ca_st32(env, &sc, out, ca_darken_sover(d, s), mmu, ra);
+         out += 4;
+         dst += 4;
+         src += 4;
