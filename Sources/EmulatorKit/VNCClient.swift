@@ -52,6 +52,13 @@ public final class VNCClient {
         send(msg)
     }
 
+    /// Sends one key press or release (an X11 keysym), so modifiers can be held across other keys.
+    public func keyEvent(_ keysym: UInt32, down: Bool) {
+        var msg = Data([4, down ? 1 : 0, 0, 0])
+        msg.appendBE(keysym)
+        send(msg)
+    }
+
     /// Sends an X11 keysym press+release (e.g. 0xff0d Return, 0xff1b Escape, ASCII for printable keys).
     public func key(_ keysym: UInt32) {
         for down in [UInt8(1), UInt8(0)] {

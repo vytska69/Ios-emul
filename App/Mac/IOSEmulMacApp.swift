@@ -150,6 +150,43 @@ final class MacMachine: ObservableObject, Identifiable {
         }
     }
 
+    // MARK: Keyboard (the emulated iPhone's USB keyboard)
+
+    private var heldModifiers = Set<UInt16>()
+
+    /// Sends a key event from the machine's window to iOS; false leaves it to the Mac (Cmd-Q).
+    func handle(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .keyDown, .keyUp:
+            if event.type == .keyDown, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "q" {
+                return false
+            }
+            guard let usage = KeyboardMap.hidUsage(macKeyCode: event.keyCode),
+                  let keysym = KeyboardMap.keysym(hidUsage: usage) else { return true }
+            vnc?.keyEvent(keysym, down: event.type == .keyDown)
+            return true
+        case .flagsChanged:
+            guard let usage = KeyboardMap.hidUsage(macKeyCode: event.keyCode),
+                  let keysym = KeyboardMap.keysym(hidUsage: usage) else { return false }
+            let down = !heldModifiers.contains(event.keyCode)
+            if down { heldModifiers.insert(event.keyCode) } else { heldModifiers.remove(event.keyCode) }
+            vnc?.keyEvent(keysym, down: down)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Releases held modifiers when the window loses focus, so none stays stuck in iOS.
+    func releaseModifiers() {
+        for code in heldModifiers {
+            if let usage = KeyboardMap.hidUsage(macKeyCode: code), let keysym = KeyboardMap.keysym(hidUsage: usage) {
+                vnc?.keyEvent(keysym, down: false)
+            }
+        }
+        heldModifiers.removeAll()
+    }
+
     func stop() {
         vnc?.disconnect()
         runner.stop()
@@ -372,9 +409,24 @@ struct FirmwareDetail: View {
     }
 }
 
+/// Finds the NSWindow a SwiftUI view is in.
+struct WindowReader: NSViewRepresentable {
+    let found: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { found(view.window) }
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { found(view.window) }
+    }
+}
+
 struct MacMachineView: View {
     @ObservedObject var machine: MacMachine
     @State private var pressed = false
+    @State private var window: NSWindow?
+    @State private var keyMonitor: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -410,9 +462,7 @@ struct MacMachineView: View {
         }
         .toolbar {
             Button { machine.goHome() } label: { Label("Home", systemImage: "house") }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
             Button { machine.press(0xFFC2) } label: { Label("Lock", systemImage: "lock") }
-                .keyboardShortcut("l", modifiers: [.command])
             Button { machine.press(0xFFC1) } label: { Label("Volume up", systemImage: "speaker.plus") }
             Button { machine.press(0xFFC0) } label: { Label("Volume down", systemImage: "speaker.minus") }
             Button { NSWorkspace.shared.activateFileViewerSelecting([machine.runner.configuration.workingDirectory
@@ -421,7 +471,24 @@ struct MacMachineView: View {
         }
         .navigationTitle(machine.title)
         .navigationSubtitle(stateText)
-        .onDisappear { machine.stop() }
+        .background(WindowReader { if window !== $0 { window = $0 } })
+        .onAppear {
+            // While this window is in front, the keyboard is the emulated iPhone's keyboard
+            // (VoiceOver commands, typing, Cmd-H for Home); Cmd-Q still quits.
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
+                MainActor.assumeIsolated {
+                    guard let window, event.window === window else { return event }
+                    return machine.handle(event) ? nil : event
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
+            if (note.object as? NSWindow) === window { machine.releaseModifiers() }
+        }
+        .onDisappear {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            machine.stop()
+        }
     }
 
     private var stateText: String {

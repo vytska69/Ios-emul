@@ -204,6 +204,13 @@ final class DisplayModel: ObservableObject {
 
     func key(_ keysym: UInt32) { vnc?.key(keysym) }
 
+    /// A key of a hardware keyboard connected to this iPhone or iPad (HID usage), passed on to the
+    /// emulated iPhone's USB keyboard.
+    func hardwareKey(_ usage: Int, down: Bool) {
+        guard let keysym = KeyboardMap.keysym(hidUsage: usage) else { return }
+        vnc?.keyEvent(keysym, down: down)
+    }
+
     /// The emulated phone's buttons. Inferno's buttons device reads them from F-keys only
     /// (hw/misc/apple-silicon/buttons.c): F3/F4 volume, F5 side (hold), F6 home.
     enum Button: UInt32 {
@@ -256,6 +263,7 @@ struct MachineView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            HardwareKeyboardCapture(display: display).frame(width: 1, height: 1)
             if let frame = display.frame {
                 let aspect = CGFloat(frame.width) / CGFloat(max(frame.height, 1))
                 Image(decorative: frame, scale: 1)
@@ -573,6 +581,47 @@ private struct SerialConsole: View {
 }
 
 /// Forwards drags/taps to the guest as absolute pointer events.
+/// Takes the keys of a hardware keyboard (Bluetooth, Magic Keyboard, Smart Keyboard) while the
+/// machine is shown and sends them to the emulated iPhone.
+private struct HardwareKeyboardCapture: UIViewRepresentable {
+    let display: DisplayModel
+
+    final class KeyView: UIView {
+        var onKey: ((Int, Bool) -> Void)?
+        override var canBecomeFirstResponder: Bool { true }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { DispatchQueue.main.async { self.becomeFirstResponder() } }
+        }
+        private func forward(_ presses: Set<UIPress>, down: Bool) -> Bool {
+            var handled = false
+            for press in presses {
+                guard let key = press.key else { continue }
+                onKey?(key.keyCode.rawValue, down)
+                handled = true
+            }
+            return handled
+        }
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            if !forward(presses, down: true) { super.pressesBegan(presses, with: event) }
+        }
+        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            if !forward(presses, down: false) { super.pressesEnded(presses, with: event) }
+        }
+        override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            if !forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
+        }
+    }
+
+    func makeUIView(context: Context) -> KeyView {
+        let view = KeyView()
+        view.onKey = { [weak display] usage, down in display?.hardwareKey(usage, down: down) }
+        return view
+    }
+
+    func updateUIView(_ view: KeyView, context: Context) {}
+}
+
 private struct TouchSurface: View {
     @ObservedObject var display: DisplayModel
 
