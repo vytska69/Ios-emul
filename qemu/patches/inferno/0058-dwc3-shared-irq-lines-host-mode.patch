@@ -1,20 +1,27 @@
 diff --git a/hw/usb/hcd-dwc3.c b/hw/usb/hcd-dwc3.c
-index e5e6498..7a173db 100644
+index e5e6498..5226b48 100644
 --- a/hw/usb/hcd-dwc3.c
 +++ b/hw/usb/hcd-dwc3.c
-@@ -108,15 +108,24 @@ static int dwc3_packet_find_epid(DWC3State *s, USBPacket *p)
+@@ -108,15 +108,31 @@ static int dwc3_packet_find_epid(DWC3State *s, USBPacket *p)
      return -1;
  }
  
 +/*
 + * The device controller's event interrupts and the xHCI host's share the same
-+ * lines. In host mode the device side's (unserviced) events must not hold a
-+ * line up, and neither side may lower a line the other one raised.
++ * lines. While the host runs (iOS in host mode, a USB keyboard attached) the
++ * device side's events, which nobody services then, must not hold a line up;
++ * neither side may lower a line the other one raised.
 + */
++static bool dwc3_host_owns_irqs(DWC3State *s)
++{
++    return GCTL_PRTCAP(s->gctl) != GCTL_PRTCAP_DEVICE ||
++           (s->sysbus_xhci.xhci.usbcmd & 1 /* USBCMD_RS */);
++}
++
  static void dwc3_update_irq(DWC3State *s)
  {
      int ip = 0;
-+    bool host = GCTL_PRTCAP(s->gctl) == GCTL_PRTCAP_HOST;
++    bool host = dwc3_host_owns_irqs(s);
      for (uint32_t i = 0; i < s->numintrs; i++) {
 -        int level = 1;
 +        int level = !host;
@@ -29,11 +36,11 @@ index e5e6498..7a173db 100644
      }
      if (ip) {
          s->gsts |= GSTS_DEVICE_IP;
-@@ -143,6 +152,10 @@ static bool dwc3_host_intr_raise(XHCIState *xhci, int n, bool level)
+@@ -143,6 +159,10 @@ static bool dwc3_host_intr_raise(XHCIState *xhci, int n, bool level)
      } else {
          s->gsts &= ~GSTS_HOST_IP;
      }
-+    if (!level && GCTL_PRTCAP(s->gctl) != GCTL_PRTCAP_HOST && n < s->numintrs &&
++    if (!level && !dwc3_host_owns_irqs(s) && n < s->numintrs &&
 +        !(s->gevntsiz(n) & GEVNTSIZ_EVNTINTRPTMASK) && s->intrs[n].count > 0) {
 +        level = true;   /* the device side still has events on this line */
 +    }
