@@ -108,6 +108,62 @@ enum CompressedFilePatch {
         return report
     }
 
+    /// The whole file, decompressed. Handles the inline types (1, 3, 7, 11) and the
+    /// resource-fork ones (4, 8, 12), as iOS's system volumes store them.
+    static func contents(of file: APFSContainer.CompressedFile, container: APFSContainer) throws -> Data {
+        let size = Int(file.size)
+        func fail(_ why: String) -> Error { APFSContainer.Error.unsupported("decmpfs type \(file.type): \(why)") }
+        switch file.type {
+        case 1:
+            guard file.inline.count >= size else { throw fail("short") }
+            return file.inline.prefix(size)
+        case 3, 7, 11:
+            guard size > 0 else { return Data() }
+            guard let first = file.inline.first else { throw fail("no data") }
+            // Stored rather than compressed: 0x?F (zlib), 0x06 (LZVN), 0xFF (LZFSE), then the bytes.
+            if (file.type == 3 && first & 0x0F == 0x0F) || (file.type == 7 && first == 0x06) || (file.type == 11 && first == 0xFF) {
+                return file.inline.dropFirst().prefix(size)
+            }
+            let data: Data? = file.type == 3
+                ? (file.inline.count > 2 ? run(file.inline.dropFirst(2), algorithm: COMPRESSION_ZLIB, outputSize: size) : nil)
+                : decode(file.inline, type: file.type == 7 ? 8 : 12, rawSize: size)
+            guard let data, data.count == size else { throw fail("does not decompress") }
+            return data
+        case 4, 8, 12:
+            guard size > 0 else { return Data() }
+            var fork = Data()
+            for extent in file.fork {
+                guard extent.logical == UInt64(fork.count) else { throw fail("fork has a hole") }
+                fork += try container.readBytes(at: extent.offset, count: Int(extent.length))
+            }
+            let chunks = (size + chunkSize - 1) / chunkSize
+            var out = Data(capacity: size)
+            for i in 0..<chunks {
+                let range: Range<Int>
+                if file.type == 4 {
+                    guard fork.count >= 4 else { throw fail("short fork") }
+                    let base = Int(fork.prefix(4).withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self)) }) + 4
+                    let at = base + 4 + i * 8
+                    guard at + 8 <= fork.count else { throw fail("chunk table") }
+                    let start = base + Int(fork.le32(at: at))
+                    range = start..<start + Int(fork.le32(at: at + 4))
+                } else {
+                    guard (i + 1) * 4 + 4 <= fork.count else { throw fail("chunk table") }
+                    range = Int(fork.le32(at: i * 4))..<Int(fork.le32(at: i * 4 + 4))
+                }
+                guard range.lowerBound >= 0, range.upperBound <= fork.count, !range.isEmpty else { throw fail("chunk \(i)") }
+                let rawSize = min(chunkSize, size - i * chunkSize)
+                guard let plain = decode(fork.subdata(in: range), type: file.type, rawSize: rawSize), plain.count == rawSize else {
+                    throw fail("chunk \(i) does not decompress")
+                }
+                out += plain
+            }
+            return out
+        default:
+            throw fail("not handled")
+        }
+    }
+
     /// One chunk decompressed, or nil.
     static func decode(_ data: Data, type: UInt32, rawSize: Int) -> Data? {
         guard let first = data.first else { return nil }
@@ -147,7 +203,7 @@ enum CompressedFilePatch {
         }
     }
 
-    private static func run(_ input: Data, algorithm: compression_algorithm, outputSize: Int, encode: Bool = false) -> Data? {
+    static func run(_ input: Data, algorithm: compression_algorithm, outputSize: Int, encode: Bool = false) -> Data? {
         var output = Data(count: outputSize)
         let n = output.withUnsafeMutableBytes { out in
             input.withUnsafeBytes { inp in

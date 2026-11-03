@@ -9,7 +9,7 @@ import EmulatorKit
 //   ipsw-emu boot <file.ipsw> --work <dir> [--product iPhone12,1] [--seconds 600]
 //                 [--monitor "x /32wx 0xfffffff007000000; info mtree -f"]  (run at the time limit)
 //                 [--memory 4096] [--cpus 4] [--mode auto] [--asset id=path ...]
-//                 [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] [--voiceover 1] [--reduce-motion 1] [--reduce-transparency 1] [--boot-args "…"]
+//                 [--force-backend inferno-t8030] [--qemu-debug guest_errors] [--skip-setup 1] [--voiceover 1] [--reduce-motion 1] [--reduce-transparency 1] [--system-apps 0] [--boot-args "…"]
 //   ipsw-emu apfs-add-volume <disk image> [--offset 0] [--name Preboot] [--role preboot|data|xart]
 //                            [--dirs a/b,c] [--files a/f=text] [--owners a/b=501:501:755]
 //
@@ -141,7 +141,8 @@ case "boot":
         memoryMB: Int(options["memory"] ?? "") ?? backend.defaultMemoryMB,
         cpuCount: Int(options["cpus"] ?? "") ?? backend.defaultCPUCount,
         extraBootArgs: options["boot-args"] ?? "",
-        guestTweaks: tweaks)
+        guestTweaks: tweaks,
+        removableApps: options["system-apps"] != "0")
     print("==> \(row.device.name) iOS \(ipsw.version) on \(backend.displayName) [\(row.compatibility.summary)]")
 
     var config: MachineConfiguration

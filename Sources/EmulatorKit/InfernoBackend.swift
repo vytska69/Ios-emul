@@ -340,6 +340,44 @@ public struct InfernoBackend: EmulatorBackend {
         return tree
     }
 
+    /// Adds the System volume's private/var/staged_system_apps (the removable apps) to `tree`,
+    /// with their owners and permissions. File bytes are read (and decompressed) only when the
+    /// volume is written, one file at a time. Returns a one-line summary.
+    static func addStagedSystemApps(to tree: inout APFSContainer.Tree, from container: APFSContainer) throws -> String {
+        let volumes = try container.volumes()
+        guard let system = volumes.first(where: { $0.role == APFSContainer.Role.system.rawValue }) ?? volumes.first else {
+            return "removable apps: no system volume"
+        }
+        let root = "staged_system_apps"
+        let entries = try container.walk(volume: system.oid, path: "private/var/" + root)
+        var apps = 0, files = 0, bytes = 0, skipped: [String] = []
+        for entry in entries {
+            let path = root + "/" + entry.path
+            switch entry.kind {
+            case .directory:
+                tree.directories.append(path)
+                if !entry.path.contains("/") { apps += 1 }
+            case .file:
+                let size = Int(entry.size)
+                if let compressed = entry.compressed {
+                    tree.lazyFiles[path] = APFSContainer.LazyFile(size: size) {
+                        try CompressedFilePatch.contents(of: compressed, container: container)
+                    }
+                } else {
+                    tree.lazyFiles[path] = APFSContainer.LazyFile(size: size) { try container.contents(of: entry) }
+                }
+                files += 1; bytes += size
+            case .symlink, .other:
+                skipped.append(entry.path)
+                continue
+            }
+            tree.attributes[path] = entry.attributes
+        }
+        tree.attributes[root] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
+        return "removable apps: \(apps) apps, \(files) files, \(bytes / 1_048_576) MB"
+            + (skipped.isEmpty ? "" : "; skipped \(skipped.count) (links): " + skipped.prefix(5).joined(separator: ", "))
+    }
+
     /// Writes a copy of the DeviceTree whose fstab describes the disk a direct install produces.
     ///
     /// With `dataInFirstMountPhase` the Data volume is mounted with System, Preboot and xART
@@ -483,7 +521,19 @@ public struct InfernoBackend: EmulatorBackend {
                 // in the slot after System, as on a restored iPhone: the first-boot obliteration
                 // deletes it and newfs_apfs recreates and remounts it there (disk0s1s2, as the
                 // rootfs fstab says), which fails while another volume holds that slot.
-                try container.addVolume(name: "Data", role: .data, tree: Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build))
+                var dataTree = Self.dataVolumeTree(tweaks: ctx.guestTweaks, build: ctx.ipsw.build)
+                // The apps iOS lets the user delete are not in /Applications: the System volume
+                // keeps them in /private/var/staged_system_apps, and a restore copies that onto the
+                // Data volume, from where iOS installs them on the first start.
+                if ctx.removableApps {
+                    ctx.progress("OS", 0.97)
+                    let line: String
+                    do { line = try Self.addStagedSystemApps(to: &dataTree, from: container) }
+                    catch { line = "removable apps not copied: \(error)" }
+                    try? (line + "\n").write(to: disk.deletingLastPathComponent().appendingPathComponent("staged-apps.txt"),
+                                             atomically: true, encoding: .utf8)
+                }
+                try container.addVolume(name: "Data", role: .data, tree: dataTree)
                 // launchd's first mount phase needs a Preboot volume holding the firmware folder
                 // for the boot manifest hash (all zeros on the emulated machine, which has no
                 // personalised manifest); a restore would have created it.

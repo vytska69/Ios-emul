@@ -43,10 +43,23 @@ public final class APFSContainer {
         public var files: [String: Data]
         /// Owner and permissions by path; anything not listed is root:wheel, 0755 or 0644.
         public var attributes: [String: Attributes]
+        /// Regular files whose bytes are read one at a time while the volume is written (large
+        /// copies that should not all be in memory at once).
+        public var lazyFiles: [String: LazyFile] = [:]
         public init(directories: [String], files: [String: Data] = [:], attributes: [String: Attributes] = [:]) {
             self.directories = directories
             self.files = files
             self.attributes = attributes
+        }
+    }
+
+    /// A file's size and how to read its bytes.
+    public struct LazyFile {
+        public let size: Int
+        public let read: () throws -> Data
+        public init(size: Int, read: @escaping () throws -> Data) {
+            self.size = size
+            self.read = read
         }
     }
 
@@ -538,8 +551,9 @@ public final class APFSContainer {
         let template = try volumeSuperblock(templateOID)
 
         let bs = Int(blockSize)
-        let filePaths = tree.files.keys.sorted()
-        let dataBlocks = filePaths.reduce(0) { $0 + (tree.files[$1]!.count + bs - 1) / bs }
+        let filePaths = Set(tree.files.keys).union(tree.lazyFiles.keys).sorted()
+        func size(_ path: String) -> Int { tree.files[path]?.count ?? tree.lazyFiles[path]!.size }
+        let dataBlocks = filePaths.reduce(0) { $0 + (size($1) + bs - 1) / bs }
         let infoAt = bs - FixedNode.infoSize
         let now = UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
 
@@ -562,13 +576,15 @@ public final class APFSContainer {
 
         // The file-system records depend on where file data lands, and the trees' shapes only on
         // the records' sizes. Lay out the file data first, then size the trees, then place them.
-        var dataAddrs = try allocate(dataBlocks)
+        let dataAddrs = try allocate(dataBlocks)
         var files: [FSTree.File] = []
+        var dataStart = 0
         for path in filePaths {
-            let data = tree.files[path]!
+            let data = try tree.files[path] ?? tree.lazyFiles[path]!.read()
+            guard data.count == size(path) else { throw Error.unsupported("\(path): \(data.count) bytes, expected \(size(path))") }
             let count = (data.count + bs - 1) / bs
-            let mine = Array(dataAddrs.prefix(count))
-            dataAddrs.removeFirst(count)
+            let mine = dataAddrs[dataStart..<dataStart + count]
+            dataStart += count
             // Each file as runs of consecutive blocks (the allocator may hand out gaps).
             var runs: [(logical: UInt64, paddr: UInt64, blocks: UInt64)] = []
             for (i, b) in mine.enumerated() {
@@ -577,9 +593,12 @@ public final class APFSContainer {
                 } else {
                     runs.append((UInt64(i) * blockSize, b, 1))
                 }
-                var chunk = data.slice(i * bs, min(bs, data.count - i * bs))
-                chunk.append(Data(count: bs - chunk.count))
-                try write(chunk, block: b)
+            }
+            for run in runs {
+                let from = Int(run.logical)
+                var chunk = data.slice(from, min(Int(run.blocks) * bs, data.count - from))
+                chunk.append(Data(count: Int(run.blocks) * bs - chunk.count))
+                try write(chunk, block: run.paddr)
             }
             files.append(FSTree.File(path: path, size: UInt64(data.count), runs: runs))
         }
@@ -1190,14 +1209,13 @@ extension APFSContainer {
         public let type: UInt32
         public let size: UInt64
         public let fork: [Extent]
+        /// The data after the decmpfs header (the inline types keep the whole file there).
+        public let inline: Data
     }
 
     /// The compression of a file that has no data extents of its own, or nil if it is not compressed.
     public func compressedFile(volume oid: UInt64, path: String) throws -> CompressedFile? {
-        let sb = ByteReader(try volumeSuperblock(oid))
-        let omapTree = ByteReader(try read(block: sb.u64(at: 128))).u64(at: 48)
-        let fs = FSReader(container: self, omapTree: omapTree, root: sb.u64(at: 136),
-                          hashedNames: sb.u64(at: 56) & 0x9 != 0)
+        let fs = try fsReader(volume: oid)
         var id = FSTree.rootID
         for name in path.split(separator: "/") {
             guard let hit = try fs.records(id: id, type: FSTree.typeDirRecord)
@@ -1206,18 +1224,35 @@ extension APFSContainer {
             }
             id = ByteReader(hit.value).u64(at: 0)
         }
-        // Extended attributes: key j_key, name_len, name; value flags, xdata_len, xdata.
-        var decmpfs: Data?, forkStream: UInt64?
+        return try compression(fs: fs, id: id, xattrs: xattrs(fs: fs, id: id))
+    }
+
+    func fsReader(volume oid: UInt64) throws -> FSReader {
+        let sb = ByteReader(try volumeSuperblock(oid))
+        let omapTree = ByteReader(try read(block: sb.u64(at: 128))).u64(at: 48)
+        return FSReader(container: self, omapTree: omapTree, root: sb.u64(at: 136),
+                        hashedNames: sb.u64(at: 56) & 0x9 != 0)
+    }
+
+    /// Extended attributes of an object: name → (flags, inline data or data-stream id).
+    /// Key: j_key, name_len, name; value: flags, xdata_len, xdata.
+    func xattrs(fs: FSReader, id: UInt64) throws -> [String: (flags: UInt16, data: Data)] {
+        var out: [String: (flags: UInt16, data: Data)] = [:]
         for record in try fs.records(id: id, type: 4) {
             let k = ByteReader(record.key), v = ByteReader(record.value)
             let name = String(decoding: record.key.slice(10, max(0, Int(k.u16(at: 8)) - 1)), as: UTF8.self)
-            let flags = v.u16(at: 0), length = Int(v.u16(at: 2))
-            if name == "com.apple.decmpfs", flags & 0x2 != 0 { decmpfs = record.value.slice(4, length) }
-            if name == "com.apple.ResourceFork", flags & 0x1 != 0 { forkStream = v.u64(at: 4) }
+            out[name] = (v.u16(at: 0), record.value.slice(4, Int(v.u16(at: 2))))
         }
-        guard let decmpfs, decmpfs.count >= 16, ByteReader(decmpfs).u32(at: 0) == 0x636D_7066 else { return nil }  // "fpmc"
+        return out
+    }
+
+    func compression(fs: FSReader, id: UInt64, xattrs: [String: (flags: UInt16, data: Data)]) throws -> CompressedFile? {
+        guard let attr = xattrs["com.apple.decmpfs"], attr.flags & 0x2 != 0 else { return nil }
+        let decmpfs = attr.data
+        guard decmpfs.count >= 16, ByteReader(decmpfs).u32(at: 0) == 0x636D_7066 else { return nil }  // "fpmc"
         var fork: [Extent] = []
-        if let forkStream {
+        if let rsrc = xattrs["com.apple.ResourceFork"], rsrc.flags & 0x1 != 0 {
+            let forkStream = ByteReader(rsrc.data).u64(at: 0)
             for record in try fs.records(id: forkStream, type: FSTree.typeFileExtent) {
                 let k = ByteReader(record.key), v = ByteReader(record.value)
                 fork.append(Extent(logical: k.u64(at: 8), offset: v.u64(at: 8) * blockSize,
@@ -1225,7 +1260,113 @@ extension APFSContainer {
             }
             fork.sort { $0.logical < $1.logical }
         }
-        return CompressedFile(type: ByteReader(decmpfs).u32(at: 4), size: ByteReader(decmpfs).u64(at: 8), fork: fork)
+        return CompressedFile(type: ByteReader(decmpfs).u32(at: 4), size: ByteReader(decmpfs).u64(at: 8), fork: fork,
+                              inline: decmpfs.slice(16, decmpfs.count - 16))
+    }
+
+    /// One entry of a directory tree read with `walk`.
+    public struct Entry {
+        public enum Kind: Equatable { case directory, file, symlink, other }
+        /// Relative to the walked directory.
+        public let path: String
+        public let kind: Kind
+        public let attributes: Attributes
+        /// A file's size (uncompressed).
+        public let size: UInt64
+        /// An uncompressed file's data, in file order.
+        public let extents: [Extent]
+        public let compressed: CompressedFile?
+        public let symlinkTarget: String?
+    }
+
+    /// Everything below the directory at `path` of a volume, parents before children.
+    public func walk(volume oid: UInt64, path: String) throws -> [Entry] {
+        let fs = try fsReader(volume: oid)
+        var id = FSTree.rootID
+        for name in path.split(separator: "/") {
+            guard let hit = try fs.records(id: id, type: FSTree.typeDirRecord)
+                .first(where: { fs.directoryEntryName($0.key) == String(name) }) else {
+                throw Error.unsupported("\(path): no \(name)")
+            }
+            id = ByteReader(hit.value).u64(at: 0)
+        }
+        var out: [Entry] = []
+        var queue: [(id: UInt64, path: String)] = [(id, "")]
+        while !queue.isEmpty {
+            let dir = queue.removeFirst()
+            let children = try fs.records(id: dir.id, type: FSTree.typeDirRecord)
+                .map { (name: fs.directoryEntryName($0.key), id: ByteReader($0.value).u64(at: 0)) }
+                .sorted { $0.name < $1.name }
+            for child in children {
+                let childPath = dir.path.isEmpty ? child.name : dir.path + "/" + child.name
+                guard let inode = try fs.records(id: child.id, type: FSTree.typeInode).first else {
+                    throw Error.unsupported("\(childPath): no inode")
+                }
+                let v = ByteReader(inode.value)
+                let mode = v.u16(at: 80)
+                let attributes = Attributes(uid: v.u32(at: 72), gid: v.u32(at: 76), mode: mode & 0o7777)
+                switch mode & 0o170000 {
+                case 0o040000:
+                    out.append(Entry(path: childPath, kind: .directory, attributes: attributes, size: 0, extents: [],
+                                     compressed: nil, symlinkTarget: nil))
+                    queue.append((child.id, childPath))
+                case 0o100000, 0o120000:
+                    let attrs = try xattrs(fs: fs, id: child.id)
+                    if mode & 0o170000 == 0o120000 {
+                        let target = attrs["com.apple.fs.symlink"].map {
+                            String(decoding: $0.data.prefix { $0 != 0 }, as: UTF8.self)
+                        }
+                        out.append(Entry(path: childPath, kind: .symlink, attributes: attributes, size: 0, extents: [],
+                                         compressed: nil, symlinkTarget: target))
+                        continue
+                    }
+                    if let compressed = try compression(fs: fs, id: child.id, xattrs: attrs) {
+                        out.append(Entry(path: childPath, kind: .file, attributes: attributes, size: compressed.size,
+                                         extents: [], compressed: compressed, symlinkTarget: nil))
+                        continue
+                    }
+                    let stream = v.u64(at: 8)
+                    let extents = try fs.records(id: stream, type: FSTree.typeFileExtent).map { record in
+                        let k = ByteReader(record.key), e = ByteReader(record.value)
+                        return Extent(logical: k.u64(at: 8), offset: e.u64(at: 8) * blockSize,
+                                      length: e.u64(at: 0) & 0x00FF_FFFF_FFFF_FFFF)
+                    }.sorted { $0.logical < $1.logical }
+                    out.append(Entry(path: childPath, kind: .file, attributes: attributes,
+                                     size: Self.dataStreamSize(inode.value), extents: extents,
+                                     compressed: nil, symlinkTarget: nil))
+                default:
+                    out.append(Entry(path: childPath, kind: .other, attributes: attributes, size: 0, extents: [],
+                                     compressed: nil, symlinkTarget: nil))
+                }
+            }
+        }
+        return out
+    }
+
+    /// The size in an inode's data-stream extended field (INO_EXT_TYPE_DSTREAM), or 0.
+    static func dataStreamSize(_ inode: Data) -> UInt64 {
+        let v = ByteReader(inode)
+        guard inode.count >= 96 else { return 0 }
+        let count = Int(v.u16(at: 92))
+        var data = 96 + count * 4
+        for i in 0..<count {
+            let type = inode[inode.startIndex + 96 + i * 4]
+            let size = Int(v.u16(at: 96 + i * 4 + 2))
+            if type == 8, data + 8 <= inode.count { return v.u64(at: data) }
+            data += (size + 7) & ~7
+        }
+        return 0
+    }
+
+    /// Reads an uncompressed file listed by `walk`.
+    public func contents(of entry: Entry) throws -> Data {
+        var out = Data(capacity: Int(entry.size))
+        for extent in entry.extents where UInt64(out.count) < entry.size {
+            let n = Int(min(extent.length, entry.size - UInt64(out.count)))
+            out += try readBytes(at: extent.offset, count: n)
+        }
+        guard UInt64(out.count) == entry.size else { throw Error.unsupported("\(entry.path): short data") }
+        return out
     }
 
     /// Reads `count` bytes at byte `offset` of the container.

@@ -104,7 +104,8 @@ final class FirmwareModel: ObservableObject {
                                  translationCacheMB: cacheMB,
                                  extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "",
                                  firstBootErase: !Pref.experimentalBool(Pref.skipFirstBootErase),
-                                 guestTweaks: Pref.guestTweaks) { [weak self] name, fraction in
+                                 guestTweaks: Pref.guestTweaks,
+                                 removableApps: Pref.defaults.bool(forKey: Pref.removableApps)) { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
@@ -161,6 +162,7 @@ struct FirmwareDetailView: View {
     @State private var memoryMB = 2048
     @State private var cpus = 2
     @State private var pickingAsset: ExternalAsset?
+    @AppStorage(Pref.removableApps) private var removableApps = true
 
     var body: some View {
         Group {
@@ -278,6 +280,11 @@ struct FirmwareDetailView: View {
                             .tint(theme.accent)
                     }
                     Stepper(value: $cpus, in: 1...8) { InfoRow(label: "CPU cores", value: "\(cpus)") }
+                    if bootMode == .direct {
+                        ToggleRow(title: "Include removable apps",
+                                  detail: "Music, Calendar, Weather, Mail, Notes, Maps and the other apps iOS lets you delete. Applies when iOS is installed on a new machine.",
+                                  isOn: $removableApps)
+                    }
                 }
                 .padding(.top, 4)
 

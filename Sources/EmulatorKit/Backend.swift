@@ -80,18 +80,23 @@ public struct PrepareContext {
     public let firstBootErase: Bool
     /// Settings written into the installed iOS (the Data volume of a direct install).
     public let guestTweaks: GuestTweaks
+    /// Install the apps iOS lets the user delete (Music, Weather, Calendar, …), as a restore does;
+    /// off leaves them out of a direct install.
+    public let removableApps: Bool
     public let progress: (String, Double) -> Void
 
     public init(ipsw: IPSW, identity: BuildManifest.Identity, device: DeviceInfo, workDirectory: URL,
                 externalAssets: [String: URL], bootMode: BootMode, memoryMB: Int, cpuCount: Int,
                 verboseBoot: Bool = true, translationCacheMB: Int = QEMURunner.defaultTranslationCacheMB,
                 extraBootArgs: String = "", firstBootErase: Bool = true, guestTweaks: GuestTweaks = GuestTweaks(),
+                removableApps: Bool = true,
                 progress: @escaping (String, Double) -> Void = { _, _ in }) {
         self.ipsw = ipsw; self.identity = identity; self.device = device; self.workDirectory = workDirectory
         self.externalAssets = externalAssets; self.bootMode = bootMode; self.memoryMB = memoryMB
         self.cpuCount = cpuCount; self.verboseBoot = verboseBoot; self.translationCacheMB = translationCacheMB
         self.extraBootArgs = extraBootArgs; self.firstBootErase = firstBootErase
         self.guestTweaks = guestTweaks
+        self.removableApps = removableApps
         self.progress = progress
     }
 }

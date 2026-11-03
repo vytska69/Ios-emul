@@ -54,6 +54,8 @@ enum Pref {
     static let guestDeviceName = "guestDeviceName"
     static let guestSkipSetup = "guestSkipSetup"
     static let guest24Hour = "guest24Hour"
+    /// Copy the removable apps (Music, Weather, …) into a direct install.
+    static let removableApps = "installRemovableApps"
     static let guestKeys = [guestVoiceOver, guestZoom, guestAssistiveTouch, guestBoldText, guestReduceMotion,
                             guestReduceTransparency, guestIncreaseContrast, guestInvertColors, guestGrayscale,
                             guestTextSize, guestAppearance, guestLanguage, guestRegion, guestDeviceName,
@@ -96,6 +98,7 @@ enum Pref {
             keepAwake: true,
             runInBackground: true,
             experimental: false,
+            removableApps: true,
             forceBackend: "",
             qemuDebugFlags: "",
             extraBootArgs: "",
@@ -334,7 +337,7 @@ private struct RowDivider: View {
     var body: some View { Divider().overlay(.white.opacity(0.08)).padding(.leading, 56) }
 }
 
-private struct ToggleRow: View {
+struct ToggleRow: View {
     @Environment(\.theme) private var theme
     let title: String
     let detail: String

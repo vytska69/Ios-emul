@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-03
+- New installs now include the apps iOS lets you delete: Music, Calendar, Weather, Mail, Notes, Maps, Contacts, Calculator and the rest. A switch on the machine card ("Include removable apps") leaves them out if you prefer a lighter install.
+
 ## 2026-11-02
 - Faster: the emulator keeps two prepared versions of the same piece of the phone's code side by side, where it used to keep one and redo the lookup each time the system switched between them.
 - Virtual graphics chip, second step: six more parts of the emulated phone's drawing (plain picture reads, tinting, blending and the color changes behind blurs) run directly on your device, with the same pixels (on a new install).
