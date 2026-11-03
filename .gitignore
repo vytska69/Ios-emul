@@ -12,3 +12,8 @@ build-qemu/
 *.ipsw
 App/Mac/Info.plist
 App/Mac/IOSEmulMac.entitlements
+scripts/vgpu-check/img.bin
+scripts/vgpu-check/out_c.bin
+scripts/vgpu-check/regs.bin
+scripts/vgpu-check/kpage.bin
+scripts/vgpu-check/t[0-9]
