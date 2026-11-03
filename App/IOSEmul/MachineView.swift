@@ -232,6 +232,17 @@ final class DisplayModel: ObservableObject {
         }
     }
 
+    /// Three quick presses of the side button: the Accessibility Shortcut, which turns VoiceOver on or
+    /// off (set up on new installs). Pressing Lock three times by hand is often too slow for it.
+    func accessibilityShortcut() {
+        guard let vnc else { return }
+        let side = Button.side.rawValue
+        for i in 0..<3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * Double(i)) { vnc.keyEvent(side, down: true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * Double(i) + 0.07) { vnc.keyEvent(side, down: false) }
+        }
+    }
+
     func shutdown() {
         fpsTimer?.invalidate()
         waitTimer?.invalidate()
@@ -359,6 +370,7 @@ struct MachineView: View {
             HStack(spacing: 8) {
                 ControlButton(symbol: "circle.circle", title: "Home") { display.goHome() }
                 ControlButton(symbol: "lock.fill", title: "Lock") { display.press(.side) }
+                ControlButton(symbol: "figure.walk.circle", title: "VoiceOver") { display.accessibilityShortcut() }
                 ControlButton(symbol: "speaker.minus.fill", title: "Vol −") { display.press(.volumeDown) }
                 ControlButton(symbol: "speaker.plus.fill", title: "Vol +") { display.press(.volumeUp) }
                 if Pref.experimentalBool(Pref.machineTools) {

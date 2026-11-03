@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-03
+- A VoiceOver button next to Lock (in the Mac app's toolbar too): it presses the side button three times, quickly enough for iOS, and on new installs that turns VoiceOver on or off, so a phone with VoiceOver on can always be brought back.
 - Sharper text on the emulated screen: the picture is now scaled down to your screen with the highest-quality filter, so thin letters such as l and I stay visible.
 - Faster everywhere: reading the clock (which iOS and every app do constantly), checking a processor-to-processor wake-up, entering and returning from a system call, a memory fault or an interrupt, and noticing that an interrupt has to wait no longer make all of the emulated phone's processors wait for each other.
 - Faster switching between apps and system services: the emulator now keeps the code it prepared for each running process when the phone switches to another one, instead of looking it all up again.
