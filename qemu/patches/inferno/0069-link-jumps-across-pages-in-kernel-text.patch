@@ -1,0 +1,127 @@
+diff --git a/accel/tcg/translator.c b/accel/tcg/translator.c
+index 8a4da5f..60f87e5 100644
+--- a/accel/tcg/translator.c
++++ b/accel/tcg/translator.c
+@@ -106,6 +106,41 @@ bool translator_is_same_page(const DisasContextBase *db, vaddr addr)
+     return ((addr ^ db->pc_first) & TARGET_PAGE_MASK) == 0;
+ }
+ 
++/*
++ * Guest code whose virtual-to-physical mapping never changes once it runs
++ * (a kernel's text, locked by KTRR/CTRR): see translator_use_goto_tb.
++ */
++#define TCG_STABLE_CODE_MAX 16
++static struct {
++    vaddr start, end;
++} tcg_stable_code[TCG_STABLE_CODE_MAX];
++static int tcg_stable_code_count;
++
++void tcg_add_stable_code_range(vaddr start, vaddr end)
++{
++    const char *v = getenv("QEMU_STABLE_CHAIN");
++
++    if ((v && v[0] == '0') || start >= end ||
++        tcg_stable_code_count == TCG_STABLE_CODE_MAX) {
++        return;
++    }
++    tcg_stable_code[tcg_stable_code_count].start = start;
++    tcg_stable_code[tcg_stable_code_count].end = end;
++    qatomic_store_release(&tcg_stable_code_count, tcg_stable_code_count + 1);
++}
++
++static bool tcg_is_stable_code(vaddr addr)
++{
++    int n = qatomic_load_acquire(&tcg_stable_code_count);
++
++    for (int i = 0; i < n; i++) {
++        if (addr >= tcg_stable_code[i].start && addr < tcg_stable_code[i].end) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ bool translator_use_goto_tb(DisasContextBase *db, vaddr dest)
+ {
+     /* Suppress goto_tb if requested. */
+@@ -114,7 +149,18 @@ bool translator_use_goto_tb(DisasContextBase *db, vaddr dest)
+     }
+ 
+     /* Check for the dest on the same page as the start of the TB.  */
+-    return translator_is_same_page(db, dest);
++    if (translator_is_same_page(db, dest)) {
++        return true;
++    }
++
++    /*
++     * A direct jump to another page normally goes through the TB lookup,
++     * because the other page's mapping could change. Within stable code it
++     * cannot, so the jump is linked as on the same page. For an iOS kernel
++     * that is every call to a function on another page, the bulk of its
++     * direct branches; a TB invalidated later is still unlinked as usual.
++     */
++    return tcg_is_stable_code(db->pc_first) && tcg_is_stable_code(dest);
+ }
+ 
+ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index ab63899..61f21ce 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -19,6 +19,8 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "exec/translator.h"
++#include "system/tcg.h"
+ #include "hw/arm/apple-silicon/a13.h"
+ #include "hw/arm/apple-silicon/boot.h"
+ #include "hw/arm/apple-silicon/dart.h"
+@@ -340,6 +342,31 @@ static void t8030_load_kernelcache(AppleT8030MachineState *t8030,
+         apple_dt_get_node(t8030->device_tree, "/chosen/memory-map"),
+         g_phys_base + g_phys_slide, g_virt_slide);
+ 
++    /*
++     * The kernelcache's executable, never writable segments (__TEXT_EXEC with
++     * every kext, __PPLTEXT, __LAST) keep their mapping once the kernel runs.
++     */
++    if (tcg_enabled()) {
++        MachoLoadCommand *cmd = (MachoLoadCommand *)(t8030->kernel + 1);
++
++        for (unsigned int i = 0; i < t8030->kernel->n_cmds;
++             i++, cmd = (MachoLoadCommand *)((char *)cmd + cmd->cmd_size)) {
++            MachoSegmentCommand64 *seg = (MachoSegmentCommand64 *)cmd;
++
++            if (cmd->cmd != LC_SEGMENT_64 || seg->vmsize == 0 ||
++                !(seg->maxprot & VM_PROT_EXECUTE) ||
++                (seg->maxprot & VM_PROT_WRITE) ||
++                strncmp(seg->segname, "__TEXT", 16) == 0) {
++                continue;
++            }
++            tcg_add_stable_code_range(seg->vmaddr + g_virt_slide,
++                                      seg->vmaddr + seg->vmsize + g_virt_slide);
++            info_report("Stable code: %.16s 0x%016" VADDR_PRIx "-0x%016" VADDR_PRIx,
++                        seg->segname, seg->vmaddr + g_virt_slide,
++                        seg->vmaddr + seg->vmsize + g_virt_slide);
++        }
++    }
++
+     info_report("Kernel Virtual Base: 0x%016" VADDR_PRIx, g_virt_base);
+     info_report("Kernel Physical Base: 0x" HWADDR_FMT_plx, g_phys_base);
+     info_report("Kernel Virtual Slide: 0x%016" VADDR_PRIx, g_virt_slide);
+diff --git a/include/exec/translator.h b/include/exec/translator.h
+index bf732f3..f3ccae6 100644
+--- a/include/exec/translator.h
++++ b/include/exec/translator.h
+@@ -274,4 +274,11 @@ size_t translator_st_len(const DisasContextBase *db);
+  */
+ bool translator_is_same_page(const DisasContextBase *db, vaddr addr);
+ 
++/*
++ * tcg_add_stable_code_range: [start, end) holds guest code whose virtual to
++ * physical mapping never changes (a kernel's locked text); direct jumps
++ * between such code are linked across pages. QEMU_STABLE_CHAIN=0 ignores it.
++ */
++void tcg_add_stable_code_range(vaddr start, vaddr end);
++
+ #endif /* EXEC__TRANSLATOR_H */

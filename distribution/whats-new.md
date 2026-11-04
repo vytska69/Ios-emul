@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-04
+- Faster system: when the emulated phone's system calls one of its own functions on another part of memory, the emulator now jumps straight to the code it prepared for it, instead of looking it up on every call.
+
 ## 2026-11-03
 - Sharper text on the emulated screen: the picture is now scaled down to your screen with the highest-quality filter, so thin letters such as l and I stay visible.
 - Faster everywhere: reading the clock (which iOS and every app do constantly), checking a processor-to-processor wake-up, entering and returning from a system call, a memory fault or an interrupt, noticing that an interrupt has to wait, and setting the system's timers no longer make all of the emulated phone's processors wait for each other.
