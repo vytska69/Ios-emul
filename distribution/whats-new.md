@@ -10,7 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-11-04
 - Faster system: when the emulated phone's system calls one of its own functions on another part of memory, the emulator now jumps straight to the code it prepared for it, instead of looking it up on every call.
-- Faster everywhere: the emulator no longer forgets all the code it prepared each time the phone reuses a piece of memory that once held code, which iOS does constantly.
+- Faster everywhere: the emulator no longer forgets all the code it prepared each time the phone reuses a piece of memory that once held code, which iOS does constantly, and it remembers four times as many places in the system's code.
 
 ## 2026-11-03
 - Sharper text on the emulated screen: the picture is now scaled down to your screen with the highest-quality filter, so thin letters such as l and I stay visible.

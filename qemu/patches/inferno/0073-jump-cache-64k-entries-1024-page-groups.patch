@@ -1,0 +1,40 @@
+diff --git a/accel/tcg/tb-hash.h b/accel/tcg/tb-hash.h
+index f7b159f..8fb74f9 100644
+--- a/accel/tcg/tb-hash.h
++++ b/accel/tcg/tb-hash.h
+@@ -31,7 +31,9 @@
+ /* Only the bottom TB_JMP_PAGE_BITS of the jump cache hash bits vary for
+    addresses on the same page.  The top bits are the same.  This allows
+    TLB invalidation to quickly clear a subset of the hash table.  */
++#ifndef TB_JMP_PAGE_BITS
+ #define TB_JMP_PAGE_BITS (TB_JMP_CACHE_BITS / 2)
++#endif
+ #define TB_JMP_PAGE_SIZE (1 << TB_JMP_PAGE_BITS)
+ #define TB_JMP_ADDR_MASK (TB_JMP_PAGE_SIZE - 1)
+ #define TB_JMP_PAGE_MASK (TB_JMP_CACHE_SIZE - TB_JMP_PAGE_SIZE)
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index 749def6..c0edeec 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -13,12 +13,19 @@
+ #include "exec/cpu-common.h"
+ 
+ /*
+- * 16384 entries per CPU (was 4096): every function return of an arm64e guest
++ * 65536 entries per CPU (was 4096): every function return of an arm64e guest
+  * (retab) is an indirect jump looked up here, and iOS's kernel and shared
+  * cache code missed in 4096 often enough that the hash table walk behind it
+  * was a large part of QEMU's time.
+  */
+-#define TB_JMP_CACHE_BITS 14
++#define TB_JMP_CACHE_BITS 16
++/*
++ * Entries of one guest page share a group of 1 << TB_JMP_PAGE_BITS slots
++ * (cleared together by tlb_flush_page). iOS runs code from thousands of
++ * pages with only a few hot blocks each, so 1024 groups of 64 slots (was 128
++ * of 128) lets far fewer pages compete for the same group.
++ */
++#define TB_JMP_PAGE_BITS 6
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*
