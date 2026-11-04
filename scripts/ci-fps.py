@@ -64,7 +64,7 @@ class FrameCounter(threading.Thread):
             except (socket.timeout, ConnectionError):
                 continue
             if kind == 0:
-                _, rects = struct.unpack(">xH", recv_exact(s, 3))
+                rects = struct.unpack(">xH", recv_exact(s, 3))[0]
                 for _ in range(rects):
                     x, y, w, h, enc = struct.unpack(">HHHHi", recv_exact(s, 12))
                     if enc == 0:
