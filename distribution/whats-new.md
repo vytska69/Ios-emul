@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-04
+- Fewer restarts at boot: the emulated phone no longer sometimes crashes ("Kernel data abort") and starts over while its screen driver is still setting up, which happened in about one boot in ten (on a new install).
 - Faster system: when the emulated phone's system calls one of its own functions on another part of memory, the emulator now jumps straight to the code it prepared for it, instead of looking it up on every call.
 - Faster everywhere: the emulator no longer forgets all the code it prepared each time the phone reuses a piece of memory that once held code, which iOS does constantly.
 

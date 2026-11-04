@@ -113,6 +113,23 @@ public enum KernelPatches {
                 }
             }
         }
+        // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
+        // and five identical copies) call a method of the pipeline object without checking it:
+        // `ldr x8, [x0, #0x28]; ldr x8, [x8, #0x10]; ... ldr x16, [x8]` and then the method in
+        // its vtable. Emulated, the work item sometimes runs before the object is set up, its
+        // vtable still 0, and the kernel panics with a data abort at 0x18 ("Kernel data abort"
+        // early in boot, about one boot in ten, which then starts over). Skip the call then:
+        // the PAC check's `b.eq` becomes `cbz x16` to the `mov w0, #0; ret` just before the
+        // function, and its `brk` a nop.
+        let pipelineCall: [UInt32] = [0x5280_0000, 0xD65F_03C0, 0xF940_1408, 0xF940_0908, 0x3940_6001,
+                                      0x3940_E002, 0xF940_0110, 0xAA08_03E9, 0xF2E6_1549, 0xAA10_03F1,
+                                      0xDAC1_1930, 0xDAC1_47F1, 0xEB11_021F, 0x5400_0040, 0xD438_8E40]
+        for at in image.find(words: pipelineCall) {
+            patches.append(Patch(address: at + 52, original: 0x5400_0040, replacement: 0xB4FF_FE70,
+                                 reason: "IOMFB power-state work item: return when the pipeline's vtable is 0 (cbz x16)"))
+            patches.append(Patch(address: at + 56, original: 0xD438_8E40, replacement: 0xD503_201F,
+                                 reason: "IOMFB power-state work item: no PAC brk before the check (nop)"))
+        }
         return patches
     }
 
@@ -191,6 +208,25 @@ struct MachOImage {
 
     func word(_ address: UInt64) -> UInt32 {
         fileOffset(of: address).map { data.le32(at: $0) } ?? 0
+    }
+
+    /// The addresses where the instruction words `words` appear in this order, in executable
+    /// segments.
+    func find(words: [UInt32]) -> [UInt64] {
+        var pattern = Data()
+        for w in words { withUnsafeBytes(of: w.littleEndian) { pattern.append(contentsOf: $0) } }
+        var found: [UInt64] = []
+        for s in segments where s.executable {
+            let end = min(s.fileOffset + s.fileSize, data.count)
+            var from = s.fileOffset
+            while from < end, let r = data.range(of: pattern, in: from..<end) {
+                if (r.lowerBound - s.fileOffset) % 4 == 0 {
+                    found.append(s.vm + UInt64(r.lowerBound - s.fileOffset))
+                }
+                from = r.lowerBound + 4
+            }
+        }
+        return found
     }
 
     /// The addresses of the `count` instructions that follow each ADRP+ADD pair loading the
