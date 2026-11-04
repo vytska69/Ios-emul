@@ -1,0 +1,83 @@
+diff --git a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+index 5329900..cbf2abb 100644
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -26,6 +26,7 @@
+ #include "accel/tcg/cpu-ldst.h"
+ #include "accel/tcg/probe.h"
+ #include "cpregs.h"
++#include "system/tcg.h"
+ 
+ #define SIGNBIT (uint32_t)0x80000000
+ #define SIGNBIT64 ((uint64_t)1 << 63)
+@@ -457,10 +458,35 @@ void HELPER(wfe)(CPUARMState *env)
+     HELPER(yield)(env);
+ }
+ 
++/*
++ * With MTTCG every vCPU has its own thread, so YIELD and WFE need not leave
++ * cpu_exec for other vCPUs to run: giving the host CPU away is enough, and
++ * the TB still ends here, so pending interrupts are taken as before. Leaving
++ * cpu_exec went through the BQL in the thread loop each time, and a guest
++ * spinlock that waits with WFE (XNU's hw_lock_bit, ldaxrb; cmp; b.eq; wfe)
++ * did that on every turn, mostly while all vCPUs were contending for it.
++ * QEMU_WFE_EXIT=1 leaves cpu_exec as before.
++ */
++static bool arm_yield_in_place(void)
++{
++    static int in_place = -1;
++
++    if (in_place < 0) {
++        const char *v = getenv("QEMU_WFE_EXIT");
++        in_place = !(v && v[0] == '1') && qemu_tcg_mttcg_enabled();
++    }
++    return in_place;
++}
++
+ void HELPER(yield)(CPUARMState *env)
+ {
+     CPUState *cs = env_cpu(env);
+ 
++    if (arm_yield_in_place()) {
++        g_thread_yield();
++        return;
++    }
++
+     /* This is a non-trappable hint instruction that generally indicates
+      * that the guest is currently busy-looping. Yield control back to the
+      * top level loop so that a more deserving VCPU has a chance to run.
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 38da015..51f070d 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -10458,10 +10458,13 @@ static void aarch64_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
+         case DISAS_WFE:
+             gen_a64_update_pc(dc, 4);
+             gen_helper_wfe(tcg_env);
++            /* The helper may return (see HELPER(yield)): back to the main loop. */
++            tcg_gen_exit_tb(NULL, 0);
+             break;
+         case DISAS_YIELD:
+             gen_a64_update_pc(dc, 4);
+             gen_helper_yield(tcg_env);
++            tcg_gen_exit_tb(NULL, 0);
+             break;
+         case DISAS_WFI:
+             /*
+diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+index 8408c13..fe09124 100644
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -6734,9 +6734,12 @@ static void arm_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
+             break;
+         case DISAS_WFE:
+             gen_helper_wfe(tcg_env);
++            /* The helper may return (see HELPER(yield)): back to the main loop. */
++            tcg_gen_exit_tb(NULL, 0);
+             break;
+         case DISAS_YIELD:
+             gen_helper_yield(tcg_env);
++            tcg_gen_exit_tb(NULL, 0);
+             break;
+         case DISAS_SWI:
+             gen_exception(EXCP_SWI, syn_aa32_svc(dc->svc_imm, dc->thumb));
