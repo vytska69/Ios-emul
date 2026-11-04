@@ -1,0 +1,94 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index cdca4e4..43f2ee4 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1913,6 +1913,7 @@ enum {
+     IOS_HCALL_CA_CLAMP_ARGB8 = 10,
+     IOS_HCALL_VIMAGE_ALPHA_BLEND = 11,
+     IOS_HCALL_CA_SOVER_BLEND = 12,
++    IOS_HCALL_CA_UNPREMULTIPLY = 13,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2668,6 +2669,71 @@ static void ios_hcall_ca_sover_blend(CPUARMState *env, uintptr_t ra)
+     }
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::scanline, its un-premultiplying loop at
++ * 0x18370621c (patched to this hypercall and a branch past it): w11 pixels at
++ * x9, in place, to opaque with the colours divided by alpha, in its float steps
++ * (k at [x8 + 0xc24], the smallest alpha at [x10 + 0xc34]) and its clamp, which
++ * takes the converted value as signed. Checked against the original in Unicorn
++ * (scripts/vgpu-check/check_unpremul.py). Leaves x9 and w11 as the loop does.
++ */
++static inline uint32_t ca_fcvtzu32(float f)
++{
++    if (!(f > 0.0f)) {
++        return 0;
++    }
++    if (f >= 4294967296.0f) {
++        return UINT32_MAX;
++    }
++    return (uint32_t)f;
++}
++
++static inline uint32_t ca_clamp255s(uint32_t v)
++{
++    int32_t x = (int32_t)v;
++
++    return x < 0 ? 0 : x > 255 ? 255 : (uint32_t)x;
++}
++
++static void ios_hcall_ca_unpremultiply(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    uint64_t px = x[9];
++    uint32_t n = (uint32_t)x[11];
++    uint32_t kb = cpu_ldl_le_mmuidx_ra(env, x[8] + 0xc24, mmu, ra);
++    uint32_t eb = cpu_ldl_le_mmuidx_ra(env, x[10] + 0xc34, mmu, ra);
++    float k, eps;
++
++    memcpy(&k, &kb, 4);
++    memcpy(&eps, &eb, 4);
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
++    for (uint32_t i = 0; i < n; i++, px += 4) {
++        uint32_t p = ca_ld32(env, &lc, px, mmu, ra);
++        float a = (float)(p >> 24) * k;
++        float r = (float)((p >> 16) & 0xff) * k;
++        float g = (float)((p >> 8) & 0xff) * k;
++        float b = (float)(p & 0xff) * k;
++        float inv;
++
++        if (!(a >= eps)) {
++            a = eps;            /* fmaxnm(a, eps); a is never NaN */
++        }
++        inv = 1.0f / a;
++        r = r * 255.0f;
++        g = g * 255.0f;
++        b = b * 255.0f;
++        ca_st32(env, &sc, px, 0xff000000u |
++                ca_clamp255s(ca_fcvtzu32(inv * r)) << 16 |
++                ca_clamp255s(ca_fcvtzu32(inv * g)) << 8 |
++                ca_clamp255s(ca_fcvtzu32(inv * b)), mmu, ra);
++    }
++    x[9] = px;
++    x[11] = 0;
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -2712,6 +2778,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_SOVER_BLEND:
+         ios_hcall_ca_sover_blend(env, ra);
+         break;
++    case IOS_HCALL_CA_UNPREMULTIPLY:
++        ios_hcall_ca_unpremultiply(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

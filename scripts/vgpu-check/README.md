@@ -60,3 +60,12 @@ python3 check_valpha.py 300
 ```
 
 Rezultatas 2026-11-04: 300 atvejų, 10878 pikseliai, 0 skirtumų.
+
+`scanline` ciklas, verčiantis iš anksto padaugintus taškus nepermatomais (hypercall 13, `0078`):
+
+```
+cc -O2 -ffp-contract=off -shared -fPIC -o unpremul_ref.so unpremul_ref.c
+python3 check_unpremul.py 300
+```
+
+Rezultatas 2026-11-04: 38824 taškai (keturi konstantų rinkiniai), 0 skirtumų.

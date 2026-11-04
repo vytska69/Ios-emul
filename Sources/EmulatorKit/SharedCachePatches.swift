@@ -157,6 +157,15 @@ public enum SharedCachePatches {
                   reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_8370_C1F0, original: 0xA907_7BFD, replacement: 0xD65F_03C0,
                   reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): ret"),
+            // QuartzCore scanline's un-premultiplying loop (hypercall 13, patch 0078): its first three
+            // instructions become the hypercall and a branch past the loop
+            // (scripts/vgpu-check/check_unpremul.py).
+            Patch(address: 0x1_8370_621C, original: 0xB940_012C, replacement: 0xD280_01B0,
+                  reason: "QuartzCore scanline un-premultiply loop (virtual GPU hypercall): mov x16, #13"),
+            Patch(address: 0x1_8370_6220, original: 0x5318_7D8D, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore scanline un-premultiply loop (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_6224, original: 0x5310_5D8E, replacement: 0x1400_002F,
+                  reason: "QuartzCore scanline un-premultiply loop (virtual GPU hypercall): b past the loop"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
