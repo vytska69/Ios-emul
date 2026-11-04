@@ -1,0 +1,146 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 294a561..a040957 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -19,6 +19,8 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/main-loop.h"
++#include "qemu/timer.h"
++#include "qemu/processor.h"
+ #include "qemu/target-info.h"
+ #include "accel/tcg/cpu-ops.h"
+ #include "accel/tcg/iommu.h"
+@@ -358,6 +360,87 @@ void tlb_destroy(CPUState *cpu)
+  * where all queued work will be finished before execution starts
+  * again.
+  */
++/*
++ * QEMU_TLBI_ACK=1 (experimental): a synced flush (TLBI ... IS) without the
++ * exclusive section. The other CPUs already have their flush queued; behind
++ * it each gets an acknowledgement, the source flushes itself at once and
++ * waits (2 ms at most, and not while it has queued work of its own) until
++ * every other CPU has run its flush. async_safe_run_on_cpu stopped all of
++ * them instead, at every broadcast TLB invalidation of the guest.
++ */
++typedef struct TLBFlushAck {
++    int pending;
++    int refs;
++} TLBFlushAck;
++
++static void tlb_flush_ack_put(TLBFlushAck *ack)
++{
++    if (qatomic_fetch_dec(&ack->refs) == 1) {
++        g_free(ack);
++    }
++}
++
++static void tlb_flush_ack_work(CPUState *cpu, run_on_cpu_data d)
++{
++    TLBFlushAck *ack = d.host_ptr;
++
++    qatomic_dec(&ack->pending);
++    tlb_flush_ack_put(ack);
++}
++
++static bool tlb_flush_ack_enabled(void)
++{
++    static int enabled = -1;
++
++    if (enabled < 0) {
++        const char *v = getenv("QEMU_TLBI_ACK");
++        enabled = v && v[0] == '1';
++    }
++    return enabled;
++}
++
++/*
++ * The source's part of a synced flush, after the other CPUs' flushes were
++ * queued: @fn(src, @d) under the exclusive section, or (QEMU_TLBI_ACK=1)
++ * right away and then wait for the others.
++ */
++static void tlb_flush_synced_local(CPUState *src, run_on_cpu_func fn,
++                                   run_on_cpu_data d)
++{
++    CPUState *cpu;
++    TLBFlushAck *ack;
++    int others = 0;
++    int64_t deadline;
++
++    if (!tlb_flush_ack_enabled() || bql_locked() || current_cpu != src) {
++        async_safe_run_on_cpu(src, fn, d);
++        return;
++    }
++    CPU_FOREACH(cpu) {
++        if (cpu != src) {
++            others++;
++        }
++    }
++    ack = g_new(TLBFlushAck, 1);
++    ack->pending = others;
++    ack->refs = others + 1;
++    CPU_FOREACH(cpu) {
++        if (cpu != src) {
++            async_run_on_cpu(cpu, tlb_flush_ack_work, RUN_ON_CPU_HOST_PTR(ack));
++        }
++    }
++    fn(src, d);
++    deadline = get_clock() + 2 * SCALE_MS;
++    while (qatomic_read(&ack->pending) > 0) {
++        if (qatomic_read(&src->work_list.sqh_first) != NULL ||
++            get_clock() > deadline) {
++            break;
++        }
++        cpu_relax();
++    }
++    tlb_flush_ack_put(ack);
++}
++
+ static void flush_all_helper(CPUState *src, run_on_cpu_func fn,
+                              run_on_cpu_data d)
+ {
+@@ -504,7 +587,7 @@ void tlb_flush_lower_half_all_cpus_synced(CPUState *src_cpu, MMUIdxMap fullmap,
+         RUN_ON_CPU_HOST_ULONG(fullmap | ((uint64_t)halfmap << 32));
+ 
+     flush_all_helper(src_cpu, tlb_flush_lower_half_async_work, d);
+-    async_safe_run_on_cpu(src_cpu, tlb_flush_lower_half_async_work, d);
++    tlb_flush_synced_local(src_cpu, tlb_flush_lower_half_async_work, d);
+ }
+ 
+ void tlb_flush_by_mmuidx(CPUState *cpu, MMUIdxMap idxmap)
+@@ -528,7 +611,7 @@ void tlb_flush_by_mmuidx_all_cpus_synced(CPUState *src_cpu, MMUIdxMap idxmap)
+     tlb_debug("mmu_idx: 0x%"PRIx32"\n", idxmap);
+ 
+     flush_all_helper(src_cpu, fn, RUN_ON_CPU_HOST_INT(idxmap));
+-    async_safe_run_on_cpu(src_cpu, fn, RUN_ON_CPU_HOST_INT(idxmap));
++    tlb_flush_synced_local(src_cpu, fn, RUN_ON_CPU_HOST_INT(idxmap));
+ }
+ 
+ void tlb_flush_all_cpus_synced(CPUState *src_cpu)
+@@ -731,7 +814,7 @@ void tlb_flush_page_by_mmuidx_all_cpus_synced(CPUState *src_cpu,
+     if (idxmap < TARGET_PAGE_SIZE) {
+         flush_all_helper(src_cpu, tlb_flush_page_by_mmuidx_async_1,
+                          RUN_ON_CPU_TARGET_PTR(addr | idxmap));
+-        async_safe_run_on_cpu(src_cpu, tlb_flush_page_by_mmuidx_async_1,
++        tlb_flush_synced_local(src_cpu, tlb_flush_page_by_mmuidx_async_1,
+                               RUN_ON_CPU_TARGET_PTR(addr | idxmap));
+     } else {
+         CPUState *dst_cpu;
+@@ -751,7 +834,7 @@ void tlb_flush_page_by_mmuidx_all_cpus_synced(CPUState *src_cpu,
+         d = g_new(TLBFlushPageByMMUIdxData, 1);
+         d->addr = addr;
+         d->idxmap = idxmap;
+-        async_safe_run_on_cpu(src_cpu, tlb_flush_page_by_mmuidx_async_2,
++        tlb_flush_synced_local(src_cpu, tlb_flush_page_by_mmuidx_async_2,
+                               RUN_ON_CPU_HOST_PTR(d));
+     }
+ }
+@@ -940,7 +1023,7 @@ void tlb_flush_range_by_mmuidx_all_cpus_synced(CPUState *src_cpu,
+     }
+ 
+     p = g_memdup(&d, sizeof(d));
+-    async_safe_run_on_cpu(src_cpu, tlb_flush_range_by_mmuidx_async_1,
++    tlb_flush_synced_local(src_cpu, tlb_flush_range_by_mmuidx_async_1,
+                           RUN_ON_CPU_HOST_PTR(p));
+ }
+ 
