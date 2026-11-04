@@ -72,13 +72,23 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
   `AppleANS2NVMeController::start`. Priežastis dar nežinoma.
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
-- **Greitis.** Svečio mėginiai (tamsus režimas, po pagrindinio ekrano): ~71 % branduolyje, ~26 % –
-  vartotojo erdvėje; ~38 % visų mėginių – laukimas (`wfi`). Programinis piešimas
-  (`CA::OGL::SW*`) po hiperkvietimų ([virtual-gpu.md](virtual-gpu.md)) – ~0,1 %. Vartotojo erdvėje
-  daugiausia Mach sisteminių kvietimų. QEMU pusėje BQL laukimas sumažėjo nuo ~3900 iki ~1150
-  mėginių (patch'ai 0061–0065: laikrodžiai, IPI, ERET, užmaskuoti pertraukimai ir sinchroninės
-  išimtys be BQL). Likę BQL laukimai: `mttcg_cpu_thread_fn` po `cpu_exec` grįžimo ir laikmačių
-  registrų rašymas (`helper_set_cp_reg64`).
+- **Greitis.** Ramiai: ~71 % mėginių branduolyje, ~26 % vartotojo erdvėje, ~38 % – laukimas
+  (`wfi`). Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s, o be lietimo
+  ekranas perpiešiamas 16–25 kartus per sekundę. Tempiant piešimas užima didelę vartotojo erdvės dalį: be
+  hiperkvietimų dar lieka CoreAnimation rastrizatoriaus karkasas (`scanline`, `sample_texture`,
+  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0080):
+  - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
+    laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
+  - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
+    tiesiai (0069), šuolių podėlis nebeišvalomas kiekvieną kartą, kai TB invaliduojamas (0071);
+    kartu su `QEMU_STABLE_CHAIN_USER=1` (0070, bibliotekoms) – apie trečdaliu mažiau paieškų;
+  - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): pertraukimų priėmimas be BQL
+    (0067, `QEMU_IRQ_TAKE_NOBQL=1`), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
+    `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)
+    atšauktas – daugiau nepataikymų.
+
+  CI kompiuteriai (3 branduoliai, 4 emuliuoti procesoriai) labai triukšmingi: to paties paleidimo
+  įkrova svyruoja 400–650 s, todėl sprendžiama tik pagal A/B tame pačiame darbe.
 
 ## Kaip tiesioginis įdiegimas pasiekia userland
 
