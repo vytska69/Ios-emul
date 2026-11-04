@@ -19,8 +19,9 @@ index 6da7f4b..46bc101 100644
 +    static int enabled = -1;
 +
 +    if (enabled < 0) {
++        /* Off unless QEMU_MTTCG_FAST=1: no faster in an A/B boot. */
 +        const char *v = getenv("QEMU_MTTCG_FAST");
-+        enabled = !(v && v[0] == '0');
++        enabled = v && v[0] == '1';
 +    }
 +    return enabled;
 +}
@@ -40,8 +41,8 @@ index 6da7f4b..46bc101 100644
 +             * every vCPU contend for it each time a device or another vCPU
 +             * raised its interrupt. exit_request is cleared first, so a kick
 +             * (and the work queued before it) that comes later is seen by
-+             * the next tcg_cpu_exec or by the checks. QEMU_MTTCG_FAST=0
-+             * takes the BQL as before.
++             * the next tcg_cpu_exec or by the checks. Only with
++             * QEMU_MTTCG_FAST=1.
 +             */
 +            while (r == EXCP_INTERRUPT && mttcg_fast_reentry()) {
 +                qatomic_set(&cpu->exit_request, false);
