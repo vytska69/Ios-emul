@@ -1,0 +1,57 @@
+diff --git a/accel/tcg/tcg-accel-ops-mttcg.c b/accel/tcg/tcg-accel-ops-mttcg.c
+index 6da7f4b..46bc101 100644
+--- a/accel/tcg/tcg-accel-ops-mttcg.c
++++ b/accel/tcg/tcg-accel-ops-mttcg.c
+@@ -25,6 +25,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "system/tcg.h"
++#include "system/cpus.h"
+ #include "system/replay.h"
+ #include "exec/icount.h"
+ #include "qemu/main-loop.h"
+@@ -61,6 +62,17 @@ static void mttcg_force_rcu(Notifier *notify, void *data)
+  * current CPUState for a given thread.
+  */
+ 
++static bool mttcg_fast_reentry(void)
++{
++    static int enabled = -1;
++
++    if (enabled < 0) {
++        const char *v = getenv("QEMU_MTTCG_FAST");
++        enabled = !(v && v[0] == '0');
++    }
++    return enabled;
++}
++
+ static void *mttcg_cpu_thread_fn(void *arg)
+ {
+     MttcgForceRcuNotifier force_rcu;
+@@ -91,6 +103,26 @@ static void *mttcg_cpu_thread_fn(void *arg)
+             int r;
+             bql_unlock();
+             r = tcg_cpu_exec(cpu);
++            /*
++             * An exit only to look at interrupts (another thread kicked this
++             * vCPU: cpu_exit, EXCP_INTERRUPT) needs nothing that takes the
++             * BQL when the vCPU is not halted, not stopping and has no work
++             * queued: run again at once. Going through the BQL for it made
++             * every vCPU contend for it each time a device or another vCPU
++             * raised its interrupt. exit_request is cleared first, so a kick
++             * (and the work queued before it) that comes later is seen by
++             * the next tcg_cpu_exec or by the checks. QEMU_MTTCG_FAST=0
++             * takes the BQL as before.
++             */
++            while (r == EXCP_INTERRUPT && mttcg_fast_reentry()) {
++                qatomic_set(&cpu->exit_request, false);
++                qatomic_set_mb(&cpu->thread_kicked, false);
++                if (qatomic_read(&cpu->stop) || cpu->halted || cpu->unplug ||
++                    cpu_is_stopped(cpu) || !cpu_work_list_empty(cpu)) {
++                    break;
++                }
++                r = tcg_cpu_exec(cpu);
++            }
+             bql_lock();
+             switch (r) {
+             case EXCP_DEBUG:
