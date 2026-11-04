@@ -17,3 +17,4 @@ scripts/vgpu-check/out_c.bin
 scripts/vgpu-check/regs.bin
 scripts/vgpu-check/kpage.bin
 scripts/vgpu-check/t[0-9]
+__pycache__/
