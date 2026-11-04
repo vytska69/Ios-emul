@@ -1,0 +1,226 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 5186a23..c0c746b 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -2611,6 +2611,52 @@ static inline uint32_t vimage_blend_scalar(uint32_t t, uint32_t b)
+     return o;
+ }
+ 
++/*
++ * Host pointer for the pixels from guest address a: how many 4-byte pixels
++ * (at most n) lie in its page, or 0 when that page is not plain RAM (then the
++ * caller does one pixel through ca_ld32/ca_st32).
++ */
++static inline uint32_t *ca_span(CPUARMState *env, CaCache *c, uint64_t a,
++                                uint64_t n, MMUAccessType type, int mmu,
++                                uintptr_t ra, uint64_t *got)
++{
++    uint64_t room = (TARGET_PAGE_SIZE - (a & ~TARGET_PAGE_MASK)) / 4;
++    uint8_t *h = (a & 3) ? NULL : ca_cache_find(env, c, a, type, mmu, ra);
++
++    *got = h ? MIN(n, room) : 0;
++    return (uint32_t *)h;
++}
++
++/* One row of the vImage blend: pixels below vec with its NEON formula, the rest scalar. */
++static void ca_blend_row(CPUARMState *env, CaCache *tc, CaCache *bc, CaCache *dc,
++                         uint64_t top, uint64_t back, uint64_t dst, uint64_t width,
++                         uint64_t vec, int mmu, uintptr_t ra)
++{
++    uint64_t i = 0;
++
++    while (i < width) {
++        uint64_t nt, nb, nd;
++        uint32_t *ht = ca_span(env, tc, top + 4 * i, width - i, MMU_DATA_LOAD, mmu, ra, &nt);
++        uint32_t *hb = ca_span(env, bc, back + 4 * i, width - i, MMU_DATA_LOAD, mmu, ra, &nb);
++        uint32_t *hd = ca_span(env, dc, dst + 4 * i, width - i, MMU_DATA_STORE, mmu, ra, &nd);
++        uint64_t n = MIN(nt, MIN(nb, nd));
++
++        if (!n) {
++            uint32_t t = ca_ld32(env, tc, top + 4 * i, mmu, ra);
++            uint32_t b = ca_ld32(env, bc, back + 4 * i, mmu, ra);
++            ca_st32(env, dc, dst + 4 * i,
++                    i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b),
++                    mmu, ra);
++            i++;
++            continue;
++        }
++        for (uint64_t j = 0; j < n; j++, i++) {
++            uint32_t t = ldl_le_p(&ht[j]), b = ldl_le_p(&hb[j]);
++            stl_le_p(&hd[j], i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b));
++        }
++    }
++}
++
+ static void ios_hcall_vimage_alpha_blend(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+@@ -2630,13 +2676,7 @@ static void ios_hcall_vimage_alpha_blend(CPUARMState *env, uintptr_t ra)
+     ca_cache_init(&bc);
+     ca_cache_init(&dc);
+     for (uint64_t y = 0; y < height; y++) {
+-        for (uint64_t i = 0; i < width; i++) {
+-            uint32_t t = ca_ld32(env, &tc, top + 4 * i, mmu, ra);
+-            uint32_t b = ca_ld32(env, &bc, back + 4 * i, mmu, ra);
+-            ca_st32(env, &dc, dst + 4 * i,
+-                    i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b),
+-                    mmu, ra);
+-        }
++        ca_blend_row(env, &tc, &bc, &dc, top, back, dst, width, vec, mmu, ra);
+         top += top_rb;
+         back += back_rb;
+         dst += dst_rb;
+@@ -2661,13 +2701,7 @@ static void ios_hcall_ca_sover_blend(CPUARMState *env, uintptr_t ra)
+     ca_cache_init(&tc);
+     ca_cache_init(&bc);
+     ca_cache_init(&dc);
+-    for (uint64_t i = 0; i < count; i++) {
+-        uint32_t t = ca_ld32(env, &tc, top + 4 * i, mmu, ra);
+-        uint32_t b = ca_ld32(env, &bc, back + 4 * i, mmu, ra);
+-        ca_st32(env, &dc, dst + 4 * i,
+-                i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b),
+-                mmu, ra);
+-    }
++    ca_blend_row(env, &tc, &bc, &dc, top, back, dst, count, vec, mmu, ra);
+ }
+ 
+ /*
+@@ -2696,6 +2730,26 @@ static inline uint32_t ca_clamp255s(uint32_t v)
+     return x < 0 ? 0 : x > 255 ? 255 : (uint32_t)x;
+ }
+ 
++static inline uint32_t ca_unpremultiply_px(uint32_t p, float k, float eps)
++{
++    float a = (float)(p >> 24) * k;
++    float r = (float)((p >> 16) & 0xff) * k;
++    float g = (float)((p >> 8) & 0xff) * k;
++    float b = (float)(p & 0xff) * k;
++    float inv;
++
++    if (!(a >= eps)) {
++        a = eps;                /* fmaxnm(a, eps); a is never NaN */
++    }
++    inv = 1.0f / a;
++    r = r * 255.0f;
++    g = g * 255.0f;
++    b = b * 255.0f;
++    return 0xff000000u | ca_clamp255s(ca_fcvtzu32(inv * r)) << 16 |
++           ca_clamp255s(ca_fcvtzu32(inv * g)) << 8 |
++           ca_clamp255s(ca_fcvtzu32(inv * b));
++}
++
+ static void ios_hcall_ca_unpremultiply(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+@@ -2711,25 +2765,24 @@ static void ios_hcall_ca_unpremultiply(CPUARMState *env, uintptr_t ra)
+     memcpy(&eps, &eb, 4);
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+-    for (uint32_t i = 0; i < n; i++, px += 4) {
+-        uint32_t p = ca_ld32(env, &lc, px, mmu, ra);
+-        float a = (float)(p >> 24) * k;
+-        float r = (float)((p >> 16) & 0xff) * k;
+-        float g = (float)((p >> 8) & 0xff) * k;
+-        float b = (float)(p & 0xff) * k;
+-        float inv;
+-
+-        if (!(a >= eps)) {
+-            a = eps;            /* fmaxnm(a, eps); a is never NaN */
++    for (uint64_t left = n; left;) {
++        uint64_t nl, ns;
++        uint32_t *hl = ca_span(env, &lc, px, left, MMU_DATA_LOAD, mmu, ra, &nl);
++        uint32_t *hs = ca_span(env, &sc, px, left, MMU_DATA_STORE, mmu, ra, &ns);
++        uint64_t m = MIN(nl, ns);
++
++        if (!m) {
++            ca_st32(env, &sc, px, ca_unpremultiply_px(ca_ld32(env, &lc, px, mmu, ra), k, eps),
++                    mmu, ra);
++            px += 4;
++            left--;
++            continue;
++        }
++        for (uint64_t q = 0; q < m; q++) {
++            stl_le_p(&hs[q], ca_unpremultiply_px(ldl_le_p(&hl[q]), k, eps));
+         }
+-        inv = 1.0f / a;
+-        r = r * 255.0f;
+-        g = g * 255.0f;
+-        b = b * 255.0f;
+-        ca_st32(env, &sc, px, 0xff000000u |
+-                ca_clamp255s(ca_fcvtzu32(inv * r)) << 16 |
+-                ca_clamp255s(ca_fcvtzu32(inv * g)) << 8 |
+-                ca_clamp255s(ca_fcvtzu32(inv * b)), mmu, ra);
++        px += 4 * m;
++        left -= m;
+     }
+     x[9] = px;
+     x[11] = 0;
+@@ -2757,6 +2810,26 @@ static inline int32_t ca_fcvtzs32(float f)
+     return (int32_t)f;
+ }
+ 
++static inline uint32_t ca_luminance_px(uint32_t p, uint32_t amount,
++                                       const float *c, const float *w)
++{
++    float l = (float)((p >> 8) & 0xff) * w[0];
++    l = fmaf((float)((p >> 16) & 0xff), w[1], l);
++    l = fmaf((float)(p & 0xff), w[2], l);
++    float t = fmaf(c[0], l, c[1]);
++    t = fmaf(l, t, c[2]);
++    t = fmaf(l, t, c[3]);
++    int32_t g = ca_fcvtzs32(t * 255.0f);
++    g = g < 0 ? 0 : g > 255 ? 255 : g;
++    uint32_t g16 = (uint32_t)g | (uint32_t)g << 8;
++    uint32_t g3 = g16 | (uint32_t)g << 16;
++    uint32_t br = p & 0x00ff00ff, ga = (p >> 8) & 0x00ff00ff;
++    uint32_t tga = 0x00ff0000u | ((g16 >> 8) & 0xff);
++    uint32_t d1 = ((g3 & 0x00ff00ff) - br) * amount;
++    uint32_t d2 = (tga - ga) * amount;
++    return ((br + (d1 >> 8)) & 0x00ff00ff) | ((d2 + (ga << 8)) & 0xff00ff00u);
++}
++
+ static void ios_hcall_ca_luminance_curve(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+@@ -2777,24 +2850,23 @@ static void ios_hcall_ca_luminance_curve(CPUARMState *env, uintptr_t ra)
+     }
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+-    for (uint64_t i = 0; i < n; i++) {
+-        uint32_t p = ca_ld32(env, &lc, src + 4 * i, mmu, ra);
+-        float l = (float)((p >> 8) & 0xff) * w[0];
+-        l = fmaf((float)((p >> 16) & 0xff), w[1], l);
+-        l = fmaf((float)(p & 0xff), w[2], l);
+-        float t = fmaf(c[0], l, c[1]);
+-        t = fmaf(l, t, c[2]);
+-        t = fmaf(l, t, c[3]);
+-        int32_t g = ca_fcvtzs32(t * 255.0f);
+-        g = g < 0 ? 0 : g > 255 ? 255 : g;
+-        uint32_t g16 = (uint32_t)g | (uint32_t)g << 8;
+-        uint32_t g3 = g16 | (uint32_t)g << 16;
+-        uint32_t br = p & 0x00ff00ff, ga = (p >> 8) & 0x00ff00ff;
+-        uint32_t tga = 0x00ff0000u | ((g16 >> 8) & 0xff);
+-        uint32_t d1 = ((g3 & 0x00ff00ff) - br) * amount;
+-        uint32_t d2 = (tga - ga) * amount;
+-        ca_st32(env, &sc, dst + 4 * i, ((br + (d1 >> 8)) & 0x00ff00ff) |
+-                ((d2 + (ga << 8)) & 0xff00ff00u), mmu, ra);
++    for (uint64_t i = 0; i < n;) {
++        uint64_t nl, ns;
++        uint32_t *hl = ca_span(env, &lc, src + 4 * i, n - i, MMU_DATA_LOAD, mmu, ra, &nl);
++        uint32_t *hs = ca_span(env, &sc, dst + 4 * i, n - i, MMU_DATA_STORE, mmu, ra, &ns);
++        uint64_t m = MIN(nl, ns);
++
++        if (!m) {
++            ca_st32(env, &sc, dst + 4 * i,
++                    ca_luminance_px(ca_ld32(env, &lc, src + 4 * i, mmu, ra), amount, c, w),
++                    mmu, ra);
++            i++;
++            continue;
++        }
++        for (uint64_t q = 0; q < m; q++) {
++            stl_le_p(&hs[q], ca_luminance_px(ldl_le_p(&hl[q]), amount, c, w));
++        }
++        i += m;
+     }
+     x[13] = src + 4 * n;
+     x[12] = dst + 4 * n;
