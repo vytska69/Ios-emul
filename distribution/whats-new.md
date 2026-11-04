@@ -9,7 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-04
-- Virtual graphics chip: blending see-through layers over each other (iOS's image library, much used while you drag and scroll) now runs directly on your device, with the same pixels, and the drawing code's own see-through blending goes straight to it. Turning see-through pictures into solid ones, done for every pixel while you scroll, runs directly on your device too (on a new install).
+- Virtual graphics chip: blending see-through layers over each other (iOS's image library, much used while you drag and scroll) now runs directly on your device, with the same pixels, and the drawing code's own see-through blending goes straight to it. Turning see-through pictures into solid ones, done for every pixel while you scroll, runs directly on your device too, and so does the colour effect behind blurred panels such as Control Center (on a new install).
 - Faster when several parts of the system wait for each other: a processor of the emulated phone that waits for a lock another one holds now just lets that one run, instead of stopping every time to check in with the rest of the emulator.
 - Fewer restarts at boot: the emulated phone no longer sometimes crashes ("Kernel data abort") and starts over while its screen driver is still setting up, which happened in about one boot in ten (on a new install).
 - Faster system: when the emulated phone's system calls one of its own functions on another part of memory, the emulator now jumps straight to the code it prepared for it, instead of looking it up on every call.

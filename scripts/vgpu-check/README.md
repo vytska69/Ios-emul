@@ -69,3 +69,12 @@ python3 check_unpremul.py 300
 ```
 
 Rezultatas 2026-11-04: 38824 taškai (keturi konstantų rinkiniai), 0 skirtumų.
+
+`scanline` šviesumo kreivės ciklas (hypercall 14, `0079`):
+
+```
+cc -O2 -ffp-contract=off -shared -fPIC -o lum_ref.so lum_ref.c -lm
+python3 check_lum.py 400
+```
+
+Rezultatas 2026-11-04: 9279 taškai, atsitiktiniai koeficientai ir svoriai, 0 skirtumų.

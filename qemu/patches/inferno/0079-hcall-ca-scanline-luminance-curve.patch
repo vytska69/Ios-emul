@@ -1,0 +1,108 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 43f2ee4..5186a23 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1914,6 +1914,7 @@ enum {
+     IOS_HCALL_VIMAGE_ALPHA_BLEND = 11,
+     IOS_HCALL_CA_SOVER_BLEND = 12,
+     IOS_HCALL_CA_UNPREMULTIPLY = 13,
++    IOS_HCALL_CA_LUMINANCE_CURVE = 14,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2734,6 +2735,72 @@ static void ios_hcall_ca_unpremultiply(CPUARMState *env, uintptr_t ra)
+     x[11] = 0;
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::scanline, its loop at 0x183706fcc (patched
++ * to this hypercall, the hint at 0x183706fd0, and a branch past it): x10
++ * pixels from x13 to x12, each one's luminance (weights at 0x183876cf4, found
++ * from the hint's pc) through the cubic s0..s3 and the pixel moved towards
++ * that grey, alpha towards 255, by w11 / 256 in the code's integer lanes.
++ * Checked against the original in Unicorn (scripts/vgpu-check/check_lum.py).
++ */
++static inline int32_t ca_fcvtzs32(float f)
++{
++    if (f != f) {
++        return 0;
++    }
++    if (f >= 2147483648.0f) {
++        return INT32_MAX;
++    }
++    if (f <= -2147483648.0f) {
++        return INT32_MIN;
++    }
++    return (int32_t)f;
++}
++
++static void ios_hcall_ca_luminance_curve(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache lc, sc;
++    uint64_t src = x[13], dst = x[12], n = x[10];
++    uint32_t amount = (uint32_t)x[11];
++    uint64_t wa = env->pc + (0x183876cf4ull - 0x183706fd0ull);
++    float c[4], w[3];
++
++    for (int i = 0; i < 4; i++) {
++        uint32_t v = (uint32_t)env->vfp.zregs[i].d[0];
++        memcpy(&c[i], &v, 4);
++    }
++    for (int i = 0; i < 3; i++) {
++        uint32_t v = cpu_ldl_le_mmuidx_ra(env, wa + 4 * i, mmu, ra);
++        memcpy(&w[i], &v, 4);
++    }
++    ca_cache_init(&lc);
++    ca_cache_init(&sc);
++    for (uint64_t i = 0; i < n; i++) {
++        uint32_t p = ca_ld32(env, &lc, src + 4 * i, mmu, ra);
++        float l = (float)((p >> 8) & 0xff) * w[0];
++        l = fmaf((float)((p >> 16) & 0xff), w[1], l);
++        l = fmaf((float)(p & 0xff), w[2], l);
++        float t = fmaf(c[0], l, c[1]);
++        t = fmaf(l, t, c[2]);
++        t = fmaf(l, t, c[3]);
++        int32_t g = ca_fcvtzs32(t * 255.0f);
++        g = g < 0 ? 0 : g > 255 ? 255 : g;
++        uint32_t g16 = (uint32_t)g | (uint32_t)g << 8;
++        uint32_t g3 = g16 | (uint32_t)g << 16;
++        uint32_t br = p & 0x00ff00ff, ga = (p >> 8) & 0x00ff00ff;
++        uint32_t tga = 0x00ff0000u | ((g16 >> 8) & 0xff);
++        uint32_t d1 = ((g3 & 0x00ff00ff) - br) * amount;
++        uint32_t d2 = (tga - ga) * amount;
++        ca_st32(env, &sc, dst + 4 * i, ((br + (d1 >> 8)) & 0x00ff00ff) |
++                ((d2 + (ga << 8)) & 0xff00ff00u), mmu, ra);
++    }
++    x[13] = src + 4 * n;
++    x[12] = dst + 4 * n;
++    x[10] = 0;
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -2781,6 +2848,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_UNPREMULTIPLY:
+         ios_hcall_ca_unpremultiply(env, ra);
+         break;
++    case IOS_HCALL_CA_LUMINANCE_CURVE:
++        ios_hcall_ca_luminance_curve(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 51f070d..365ccec 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -1916,6 +1916,8 @@ static bool trans_NOP(DisasContext *s, arg_NOP *a)
+ 
+ static bool trans_IOS_HCALL(DisasContext *s, arg_IOS_HCALL *a)
+ {
++    /* env->pc is the hint itself: a hypercall finds code-relative data from it. */
++    gen_a64_update_pc(s, 0);
+     gen_helper_ios_hcall(tcg_env);
+     return true;
+ }
