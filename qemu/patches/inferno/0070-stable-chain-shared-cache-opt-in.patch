@@ -1,0 +1,26 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index 61f21ce..6776de7 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -367,6 +367,21 @@ static void t8030_load_kernelcache(AppleT8030MachineState *t8030,
+         }
+     }
+ 
++    /*
++     * QEMU_STABLE_CHAIN_USER=1 (experimental): the dyld shared cache too. iOS
++     * maps its one shared region (SHARED_REGION_BASE_ARM64, 4 GiB) at the
++     * same addresses and from the same pages in every process, and its text
++     * is never written.
++     */
++    if (tcg_enabled()) {
++        const char *v = getenv("QEMU_STABLE_CHAIN_USER");
++
++        if (v && v[0] == '1') {
++            tcg_add_stable_code_range(0x180000000ULL, 0x280000000ULL);
++            info_report("Stable code: shared region 0x180000000-0x280000000");
++        }
++    }
++
+     info_report("Kernel Virtual Base: 0x%016" VADDR_PRIx, g_virt_base);
+     info_report("Kernel Physical Base: 0x" HWADDR_FMT_plx, g_phys_base);
+     info_report("Kernel Virtual Slide: 0x%016" VADDR_PRIx, g_virt_slide);
