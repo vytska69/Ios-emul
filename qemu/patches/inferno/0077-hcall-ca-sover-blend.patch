@@ -1,0 +1,55 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index cd66416..cdca4e4 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1912,6 +1912,7 @@ enum {
+     IOS_HCALL_CA_DARKEN_BLEND = 9,
+     IOS_HCALL_CA_CLAMP_ARGB8 = 10,
+     IOS_HCALL_VIMAGE_ALPHA_BLEND = 11,
++    IOS_HCALL_CA_SOVER_BLEND = 12,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2641,6 +2642,32 @@ static void ios_hcall_vimage_alpha_blend(CPUARMState *env, uintptr_t ra)
+     x[0] = 0; /* kvImageNoError */
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::Blend::Mode<Sover, true>::blend(dst, back,
++ * top, count): one row through vImagePremultipliedAlphaBlend_BGRA8888 (top over
++ * back into dst, kvImageDoNotTile), so the same pixels as hypercall 11 for a
++ * row of count pixels, without vImage's per-call thread and QoS queries.
++ */
++static void ios_hcall_ca_sover_blend(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache tc, bc, dc;
++    uint64_t dst = x[0], back = x[1], top = x[2], count = x[3];
++    uint64_t vec = count >= 8 ? count & ~(uint64_t)7 : 0;
++
++    ca_cache_init(&tc);
++    ca_cache_init(&bc);
++    ca_cache_init(&dc);
++    for (uint64_t i = 0; i < count; i++) {
++        uint32_t t = ca_ld32(env, &tc, top + 4 * i, mmu, ra);
++        uint32_t b = ca_ld32(env, &bc, back + 4 * i, mmu, ra);
++        ca_st32(env, &dc, dst + 4 * i,
++                i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b),
++                mmu, ra);
++    }
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -2682,6 +2709,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_VIMAGE_ALPHA_BLEND:
+         ios_hcall_vimage_alpha_blend(env, ra);
+         break;
++    case IOS_HCALL_CA_SOVER_BLEND:
++        ios_hcall_ca_sover_blend(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

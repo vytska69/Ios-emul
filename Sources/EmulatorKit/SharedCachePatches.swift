@@ -149,6 +149,14 @@ public enum SharedCachePatches {
                   reason: "vImage vAlpha_Blend_Premultiplied_BGRA_8888 (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_9BAE_CFFC, original: 0xA901_6FFC, replacement: 0xD65F_03C0,
                   reason: "vImage vAlpha_Blend_Premultiplied_BGRA_8888 (virtual GPU hypercall): ret"),
+            // QuartzCore's source-over blend of one row (hypercall 12, patch 0077): a wrapper around
+            // the vImage blend above, run without vImage's per-call thread and QoS queries.
+            Patch(address: 0x1_8370_C1E8, original: 0xD503_237F, replacement: 0xD280_0190,
+                  reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): mov x16, #12"),
+            Patch(address: 0x1_8370_C1EC, original: 0xD102_03FF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_C1F0, original: 0xA907_7BFD, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
