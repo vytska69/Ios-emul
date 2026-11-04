@@ -49,3 +49,14 @@ Bilinijinis maišymas host NEON (`0062`) prieš skaliarinę versiją (paleisti A
 ```
 cc -O2 -o bilerp bilerp_neon_check.c && ./bilerp
 ```
+
+vImage `vAlpha_Blend_Premultiplied_BGRA_8888_CV_vec` (hypercall 11, `0076`): originalas Unicorn'e prieš
+`valpha_ref.c` (tą patį kodą kaip QEMU), atsitiktiniai pločiai (ir aplink 8 kartotinius), eilučių
+užpildai ir prisotinančios reikšmės:
+
+```
+cc -O2 -shared -fPIC -o valpha_ref.so valpha_ref.c
+python3 check_valpha.py 300
+```
+
+Rezultatas 2026-11-04: 300 atvejų, 10878 pikseliai, 0 skirtumų.

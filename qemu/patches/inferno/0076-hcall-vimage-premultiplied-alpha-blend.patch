@@ -1,0 +1,95 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 6e2690e..cd66416 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1911,6 +1911,7 @@ enum {
+     IOS_HCALL_CA_MULTIPLY_COLOR = 8,
+     IOS_HCALL_CA_DARKEN_BLEND = 9,
+     IOS_HCALL_CA_CLAMP_ARGB8 = 10,
++    IOS_HCALL_VIMAGE_ALPHA_BLEND = 11,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2574,6 +2575,72 @@ static void ios_hcall_ca_darken_blend(CPUARMState *env, uintptr_t ra)
+     }
+ }
+ 
++/*
++ * vImage (18A373) vAlpha_Blend_Premultiplied_BGRA_8888_CV_vec(top, back, dest):
++ * the row loop behind vImagePremultipliedAlphaBlend_BGRA8888, three
++ * vImage_Buffer (data, height, width, rowBytes), the size taken from dest. Per
++ * row its NEON loop does the first width & ~7 pixels as
++ * sat(t + b - round(b * ta / 255)) and its scalar loop the rest as
++ * round((t * 255 + b * (255 - ta)) / 255); both written from its code and
++ * checked against it (scripts/vgpu-check/check_valpha.py).
++ */
++static inline uint32_t vimage_blend_vec(uint32_t t, uint32_t b)
++{
++    uint32_t a = t >> 24, o = 0;
++
++    for (int c = 0; c < 32; c += 8) {
++        uint32_t bc = (b >> c) & 0xff, tc = (t >> c) & 0xff;
++        uint32_t m = (((bc * a + 0x80) & 0xffff) * 0x101) >> 16;
++        uint32_t d = tc + ((bc - m) & 0xff);
++        o |= (d > 255 ? 255 : d) << c;
++    }
++    return o;
++}
++
++static inline uint32_t vimage_blend_scalar(uint32_t t, uint32_t b)
++{
++    uint32_t ia = (t >> 24) ^ 0xff, o = 0;
++
++    for (int c = 0; c < 32; c += 8) {
++        uint32_t v = (ia * ((b >> c) & 0xff) + ((t >> c) & 0xff) * 255) * 257;
++        o |= (v > 0xff7f7f ? 255 : (v + 0x8080) >> 16) << c;
++    }
++    return o;
++}
++
++static void ios_hcall_vimage_alpha_blend(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache tc, bc, dc;
++    uint64_t top = cpu_ldq_le_mmuidx_ra(env, x[0], mmu, ra);
++    uint64_t top_rb = cpu_ldq_le_mmuidx_ra(env, x[0] + 0x18, mmu, ra);
++    uint64_t back = cpu_ldq_le_mmuidx_ra(env, x[1], mmu, ra);
++    uint64_t back_rb = cpu_ldq_le_mmuidx_ra(env, x[1] + 0x18, mmu, ra);
++    uint64_t dst = cpu_ldq_le_mmuidx_ra(env, x[2], mmu, ra);
++    uint64_t height = cpu_ldq_le_mmuidx_ra(env, x[2] + 8, mmu, ra);
++    uint64_t width = cpu_ldq_le_mmuidx_ra(env, x[2] + 0x10, mmu, ra);
++    uint64_t dst_rb = cpu_ldq_le_mmuidx_ra(env, x[2] + 0x18, mmu, ra);
++    uint64_t vec = width >= 8 ? width & ~(uint64_t)7 : 0;
++
++    ca_cache_init(&tc);
++    ca_cache_init(&bc);
++    ca_cache_init(&dc);
++    for (uint64_t y = 0; y < height; y++) {
++        for (uint64_t i = 0; i < width; i++) {
++            uint32_t t = ca_ld32(env, &tc, top + 4 * i, mmu, ra);
++            uint32_t b = ca_ld32(env, &bc, back + 4 * i, mmu, ra);
++            ca_st32(env, &dc, dst + 4 * i,
++                    i < vec ? vimage_blend_vec(t, b) : vimage_blend_scalar(t, b),
++                    mmu, ra);
++        }
++        top += top_rb;
++        back += back_rb;
++        dst += dst_rb;
++    }
++    x[0] = 0; /* kvImageNoError */
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -2612,6 +2679,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_CLAMP_ARGB8:
+         ios_hcall_ca_clamp_argb8(env, ra);
+         break;
++    case IOS_HCALL_VIMAGE_ALPHA_BLEND:
++        ios_hcall_vimage_alpha_blend(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

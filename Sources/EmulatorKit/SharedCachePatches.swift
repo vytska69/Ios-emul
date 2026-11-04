@@ -140,6 +140,15 @@ public enum SharedCachePatches {
                   reason: "QuartzCore image_sampler<ARGB8_Host, clamped affine> (virtual GPU): hint #127 (hypercall)"),
             Patch(address: 0x1_8372_101C, original: 0xF940_012E, replacement: 0xD65F_03C0,
                   reason: "QuartzCore image_sampler<ARGB8_Host, clamped affine> (virtual GPU): ret"),
+            // vImage's premultiplied BGRA alpha blend (hypercall 11, patch 0076): the row loop of
+            // vImagePremultipliedAlphaBlend_BGRA8888, checked against the original in Unicorn
+            // (scripts/vgpu-check/check_valpha.py).
+            Patch(address: 0x1_9BAE_CFF4, original: 0xD503_237F, replacement: 0xD280_0170,
+                  reason: "vImage vAlpha_Blend_Premultiplied_BGRA_8888 (virtual GPU hypercall): mov x16, #11"),
+            Patch(address: 0x1_9BAE_CFF8, original: 0xD101_C3FF, replacement: 0xD503_2FFF,
+                  reason: "vImage vAlpha_Blend_Premultiplied_BGRA_8888 (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_9BAE_CFFC, original: 0xA901_6FFC, replacement: 0xD65F_03C0,
+                  reason: "vImage vAlpha_Blend_Premultiplied_BGRA_8888 (virtual GPU hypercall): ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
@@ -238,7 +247,7 @@ public enum SharedCachePatches {
     public static func apply(build: String, container: APFSContainer, skipSetup: Bool = false,
                              hypercalls: Bool = true) throws -> [String] {
         let patches = ((byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : []))
-            .filter { hypercalls || !$0.reason.contains("hypercall") }
+            .filter { hypercalls || !($0.reason.contains("hypercall") || $0.reason.contains("virtual GPU")) }
         guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
         guard let system = volumes.first(where: { $0.role == 0x1 }) ?? volumes.first else { return [] }

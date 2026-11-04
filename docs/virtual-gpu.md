@@ -57,6 +57,7 @@ vykdomą kodą, vėliau į įrenginio GPU per Metal.
 | 8 | `tex_multiply_color` | 0x183708a8c | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
 | 9 | `Blend::Mode<DarkenSover, false>::blend` (su `DarkenSover::f`) | 0x18370c264 | 0053 | Unicorn, 50 atvejų, 0 skirtumų |
 | 10 | `image_sampler<ARGB8_Host, unsigned, 0,1,0,1>` (afininis, kraštai prispausti) | 0x183721014 | 0057 | Unicorn, 200 atvejų, 0 skirtumų |
+| 11 | vImage `vAlpha_Blend_Premultiplied_BGRA_8888_CV_vec` (iš anksto padaugintų BGRA vaizdų maišymas: NEON ciklas pirmiems `width & ~7` taškams, skaliarinis likusiems) | 0x19baecff4 | 0076 | Unicorn, 300 atvejų, 10878 taškai, 0 skirtumų |
 
 Puslapių talpykla (`0055`): hiperkvietimai adresą verčia kartą puslapiui, o ne kiekvienam pikseliui; jų laikas emuliuotų procesorių laike sumažėjo nuo ~2,8 % iki ~1,4 %.
 
