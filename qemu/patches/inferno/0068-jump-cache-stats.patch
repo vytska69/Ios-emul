@@ -1,0 +1,131 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 87f0de9..6461505 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -211,6 +211,55 @@ static TranslationBlock *tb_htable_lookup(CPUState *cpu, TCGTBCPUState s)
+  *
+  * Returns: an existing translation block or NULL.
+  */
++/*
++ * QEMU_JC_STATS=1: classifies each lookup before it is made and prints the
++ * counts of this CPU every 2^24 lookups: 0 lookups, 1 hit, 2 hit in the other
++ * way, 3 same pc but another address space or generation, 4 same pc and
++ * address space but other flags, 5 no entry for the pc, 6 kernel (upper half)
++ * lookups, 7 kernel misses, 8 from helper_lookup_tb_ptr, 9 full flushes,
++ * 10 user-half generations, 11 page clears.
++ */
++static void tb_jmp_cache_count(CPUState *cpu, CPUJumpCache *jc, uint32_t hash,
++                               TCGTBCPUState s)
++{
++    int cls = 5;
++
++    for (int w = 0; w < 2; w++) {
++        uint32_t h = w ? hash ^ 1 : hash;
++        TranslationBlock *tb = qatomic_read(&jc->array[h].tb);
++
++        if (!tb || jc->array[h].pc != s.pc) {
++            continue;
++        }
++        if (!tb_jmp_cache_gen_ok(jc, h, s.pc)) {
++            cls = MIN(cls, 3);
++            continue;
++        }
++        if (tb->cs_base != s.cs_base || tb->flags != s.flags ||
++            tb_cflags(tb) != s.cflags) {
++            cls = MIN(cls, 4);
++            continue;
++        }
++        cls = w ? 2 : 1;
++        break;
++    }
++    jc->stats[0]++;
++    jc->stats[cls]++;
++    if ((int64_t)s.pc < 0) {
++        jc->stats[6]++;
++        if (cls > 2) {
++            jc->stats[7]++;
++        }
++    }
++    if ((jc->stats[0] & ((1u << 24) - 1)) == 0) {
++        fprintf(stderr, "jc-stats cpu%d", cpu->cpu_index);
++        for (int i = 0; i < 12; i++) {
++            fprintf(stderr, " %" PRIu64, jc->stats[i]);
++        }
++        fprintf(stderr, "\n");
++    }
++}
++
+ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+ {
+     TranslationBlock *tb;
+@@ -223,6 +272,15 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     hash = tb_jmp_cache_hash_func(s.pc);
+     jc = cpu->tb_jmp_cache;
+ 
++    static int jc_stats = -1;
++    if (unlikely(jc_stats < 0)) {
++        const char *v = getenv("QEMU_JC_STATS");
++        jc_stats = v && v[0] == '1';
++    }
++    if (unlikely(jc_stats)) {
++        tb_jmp_cache_count(cpu, jc, hash, s);
++    }
++
+     tb = qatomic_read(&jc->array[hash].tb);
+     if (likely(tb &&
+                jc->array[hash].pc == s.pc &&
+@@ -398,6 +456,9 @@ const void *HELPER(lookup_tb_ptr)(CPUArchState *env)
+         cpu_loop_exit(cpu);
+     }
+ 
++    if (unlikely(cpu->tb_jmp_cache->stats[0])) {
++        cpu->tb_jmp_cache->stats[8]++;
++    }
+     tb = tb_lookup(cpu, s);
+     if (tb == NULL) {
+         return tcg_code_gen_epilogue;
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 42efe0d..b0ac412 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -152,6 +152,7 @@ static void tb_jmp_cache_clear_page(CPUState *cpu, vaddr page_addr)
+         return;
+     }
+ 
++    jc->stats[11]++;
+     i0 = tb_jmp_cache_hash_page(page_addr);
+     for (i = 0; i < TB_JMP_PAGE_SIZE; i++) {
+         qatomic_set(&jc->array[i0 + i].tb, NULL);
+@@ -466,6 +467,7 @@ void tlb_flush_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap)
+     tlb_flush_lower_half_tlb(cpu, fullmap, halfmap);
+     if (jc) {
+         jc->user_gen++;
++        jc->stats[10]++;
+     }
+ }
+ 
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index d9590f8..ef8ba8f 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -42,6 +42,8 @@ typedef struct CPUJumpCache {
+      * invalidation of the user half (TLBI ASIDE1 and the like) bumps user_gen.
+      */
+     uint64_t user_tag;
++    /* QEMU_JC_STATS=1: lookup counters, printed to stderr (see tb_lookup). */
++    uint64_t stats[12];
+     struct {
+         TranslationBlock *tb;
+         vaddr pc;
+diff --git a/accel/tcg/translate-all.c b/accel/tcg/translate-all.c
+index 18246ed..8bf2cc0 100644
+--- a/accel/tcg/translate-all.c
++++ b/accel/tcg/translate-all.c
+@@ -616,6 +616,7 @@ void tcg_flush_jmp_cache(CPUState *cpu)
+         return;
+     }
+ 
++    jc->stats[9]++;
+     for (int i = 0; i < TB_JMP_CACHE_SIZE; i++) {
+         qatomic_set(&jc->array[i].tb, NULL);
+     }
