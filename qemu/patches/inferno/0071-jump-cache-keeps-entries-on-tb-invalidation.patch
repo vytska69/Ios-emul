@@ -1,0 +1,122 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 6461505..35cd420 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -317,7 +317,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     jc->array[alt].tag = jc->array[hash].tag;
+     qatomic_set(&jc->array[alt].tb, qatomic_read(&jc->array[hash].tb));
+     jc->array[hash].pc = s.pc;
+-    jc->array[hash].gen = jc->user_gen;
++    jc->array[hash].gen = tb_jmp_cache_gen(jc, s.pc);
+     jc->array[hash].tag = jc->user_tag;
+     qatomic_set(&jc->array[hash].tb, tb);
+ 
+@@ -1037,7 +1037,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
+                 h = tb_jmp_cache_hash_func(s.pc);
+                 jc = cpu->tb_jmp_cache;
+                 jc->array[h].pc = s.pc;
+-                jc->array[h].gen = jc->user_gen;
++                jc->array[h].gen = tb_jmp_cache_gen(jc, s.pc);
+                 jc->array[h].tag = jc->user_tag;
+                 qatomic_set(&jc->array[h].tb, tb);
+             }
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index b0ac412..294a561 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -153,9 +153,15 @@ static void tb_jmp_cache_clear_page(CPUState *cpu, vaddr page_addr)
+     }
+ 
+     jc->stats[11]++;
++    /*
++     * Only the entries for this page: the other pages that share its slots
++     * keep theirs.
++     */
+     i0 = tb_jmp_cache_hash_page(page_addr);
+     for (i = 0; i < TB_JMP_PAGE_SIZE; i++) {
+-        qatomic_set(&jc->array[i0 + i].tb, NULL);
++        if (((jc->array[i0 + i].pc ^ page_addr) & TARGET_PAGE_MASK) == 0) {
++            qatomic_set(&jc->array[i0 + i].tb, NULL);
++        }
+     }
+ }
+ 
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index ef8ba8f..749def6 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -42,6 +42,12 @@ typedef struct CPUJumpCache {
+      * invalidation of the user half (TLBI ASIDE1 and the like) bumps user_gen.
+      */
+     uint64_t user_tag;
++    /*
++     * Entries for upper-half PCs are valid only while their gen equals
++     * all_gen: a full flush bumps all_gen and user_gen instead of clearing
++     * every entry.
++     */
++    uint64_t all_gen;
+     /* QEMU_JC_STATS=1: lookup counters, printed to stderr (see tb_lookup). */
+     uint64_t stats[12];
+     struct {
+@@ -55,8 +61,16 @@ typedef struct CPUJumpCache {
+ static inline bool tb_jmp_cache_gen_ok(CPUJumpCache *jc, uint32_t hash,
+                                        vaddr pc)
+ {
+-    return (int64_t)pc < 0 ||
+-           (jc->array[hash].gen == jc->user_gen && jc->array[hash].tag == jc->user_tag);
++    if ((int64_t)pc < 0) {
++        return jc->array[hash].gen == jc->all_gen;
++    }
++    return jc->array[hash].gen == jc->user_gen && jc->array[hash].tag == jc->user_tag;
++}
++
++/* The generation an entry for @pc is stored with. */
++static inline uint64_t tb_jmp_cache_gen(CPUJumpCache *jc, vaddr pc)
++{
++    return (int64_t)pc < 0 ? jc->all_gen : jc->user_gen;
+ }
+ 
+ #endif /* ACCEL_TCG_TB_JMP_CACHE_H */
+diff --git a/accel/tcg/tb-maint.c b/accel/tcg/tb-maint.c
+index 6676f9f..b403399 100644
+--- a/accel/tcg/tb-maint.c
++++ b/accel/tcg/tb-maint.c
+@@ -800,10 +800,16 @@ static void tb_jmp_cache_inval_tb(TranslationBlock *tb)
+     CPUState *cpu;
+ 
+     if (tb_cflags(tb) & CF_PCREL) {
+-        /* A TB may be at any virtual address */
+-        CPU_FOREACH(cpu) {
+-            tcg_flush_jmp_cache(cpu);
+-        }
++        /*
++         * A TB may be at any virtual address, so its entries cannot be found
++         * from its pc; this used to clear every CPU's whole jump cache on
++         * each invalidation (for an AArch64 guest, every TB invalidated
++         * when a page that held code is reused). It is not needed: the TB
++         * now has CF_INVALID in its cflags, and tb_lookup only takes an
++         * entry whose cflags equal the current ones, so a stale entry is a
++         * miss. The TB itself stays allocated until tb_flush, which flushes
++         * the jump caches as before.
++         */
+     } else {
+         uint32_t h = tb_jmp_cache_hash_func(tb->pc);
+ 
+diff --git a/accel/tcg/translate-all.c b/accel/tcg/translate-all.c
+index 8bf2cc0..85d9105 100644
+--- a/accel/tcg/translate-all.c
++++ b/accel/tcg/translate-all.c
+@@ -617,7 +617,10 @@ void tcg_flush_jmp_cache(CPUState *cpu)
+     }
+ 
+     jc->stats[9]++;
+-    for (int i = 0; i < TB_JMP_CACHE_SIZE; i++) {
+-        qatomic_set(&jc->array[i].tb, NULL);
+-    }
++    /*
++     * O(1): every entry was stored with the generation of its half, which
++     * no longer matches (see tb_jmp_cache_gen_ok).
++     */
++    qatomic_inc(&jc->all_gen);
++    qatomic_inc(&jc->user_gen);
+ }
