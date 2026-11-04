@@ -1,5 +1,5 @@
 diff --git a/accel/tcg/tcg-accel-ops-mttcg.c b/accel/tcg/tcg-accel-ops-mttcg.c
-index 6da7f4b..46bc101 100644
+index 6da7f4b..907c452 100644
 --- a/accel/tcg/tcg-accel-ops-mttcg.c
 +++ b/accel/tcg/tcg-accel-ops-mttcg.c
 @@ -25,6 +25,7 @@
@@ -10,7 +10,7 @@ index 6da7f4b..46bc101 100644
  #include "system/replay.h"
  #include "exec/icount.h"
  #include "qemu/main-loop.h"
-@@ -61,6 +62,17 @@ static void mttcg_force_rcu(Notifier *notify, void *data)
+@@ -61,6 +62,18 @@ static void mttcg_force_rcu(Notifier *notify, void *data)
   * current CPUState for a given thread.
   */
  
@@ -29,7 +29,7 @@ index 6da7f4b..46bc101 100644
  static void *mttcg_cpu_thread_fn(void *arg)
  {
      MttcgForceRcuNotifier force_rcu;
-@@ -91,6 +103,26 @@ static void *mttcg_cpu_thread_fn(void *arg)
+@@ -91,6 +104,26 @@ static void *mttcg_cpu_thread_fn(void *arg)
              int r;
              bql_unlock();
              r = tcg_cpu_exec(cpu);
