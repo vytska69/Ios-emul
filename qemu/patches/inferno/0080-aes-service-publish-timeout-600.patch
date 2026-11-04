@@ -1,0 +1,22 @@
+diff --git a/hw/arm/apple-silicon/t8030.c b/hw/arm/apple-silicon/t8030.c
+index 6776de7..f85b7e9 100644
+--- a/hw/arm/apple-silicon/t8030.c
++++ b/hw/arm/apple-silicon/t8030.c
+@@ -653,6 +653,17 @@ static void t8030_memory_setup(AppleT8030MachineState *t8030)
+ 
+     AppleDTNode *chosen = apple_dt_get_node(t8030->device_tree, "chosen");
+ 
++    /*
++     * The kernel panics ("cannot find IOAESAccelerator") when the AES driver
++     * has not published its service within /defaults aes-service-publish-timeout
++     * (60 s). Emulated on a slow or busy host, the boot sometimes takes longer
++     * than that to get there; wait up to 10 minutes.
++     */
++    AppleDTNode *defaults = apple_dt_get_node(t8030->device_tree, "defaults");
++    if (defaults != NULL) {
++        apple_dt_set_prop_u32(defaults, "aes-service-publish-timeout", 600);
++    }
++
+     if (env_find(nvram, "security-mode-change-enable") != NULL) {
+         uint32_t val = env_get_uint(nvram, "security-mode-change-enable", 0);
+         env_unset(nvram, "security-mode-change-enable");
