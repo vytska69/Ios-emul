@@ -1,0 +1,89 @@
+diff --git a/hw/arm/apple-silicon/a13_gxf.c b/hw/arm/apple-silicon/a13_gxf.c
+index d4fd70f..77f94b1 100644
+--- a/hw/arm/apple-silicon/a13_gxf.c
++++ b/hw/arm/apple-silicon/a13_gxf.c
+@@ -202,6 +202,7 @@ static const ARMCPRegInfo apple_a13_gxf_cp_override_reginfo[] = {
+         .raw_readfn = raw_read,
+         .raw_writefn = raw_write,
+         .fieldoffset = offsetof(CPUARMState, cp15.tpidr_el[1]),
++        .gxf_fieldoffset = offsetof(CPUARMState, gxf.tpidr_gl[1]),
+         .resetvalue = 0,
+     },
+     {
+@@ -235,6 +236,7 @@ static const ARMCPRegInfo apple_a13_gxf_cp_override_reginfo[] = {
+         .raw_readfn = raw_read,
+         .raw_writefn = raw_write,
+         .fieldoffset = offsetof(CPUARMState, banked_spsr[BANK_SVC]),
++        .gxf_fieldoffset = offsetof(CPUARMState, gxf.spsr_gl[1]),
+         .readfn = spsr_el1_read,
+         .writefn = spsr_el1_write,
+         .resetvalue = 0,
+@@ -252,6 +254,7 @@ static const ARMCPRegInfo apple_a13_gxf_cp_override_reginfo[] = {
+         .raw_readfn = raw_read,
+         .raw_writefn = raw_write,
+         .fieldoffset = offsetof(CPUARMState, elr_el[1]),
++        .gxf_fieldoffset = offsetof(CPUARMState, gxf.elr_gl[1]),
+         .readfn = elr_el1_read,
+         .writefn = elr_el1_write,
+         .resetvalue = 0,
+@@ -270,6 +273,7 @@ static const ARMCPRegInfo apple_a13_gxf_cp_override_reginfo[] = {
+         .raw_readfn = raw_read,
+         .raw_writefn = raw_write,
+         .fieldoffset = offsetof(CPUARMState, cp15.esr_el[1]),
++        .gxf_fieldoffset = offsetof(CPUARMState, gxf.esr_gl[1]),
+         .readfn = esr_el1_read,
+         .writefn = esr_el1_write,
+         .resetvalue = 0,
+@@ -288,6 +292,7 @@ static const ARMCPRegInfo apple_a13_gxf_cp_override_reginfo[] = {
+         .raw_readfn = raw_read,
+         .raw_writefn = raw_write,
+         .fieldoffset = offsetof(CPUARMState, cp15.far_el[1]),
++        .gxf_fieldoffset = offsetof(CPUARMState, gxf.far_gl[1]),
+         .readfn = far_el1_read,
+         .writefn = far_el1_write,
+         .resetvalue = 0,
+diff --git a/target/arm/cpregs.h b/target/arm/cpregs.h
+index 500c289..2095f44 100644
+--- a/target/arm/cpregs.h
++++ b/target/arm/cpregs.h
+@@ -916,6 +916,14 @@ struct ARMCPRegInfo {
+      */
+     ptrdiff_t fieldoffset; /* offsetof(CPUARMState, field) */
+ 
++    /*
++     * Apple GXF: when non-zero, the register is fieldoffset outside GXF
++     * and this field in it (the readfn/writefn only choose between the
++     * two), so translated code accesses the right one directly: whether
++     * the CPU is in GXF is part of the TB's mmu_idx.
++     */
++    ptrdiff_t gxf_fieldoffset;
++
+     /*
+      * Offsets of the secure and non-secure fields in CPUARMState for the
+      * register if it is banked.  These fields are only used during the static
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 819eeb1..5232432 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -2739,7 +2739,20 @@ static void handle_sys(DisasContext *s, bool isread,
+ 
+     tcg_rt = cpu_reg(s, rt);
+ 
+-    if (isread) {
++    static int gxf_direct = -1;
++    if (unlikely(gxf_direct < 0)) {
++        const char *v = getenv("QEMU_GXF_DIRECT");  /* 0: through the helpers */
++        gxf_direct = !v || v[0] != '0';
++    }
++    if (gxf_direct && ri->gxf_fieldoffset && !(ri->type & ARM_CP_IO)) {
++        ptrdiff_t off = arm_mmu_idx_is_guarded(s->mmu_idx) ?
++                        ri->gxf_fieldoffset : ri->fieldoffset;
++        if (isread) {
++            tcg_gen_ld_i64(tcg_rt, tcg_env, off);
++        } else {
++            tcg_gen_st_i64(tcg_rt, tcg_env, off);
++        }
++    } else if (isread) {
+         if (ri->type & ARM_CP_CONST) {
+             tcg_gen_movi_i64(tcg_rt, ri->resetvalue);
+         } else if (ri->readfn) {
