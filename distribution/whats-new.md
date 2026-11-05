@@ -8,9 +8,6 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
-## 2026-11-05
-- Virtual graphics chip: preparing each row of a picture for drawing, the step before its pixels are read, now runs directly on your device too, so pictures, icons and scrolling lists are drawn with much less work (on a new install).
-
 ## 2026-11-04
 - Fewer restarts at boot on a slow or busy device: the emulated phone no longer gives up ("cannot find IOAESAccelerator") when its encryption engine takes more than a minute to come up.
 - Virtual graphics chip: blending see-through layers over each other (iOS's image library, much used while you drag and scroll) now runs directly on your device, with the same pixels, and the drawing code's own see-through blending goes straight to it. Turning see-through pictures into solid ones, done for every pixel while you scroll, runs directly on your device too, and so does the colour effect behind blurred panels such as Control Center (on a new install). These run on whole runs of pixels at a time.
