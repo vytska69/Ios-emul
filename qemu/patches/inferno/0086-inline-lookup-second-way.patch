@@ -1,0 +1,84 @@
+diff --git a/accel/tcg/translator.c b/accel/tcg/translator.c
+index 9fe1fb5..4baeaf8 100644
+--- a/accel/tcg/translator.c
++++ b/accel/tcg/translator.c
+@@ -36,7 +36,7 @@ void translator_lookup_and_goto_ptr(DisasContextBase *db, CPUState *cpu,
+ 
+     if (unlikely(enabled < 0)) {
+         const char *v = getenv("QEMU_INLINE_LOOKUP");
+-        enabled = !v || v[0] != '0';
++        enabled = !v ? 1 : v[0] == '0' ? 0 : v[0] == '2' ? 2 : 1;
+     }
+ #if TCG_TARGET_REG_BITS == 64 && !HOST_BIG_ENDIAN
+     if (enabled && !(cflags & CF_NO_GOTO_PTR) && cflags == curr_cflags(cpu)) {
+@@ -80,31 +80,47 @@ void translator_lookup_and_goto_ptr(DisasContextBase *db, CPUState *cpu,
+         tcg_gen_trunc_i64_ptr(e, h);
+         tcg_gen_add_ptr(e, e, jc);
+ 
+-        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].pc));
+-        tcg_gen_brcond_i64(TCG_COND_NE, t, pc, miss);
+-        tcg_gen_ld_ptr(tb, e, offsetof(CPUJumpCache, array[0].tb));
+-        tcg_gen_brcondi_ptr(TCG_COND_EQ, tb, 0, miss);
+-
+         /* g = &jc->user_gen + 16 * (pc >> 63) */
+-        tcg_gen_shri_i64(h, pc, 63);
+-        tcg_gen_shli_i64(h, h, 4);
+-        tcg_gen_trunc_i64_ptr(g, h);
++        tcg_gen_shri_i64(t, pc, 63);
++        tcg_gen_shli_i64(t, t, 4);
++        tcg_gen_trunc_i64_ptr(g, t);
+         tcg_gen_add_ptr(g, g, jc);
+-        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].gen));
+-        tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_gen));
+-        tcg_gen_brcond_i64(TCG_COND_NE, t, u, miss);
+-        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].tag));
+-        tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_tag));
+-        tcg_gen_brcond_i64(TCG_COND_NE, t, u, miss);
+-
+-        tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, cs_base));
+-        tcg_gen_brcond_i64(TCG_COND_NE, t, cs_base, miss);
+-        tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, flags));
+-        tcg_gen_brcondi_i64(TCG_COND_NE, t,
+-                            flags | ((uint64_t)cflags << 32), miss);
+-
+-        tcg_gen_ld_ptr(tb, tb, offsetof(TranslationBlock, tc.ptr));
+-        tcg_gen_goto_ptr(tb);
++
++        /*
++         * Both ways, as tb_lookup() looks: the entry at the hash, then its
++         * neighbour (a quarter of all hits are in the second way).
++         */
++        int ways = enabled == 2 ? 1 : 2;  /* QEMU_INLINE_LOOKUP=2: first only */
++
++        for (int w = 0; w < ways; w++) {
++            TCGLabel *next = w == ways - 1 ? miss : gen_new_label();
++
++            if (w) {
++                tcg_gen_xori_i64(h, h, 32);
++                tcg_gen_trunc_i64_ptr(e, h);
++                tcg_gen_add_ptr(e, e, jc);
++            }
++            tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].pc));
++            tcg_gen_brcond_i64(TCG_COND_NE, t, pc, next);
++            tcg_gen_ld_ptr(tb, e, offsetof(CPUJumpCache, array[0].tb));
++            tcg_gen_brcondi_ptr(TCG_COND_EQ, tb, 0, next);
++            tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].gen));
++            tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_gen));
++            tcg_gen_brcond_i64(TCG_COND_NE, t, u, next);
++            tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].tag));
++            tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_tag));
++            tcg_gen_brcond_i64(TCG_COND_NE, t, u, next);
++            tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, cs_base));
++            tcg_gen_brcond_i64(TCG_COND_NE, t, cs_base, next);
++            tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, flags));
++            tcg_gen_brcondi_i64(TCG_COND_NE, t,
++                                flags | ((uint64_t)cflags << 32), next);
++            tcg_gen_ld_ptr(tb, tb, offsetof(TranslationBlock, tc.ptr));
++            tcg_gen_goto_ptr(tb);
++            if (next != miss) {
++                gen_set_label(next);
++            }
++        }
+ 
+         gen_set_label(miss);
+     }
