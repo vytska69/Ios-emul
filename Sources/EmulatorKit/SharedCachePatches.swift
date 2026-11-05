@@ -192,6 +192,19 @@ public enum SharedCachePatches {
     /// never activated and SetupDone in the preferences does not cover every reason iOS has to show
     /// Setup, so each check returns NO from its first instruction (mov w0, #0; ret, replacing
     /// pacibsp and the stack frame setup).
+    /// Patches still being tested, applied only with IOSEMUL_EXPERIMENTAL_PATCHES=1 (CI): QuartzCore
+    /// sample_texture as hypercall 15 (patch 0082), which left the screen black.
+    public static let experimentalByBuild: [String: [Patch]] = [
+        "18A373": [
+            Patch(address: 0x1_8370_7E14, original: 0xD503_237F, replacement: 0xD280_01F0,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): mov x16, #15"),
+            Patch(address: 0x1_8370_7E18, original: 0xD102_83FF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_7E1C, original: 0xA907_57F6, replacement: 0xB500_6710,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): cbnz x16, ret"),
+        ],
+    ]
+
     public static let skipSetupByBuild: [String: [Patch]] = [
         "18A373": [
             Patch(address: 0x1_945D_77A4, original: 0xD503_237F, replacement: 0x5280_0000,
@@ -272,7 +285,9 @@ public enum SharedCachePatches {
     /// are: only our TCG answers that hint, a real CPU (Hypervisor.framework) runs it as a NOP.
     public static func apply(build: String, container: APFSContainer, skipSetup: Bool = false,
                              hypercalls: Bool = true) throws -> [String] {
-        let patches = ((byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : []))
+        let experimental = ProcessInfo.processInfo.environment["IOSEMUL_EXPERIMENTAL_PATCHES"] == "1"
+        let patches = ((byBuild[build] ?? []) + (skipSetup ? skipSetupByBuild[build] ?? [] : [])
+                       + (experimental ? experimentalByBuild[build] ?? [] : []))
             .filter { hypercalls || !($0.reason.contains("hypercall") || $0.reason.contains("virtual GPU")) }
         guard !patches.isEmpty else { return [] }
         let volumes = try container.volumes()
