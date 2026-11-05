@@ -1,0 +1,21 @@
+diff --git a/target/arm/cpu64.c b/target/arm/cpu64.c
+index c390124..ad4039f 100644
+--- a/target/arm/cpu64.c
++++ b/target/arm/cpu64.c
+@@ -751,6 +751,16 @@ static void aarch64_apple_gxf_initfn(Object *obj)
+     aarch64_max_initfn(obj);
+     SET_IDREG(&cpu->isar, ID_AA64ISAR1, REG_FIELD_DP64(GET_IDREG(&cpu->isar, ID_AA64ISAR1), ID_AA64ISAR1, APA, PauthFeat_2));
+ 
++    /*
++     * No BTI: Apple's A12-A14 do not have it (ARMv8.3/8.4) and their iOS does
++     * not use it, but with it from "max" every indirect branch tracked BTYPE
++     * and many function entries called a helper that looks up the page's
++     * guarded bit. QEMU_APPLE_BTI=1 keeps it.
++     */
++    if (!getenv("QEMU_APPLE_BTI") || getenv("QEMU_APPLE_BTI")[0] != '1') {
++        FIELD_DP64_IDREG(&cpu->isar, ID_AA64PFR1, BT, 0);
++    }
++
+     if (tcg_enabled()) {
+         object_property_set_bool(obj, "pauth-noop", true, NULL);
+     }
