@@ -1,0 +1,273 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 35cd420..0fae72a 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -318,7 +318,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, TCGTBCPUState s)
+     qatomic_set(&jc->array[alt].tb, qatomic_read(&jc->array[hash].tb));
+     jc->array[hash].pc = s.pc;
+     jc->array[hash].gen = tb_jmp_cache_gen(jc, s.pc);
+-    jc->array[hash].tag = jc->user_tag;
++    jc->array[hash].tag = tb_jmp_cache_tag(jc, s.pc);
+     qatomic_set(&jc->array[hash].tb, tb);
+ 
+ hit:
+@@ -1038,7 +1038,7 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
+                 jc = cpu->tb_jmp_cache;
+                 jc->array[h].pc = s.pc;
+                 jc->array[h].gen = tb_jmp_cache_gen(jc, s.pc);
+-                jc->array[h].tag = jc->user_tag;
++                jc->array[h].tag = tb_jmp_cache_tag(jc, s.pc);
+                 qatomic_set(&jc->array[h].tb, tb);
+             }
+ 
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index 749def6..ba037f0 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -48,6 +48,13 @@ typedef struct CPUJumpCache {
+      * every entry.
+      */
+     uint64_t all_gen;
++    /*
++     * Always 0, the tag upper-half entries are stored with: {user_gen,
++     * user_tag} and {all_gen, kern_tag} are the (gen, tag) pair an entry
++     * must match, indexed by the pc's top bit, for the inline lookup that
++     * translator_lookup_and_goto_ptr() emits.
++     */
++    uint64_t kern_tag;
+     /* QEMU_JC_STATS=1: lookup counters, printed to stderr (see tb_lookup). */
+     uint64_t stats[12];
+     struct {
+@@ -67,6 +74,12 @@ static inline bool tb_jmp_cache_gen_ok(CPUJumpCache *jc, uint32_t hash,
+     return jc->array[hash].gen == jc->user_gen && jc->array[hash].tag == jc->user_tag;
+ }
+ 
++/* The tag an entry for @pc is stored with. */
++static inline uint64_t tb_jmp_cache_tag(CPUJumpCache *jc, vaddr pc)
++{
++    return (int64_t)pc < 0 ? jc->kern_tag : jc->user_tag;
++}
++
+ /* The generation an entry for @pc is stored with. */
+ static inline uint64_t tb_jmp_cache_gen(CPUJumpCache *jc, vaddr pc)
+ {
+diff --git a/accel/tcg/translator.c b/accel/tcg/translator.c
+index 60f87e5..90e0790 100644
+--- a/accel/tcg/translator.c
++++ b/accel/tcg/translator.c
+@@ -18,6 +18,7 @@
+ #include "tcg/tcg-op-common.h"
+ #include "internal-common.h"
+ #include "tb-internal.h"
++#include "tb-hash.h"
+ 
+ static void set_can_do_io(DisasContextBase *db, bool val)
+ {
+@@ -26,6 +27,91 @@ static void set_can_do_io(DisasContextBase *db, bool val)
+                     offsetof(CPUState, neg.can_do_io) - sizeof(CPUState));
+ }
+ 
++void translator_lookup_and_goto_ptr(DisasContextBase *db, CPUState *cpu,
++                                    TCGv_i64 pc, uint32_t flags,
++                                    TCGv_i64 cs_base)
++{
++    static int enabled = -1;
++    uint32_t cflags = tb_cflags(db->tb);
++
++    if (unlikely(enabled < 0)) {
++        const char *v = getenv("QEMU_INLINE_LOOKUP");
++        enabled = v && v[0] == '1';
++    }
++#if TCG_TARGET_REG_BITS == 64 && !HOST_BIG_ENDIAN
++    if (enabled && !(cflags & CF_NO_GOTO_PTR) && cflags == curr_cflags(cpu)) {
++        /*
++         * The hit path of tb_lookup() for the first way of the jump cache,
++         * which is where nearly every hit is: the entry's tb is not NULL,
++         * its pc is @pc, its (gen, tag) is {user_gen, user_tag} for a lower
++         * half pc or {all_gen, kern_tag} for an upper half one, and the
++         * TB's cs_base, flags and cflags are what tb_lookup() would compare
++         * them with (an invalidated TB has CF_INVALID in its cflags).
++         * Anything else goes to the helper, as before.
++         */
++        QEMU_BUILD_BUG_ON(offsetof(CPUJumpCache, user_tag) !=
++                          offsetof(CPUJumpCache, user_gen) + 8);
++        QEMU_BUILD_BUG_ON(offsetof(CPUJumpCache, all_gen) !=
++                          offsetof(CPUJumpCache, user_gen) + 16);
++        QEMU_BUILD_BUG_ON(offsetof(CPUJumpCache, kern_tag) !=
++                          offsetof(CPUJumpCache, user_gen) + 24);
++        QEMU_BUILD_BUG_ON(sizeof(((CPUJumpCache *)0)->array[0]) != 32);
++        QEMU_BUILD_BUG_ON(offsetof(TranslationBlock, cflags) !=
++                          offsetof(TranslationBlock, flags) + 4);
++        QEMU_BUILD_BUG_ON(sizeof(vaddr) != 8);
++
++        int sh = TARGET_PAGE_BITS - TB_JMP_PAGE_BITS;
++        TCGLabel *miss = gen_new_label();
++        TCGv_i64 h = tcg_temp_new_i64(), t = tcg_temp_new_i64();
++        TCGv_i64 u = tcg_temp_new_i64();
++        TCGv_ptr jc = tcg_temp_new_ptr(), e = tcg_temp_new_ptr();
++        TCGv_ptr g = tcg_temp_new_ptr(), tb = tcg_temp_new_ptr();
++
++        /* e = &jc->array[tb_jmp_cache_hash_func(pc)] */
++        tcg_gen_shri_i64(t, pc, sh);
++        tcg_gen_xor_i64(t, t, pc);
++        tcg_gen_shri_i64(h, t, sh);
++        tcg_gen_andi_i64(h, h, TB_JMP_PAGE_MASK);
++        tcg_gen_andi_i64(t, t, TB_JMP_ADDR_MASK);
++        tcg_gen_or_i64(h, h, t);
++        tcg_gen_shli_i64(h, h, 5);
++        tcg_gen_ld_ptr(jc, tcg_env,
++                       offsetof(CPUState, tb_jmp_cache) - sizeof(CPUState));
++        tcg_gen_trunc_i64_ptr(e, h);
++        tcg_gen_add_ptr(e, e, jc);
++
++        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].pc));
++        tcg_gen_brcond_i64(TCG_COND_NE, t, pc, miss);
++        tcg_gen_ld_ptr(tb, e, offsetof(CPUJumpCache, array[0].tb));
++        tcg_gen_brcondi_ptr(TCG_COND_EQ, tb, 0, miss);
++
++        /* g = &jc->user_gen + 16 * (pc >> 63) */
++        tcg_gen_shri_i64(h, pc, 63);
++        tcg_gen_shli_i64(h, h, 4);
++        tcg_gen_trunc_i64_ptr(g, h);
++        tcg_gen_add_ptr(g, g, jc);
++        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].gen));
++        tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_gen));
++        tcg_gen_brcond_i64(TCG_COND_NE, t, u, miss);
++        tcg_gen_ld_i64(t, e, offsetof(CPUJumpCache, array[0].tag));
++        tcg_gen_ld_i64(u, g, offsetof(CPUJumpCache, user_tag));
++        tcg_gen_brcond_i64(TCG_COND_NE, t, u, miss);
++
++        tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, cs_base));
++        tcg_gen_brcond_i64(TCG_COND_NE, t, cs_base, miss);
++        tcg_gen_ld_i64(t, tb, offsetof(TranslationBlock, flags));
++        tcg_gen_brcondi_i64(TCG_COND_NE, t,
++                            flags | ((uint64_t)cflags << 32), miss);
++
++        tcg_gen_ld_ptr(tb, tb, offsetof(TranslationBlock, tc.ptr));
++        tcg_gen_goto_ptr(tb);
++
++        gen_set_label(miss);
++    }
++#endif
++    tcg_gen_lookup_and_goto_ptr();
++}
++
+ bool translator_io_start(DisasContextBase *db)
+ {
+     /*
+diff --git a/include/exec/translator.h b/include/exec/translator.h
+index f3ccae6..0512611 100644
+--- a/include/exec/translator.h
++++ b/include/exec/translator.h
+@@ -21,6 +21,8 @@
+ #include "exec/memop.h"
+ #include "exec/vaddr.h"
+ 
++typedef struct TCGv_i64_d *TCGv_i64;
++
+ /**
+  * DisasJumpType:
+  * @DISAS_NEXT: Next instruction in program order.
+@@ -167,6 +169,26 @@ bool translator_use_goto_tb(DisasContextBase *db, vaddr dest);
+  */
+ bool translator_io_start(DisasContextBase *db);
+ 
++/**
++ * translator_lookup_and_goto_ptr
++ * @db: Disassembly context
++ * @cpu: The CPU being translated for
++ * @pc: The guest pc the TB jumps to (already stored where the target's
++ *      get_tb_cpu_state reads it)
++ * @flags: The flags get_tb_cpu_state will return there
++ * @cs_base: The cs_base get_tb_cpu_state will return there
++ *
++ * Like tcg_gen_lookup_and_goto_ptr(), with the jump cache's hit path
++ * emitted inline: when the cache's entry for @pc holds a valid TB for
++ * @flags, @cs_base and this TB's cflags, jump straight to it; otherwise
++ * call the lookup helper. Only for a jump that leaves the CPU state as the
++ * TB found it (no single step, the same cflags), as @flags and @cs_base
++ * must be exactly what the helper would compute.
++ */
++void translator_lookup_and_goto_ptr(DisasContextBase *db, CPUState *cpu,
++                                    TCGv_i64 pc, uint32_t flags,
++                                    TCGv_i64 cs_base);
++
+ /*
+  * Translator Load Functions
+  *
+diff --git a/include/tcg/tcg-op-common.h b/include/tcg/tcg-op-common.h
+index 98deae9..c9f077c 100644
+--- a/include/tcg/tcg-op-common.h
++++ b/include/tcg/tcg-op-common.h
+@@ -75,6 +75,9 @@ void tcg_gen_goto_tb(unsigned idx);
+  */
+ void tcg_gen_lookup_and_goto_ptr(void);
+ 
++/* Jump to the translated code at @ptr (a TB's tc.ptr, or the epilogue). */
++void tcg_gen_goto_ptr(TCGv_ptr ptr);
++
+ /* 32 bit ops */
+ 
+ void tcg_gen_movi_i32(TCGv_i32 ret, int32_t arg);
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 365ccec..819eeb1 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -10414,6 +10414,27 @@ static void aarch64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+     }
+ }
+ 
++/*
++ * The end of an indirect branch (BR, BLR, RET and their PAuth forms): the
++ * jump cache lookup inline. Such a branch leaves hflags as the TB found
++ * them, so the state at the target is this TB's flags with the BTYPE the
++ * branch has just stored in env (see arm_get_tb_cpu_state).
++ */
++static void gen_a64_lookup_and_goto_ptr(DisasContext *s, CPUState *cpu)
++{
++    TranslationBlock *tb = s->base.tb;
++    uint64_t cs_base = tb->cs_base;
++    TCGv_i64 cs = tcg_constant_i64(cs_base);
++
++    if (dc_isar_feature(aa64_bti, s)) {
++        cs = tcg_temp_new_i64();
++        tcg_gen_ld32u_i64(cs, tcg_env, offsetof(CPUARMState, btype));
++        tcg_gen_shli_i64(cs, cs, R_TBFLAG_A64_BTYPE_SHIFT);
++        tcg_gen_ori_i64(cs, cs, cs_base & ~(uint64_t)R_TBFLAG_A64_BTYPE_MASK);
++    }
++    translator_lookup_and_goto_ptr(&s->base, cpu, cpu_pc, tb->flags, cs);
++}
++
+ static void aarch64_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *dc = container_of(dcbase, DisasContext, base);
+@@ -10450,10 +10471,11 @@ static void aarch64_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
+             break;
+         case DISAS_UPDATE_NOCHAIN:
+             gen_a64_update_pc(dc, 4);
+-            /* fall through */
+-        case DISAS_JUMP:
+             tcg_gen_lookup_and_goto_ptr();
+             break;
++        case DISAS_JUMP:
++            gen_a64_lookup_and_goto_ptr(dc, cpu);
++            break;
+         case DISAS_NORETURN:
+         case DISAS_SWI:
+             break;
+diff --git a/tcg/tcg-op.c b/tcg/tcg-op.c
+index e9ac610..a054798 100644
+--- a/tcg/tcg-op.c
++++ b/tcg/tcg-op.c
+@@ -3233,6 +3233,11 @@ void tcg_gen_goto_tb(unsigned idx)
+     tcg_gen_op1i(INDEX_op_goto_tb, 0, idx);
+ }
+ 
++void tcg_gen_goto_ptr(TCGv_ptr ptr)
++{
++    tcg_gen_op1i(INDEX_op_goto_ptr, TCG_TYPE_PTR, tcgv_ptr_arg(ptr));
++}
++
+ void tcg_gen_lookup_and_goto_ptr(void)
+ {
+     TCGv_ptr ptr;
