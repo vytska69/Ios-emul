@@ -12,6 +12,7 @@ published with each build (scripts/make-sidestore-source.py).
 - Virtual graphics chip: preparing each row of a picture for drawing, the step before its pixels are read, now runs directly on your device too, so pictures, icons and lists are drawn with less work (on a new install).
 - Faster everywhere: the emulator now finds the next piece of already-translated code much more quickly each time iOS jumps to a function or returns from one, which took about a quarter of the emulator's time. In a test, about 40% less time went to this, leaving more for the phone itself.
 - Faster again: the emulated processor no longer does a safety check on function calls that the real iPhone 11 processor does not have, and the quick code lookup above now also covers the second place where code can be found.
+- A little faster: values the iOS kernel reads all the time (such as which task is running) are now read directly instead of through a slower detour.
 
 ## 2026-11-04
 - Fewer restarts at boot on a slow or busy device: the emulated phone no longer gives up ("cannot find IOAESAccelerator") when its encryption engine takes more than a minute to come up.
