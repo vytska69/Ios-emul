@@ -1,0 +1,45 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 1cafb7f..3b14c0b 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -2890,10 +2890,11 @@ static void ios_hcall_ca_luminance_curve(CPUARMState *env, uintptr_t ra)
+  * Written from its code and checked against it in Unicorn
+  * (scripts/vgpu-check/check_sample_texture.py). When the sampler is one this file runs
+  * natively (3, 4, 5, 7, 10) the whole call is done here and x16 = 1 (the patch then
+- * returns); otherwise the prologue the patch replaced (pacibsp; sub sp, sp, #0xa0;
+- * stp x22, x21, [sp, #0x70]) is done here, x16 = 0, and the function goes on.
++ * branches to the function's own epilogue); otherwise the three instructions the
++ * patch replaced after the prologue (mov x19, x2; mov x20, x0; ldrb w8, [fp, #0x10])
++ * are done here, x16 = 0, and the function goes on.
+  */
+-#define CA_ST_HINT 0x183707e18ull
++#define CA_ST_HINT 0x183707e30ull
+ #define CA_ST_K_D04 0x183876d04ull
+ 
+ static inline int32_t ca_fcvtzs16(float f)
+@@ -2917,7 +2918,8 @@ static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
+ {
+     uint64_t *x = env->xregs;
+     int mmu = arm_env_mmu_index(env);
+-    uint64_t sp = x[31], slide = env->pc - CA_ST_HINT, frame = sp - 0xa0;
++    /* After the prologue: sp is the frame, the stack arguments are above it. */
++    uint64_t frame = x[31], sp = frame + 0xa0, slide = env->pc - CA_ST_HINT;
+     uint64_t tex = x[1], ctx2, p, out, tab, fn, args[18] = { 0 };
+     uint32_t w2 = (uint32_t)x[2], w3in = (uint32_t)x[3], count, w11, w3;
+     uint8_t mode, b40, b41, fmt;
+@@ -3063,11 +3065,10 @@ static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
+         }
+     }
+     if (!run && affine < 0) {
+-        /* Not ours: the prologue, then the guest's own code (stores first). */
+-        cpu_stq_le_mmuidx_ra(env, frame + 0x70, x[22], mmu, ra);
+-        cpu_stq_le_mmuidx_ra(env, frame + 0x78, x[21], mmu, ra);
+-        x[30] = helper_pacib(env, x[30], sp);
+-        x[31] = frame;
++        /* Not ours: the three instructions the patch replaced, then the code goes on. */
++        x[8] = mode;
++        x[19] = x[2];
++        x[20] = x[0];
+         x[16] = 0;
+         return;
+     }
