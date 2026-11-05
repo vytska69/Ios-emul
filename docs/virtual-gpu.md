@@ -61,6 +61,7 @@ vykdomą kodą, vėliau į įrenginio GPU per Metal.
 | 12 | `Blend::Mode<Sover, true>::blend` (vienos eilutės „source over“, apvalkalas aplink 11-ąją, be vImage gijų ir QoS užklausų) | 0x18370c1e8 | 0077 | ta pati formulė kaip 11 (vienai eilutei) |
 | 13 | `scanline` ciklas, kuris iš anksto padaugintus taškus paverčia nepermatomais (spalva / alfa, `float`) | 0x18370621c (ciklo vidus) | 0078 | Unicorn, 38824 taškai, 0 skirtumų |
 | 14 | `scanline` ciklas: šviesumas per kubinę kreivę ir taško artinimas prie tos pilkos (spalvų sodrumo efektas už suliejimų) | 0x183706fcc (ciklo vidus) | 0079 | Unicorn, 9279 taškai, atsitiktiniai koeficientai, 0 skirtumų |
+| 15 | `sample_texture` (rastrizatoriaus eilutės paruošimas: `SamplerData`, samplerio parinkimas, „alfa pirma“ perstumdymas); natyvus sampleris (3, 4, 5, 7, 10) kviečiamas tiesiai, kitaip hiperkvietimas atlieka pakeistą prologą ir kodas tęsiasi | 0x183707e14 | 0082 | Unicorn iki samplerio kvietimo: 3000 atvejų, 0 skirtumų |
 
 Puslapių talpykla (`0055`): hiperkvietimai adresą verčia kartą puslapiui, o ne kiekvienam pikseliui; jų laikas emuliuotų procesorių laike sumažėjo nuo ~2,8 % iki ~1,4 %.
 

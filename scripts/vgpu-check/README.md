@@ -78,3 +78,14 @@ python3 check_lum.py 400
 ```
 
 Rezultatas 2026-11-04: 9279 taškai, atsitiktiniai koeficientai ir svoriai, 0 skirtumų.
+
+`sample_texture` paruošimas (hypercall 15, `0082`): originalas Unicorn'e iki samplerio kvietimo (lentelės
+įrašai – „stub'ai“), lyginama `SamplerData` steke, samplerio indeksas, argumentai ir išvestis po
+„alfa pirma“ perstumdymo:
+
+```
+cc -O2 -ffp-contract=off -shared -fPIC -o st_ref.so st_ref.c -lm
+python3 check_sample_texture.py 3000
+```
+
+Rezultatas 2026-11-05: 3000 atvejų, 0 skirtumų.

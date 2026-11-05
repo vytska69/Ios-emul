@@ -1,0 +1,330 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index c0c746b..44b8637 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1915,6 +1915,7 @@ enum {
+     IOS_HCALL_CA_SOVER_BLEND = 12,
+     IOS_HCALL_CA_UNPREMULTIPLY = 13,
+     IOS_HCALL_CA_LUMINANCE_CURVE = 14,
++    IOS_HCALL_CA_SAMPLE_TEXTURE = 15,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2031,6 +2032,14 @@ static void ios_hcall_memset(CPUARMState *env, uint64_t dst, int c,
+ #include <math.h>
+ 
+ #define CA_SAMPLER_ARGB8_ADDR 0x183720c2cull
++
++/*
++ * Arguments a sampler hypercall reads instead of x0..x17 when another
++ * hypercall (15, sample_texture) runs it: so that hypercall leaves the guest's
++ * registers as they were until it is done, and a page fault in between makes
++ * the guest run it again from the same state. Cleared at each hypercall.
++ */
++static __thread const uint64_t *ca_args;
+ #define CA_SAMPLER_ARGB8_K11 0x183876d3cull
+ #define CA_SAMPLER_ARGB8_K12 0x183876d38ull
+ 
+@@ -2176,7 +2185,7 @@ static inline void ca_st32(CPUARMState *env, CaCache *c, uint64_t a, uint32_t v,
+ 
+ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+ {
+-    uint64_t *x = env->xregs;
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
+     ca_cache_init(&lc);
+@@ -2296,7 +2305,7 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+  */
+ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrgb)
+ {
+-    uint64_t *x = env->xregs;
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
+     ca_cache_init(&lc);
+@@ -2434,7 +2443,7 @@ static void ios_hcall_ca_color_matrix(CPUARMState *env, uintptr_t ra)
+  */
+ static void ios_hcall_ca_nearest_argb8(CPUARMState *env, uintptr_t ra)
+ {
+-    uint64_t *x = env->xregs;
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
+     ca_cache_init(&lc);
+@@ -2511,7 +2520,7 @@ static inline uint32_t ca_darken_sover(uint32_t d, uint32_t s)
+  */
+ static void ios_hcall_ca_clamp_argb8(CPUARMState *env, uintptr_t ra)
+ {
+-    uint64_t *x = env->xregs;
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
+     ca_cache_init(&lc);
+@@ -2873,11 +2882,256 @@ static void ios_hcall_ca_luminance_curve(CPUARMState *env, uintptr_t ra)
+     x[10] = 0;
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::sample_texture(SWContext &, Texture const *, int,
++ * unsigned, Poly::Vertex const *, x5, x6, x7, uchar mode, unsigned count, unsigned *out),
++ * the per-span setup of the software rasterizer: the SamplerData it builds on its stack,
++ * the sampler it picks from the texture's table, and the alpha-first swizzle after.
++ * Written from its code and checked against it in Unicorn
++ * (scripts/vgpu-check/check_sample_texture.py). When the sampler is one this file runs
++ * natively (3, 4, 5, 7, 10) the whole call is done here and x16 = 1 (the patch then
++ * returns); otherwise the prologue the patch replaced (pacibsp; sub sp, sp, #0xa0;
++ * stp x22, x21, [sp, #0x70]) is done here, x16 = 0, and the function goes on.
++ */
++#define CA_ST_HINT 0x183707e18ull
++#define CA_ST_K_D04 0x183876d04ull
++
++static inline int32_t ca_fcvtzs16(float f)
++{
++    double d;
++
++    if (f != f) {
++        return 0;
++    }
++    d = (double)f * 65536.0;
++    if (d >= 2147483648.0) {
++        return INT32_MAX;
++    }
++    if (d <= -2147483649.0) {
++        return INT32_MIN;
++    }
++    return (int32_t)d;
++}
++
++static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
++{
++    uint64_t *x = env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    uint64_t sp = x[31], slide = env->pc - CA_ST_HINT, frame = sp - 0xa0;
++    uint64_t tex = x[1], ctx2, p, out, tab, fn, args[18] = { 0 };
++    uint32_t w2 = (uint32_t)x[2], w3in = (uint32_t)x[3], count, w11, w3;
++    uint8_t mode, b40, b41, fmt;
++    uint32_t t18, t1c;
++    int32_t t20, t24;
++    int64_t vi = (int64_t)(int32_t)(w2 << 1) * 4 + 0x20;
++    float s0 = 0.5f, s1, s2, s3, s4, s5, s6;
++    void (*run)(CPUARMState *, uintptr_t) = NULL;
++    int affine = -1;
++
++    mode = cpu_ldub_mmuidx_ra(env, sp, mmu, ra);
++    count = cpu_ldl_le_mmuidx_ra(env, sp + 4, mmu, ra);
++    out = cpu_ldq_le_mmuidx_ra(env, sp + 8, mmu, ra);
++    b40 = cpu_ldub_mmuidx_ra(env, tex + 0x40, mmu, ra);
++    b41 = cpu_ldub_mmuidx_ra(env, tex + 0x41, mmu, ra);
++    t18 = cpu_ldl_le_mmuidx_ra(env, tex + 0x18, mmu, ra);
++    t1c = cpu_ldl_le_mmuidx_ra(env, tex + 0x1c, mmu, ra);
++    w11 = b40;
++    if (b40 == b41) {
++        s1 = (float)t18;
++        s2 = (float)t1c;
++    } else {
++        if (!(w3in & 4)) {
++            s1 = ca_ldf(env, x[5] + vi, mmu, ra);
++            s2 = ca_ldf(env, x[5] + vi + 4, mmu, ra);
++            s3 = fabsf(s1);
++            s4 = fabsf(ca_ldf(env, x[6] + vi, mmu, ra));
++            s1 = ca_ldf(env, x[6] + vi + 4, mmu, ra);
++            s3 = s3 + s4;
++            s2 = fabsf(s2);
++        } else {
++            s1 = 1.0f / ca_ldf(env, x[4] + 0xc, mmu, ra);
++            s2 = ca_ldf(env, x[5] + vi, mmu, ra);
++            s4 = ca_ldf(env, x[5] + vi + 4, mmu, ra);
++            s2 = fabsf(s2 * s1);
++            s3 = fabsf(s1 * ca_ldf(env, x[6] + vi, mmu, ra));
++            s5 = ca_ldf(env, x[6] + vi + 4, mmu, ra);
++            s3 = s2 + s3;
++            s2 = fabsf(s1 * s4);
++            s1 = s1 * s5;
++        }
++        s1 = fabsf(s1);
++        s4 = s2 + s1;
++        s1 = (float)t18;
++        s2 = (float)t1c;
++        s4 = s4 * s2;
++        s3 = fmaf(s3, s1, s4);
++        s3 = s3 * s0;
++        w11 = s3 < ca_ldf(env, CA_ST_K_D04 + slide, mmu, ra) ? b41 : b40;
++    }
++    s3 = ca_ldf(env, x[4] + vi, mmu, ra) * s1;
++    s5 = ca_ldf(env, x[4] + vi + 4, mmu, ra);
++    s4 = ca_ldf(env, x[5] + vi, mmu, ra) * s1;
++    s6 = ca_ldf(env, x[5] + vi + 4, mmu, ra);
++    s1 = s5 * s2;
++    s2 = s6 * s2;
++    int32_t u = ca_fcvtzs16(s3), v = ca_fcvtzs16(s1);
++    int32_t du = ca_fcvtzs16(s4), dv = ca_fcvtzs16(s2);
++    w3 = ((t1c != 1) && !(s6 == 0.0f)) | w11;
++    if ((w3in & 4) || mode) {
++        w3 |= 6;
++    } else {
++        int bit2 = 0;
++        uint32_t n1 = count - 1;
++        int32_t e9 = (int32_t)(n1 * (uint32_t)du + (uint32_t)u);
++        int32_t e12 = (int32_t)(n1 * (uint32_t)dv + (uint32_t)v);
++        int32_t lo_u = du < 0 ? e9 : u, hi_u = du < 0 ? u : e9;
++        int32_t lo_v = dv < 0 ? e12 : v, hi_v = dv < 0 ? v : e12;
++
++        if (w11 & 8) {
++            lo_u = (int32_t)((uint32_t)lo_u - 0x8000);
++            hi_u = (int32_t)((uint32_t)hi_u + 0x8000);
++            lo_v = (int32_t)((uint32_t)lo_v - 0x8000);
++            hi_v = (int32_t)((uint32_t)hi_v + 0x8000);
++        }
++        if (lo_u < 0 || lo_v < 0) {
++            bit2 = 1;
++        } else {
++            t20 = (int32_t)cpu_ldl_le_mmuidx_ra(env, tex + 0x20, mmu, ra);
++            if (hi_u > t20) {
++                bit2 = 1;
++            } else {
++                t24 = (int32_t)cpu_ldl_le_mmuidx_ra(env, tex + 0x24, mmu, ra);
++                if (hi_v > t24 || (s3 >= 0.0f ? s3 : -s3) > 8192.0f ||
++                    (s1 >= 0.0f ? s1 : -s1) > 8192.0f) {
++                    bit2 = 1;
++                } else {
++                    float n = (float)n1;
++                    float t6 = fmaf(s4, n, s3), t3 = -fmaf(s4, n, s3);
++                    float u3 = fmaf(s2, n, s1), u1 = -fmaf(s2, n, s1);
++
++                    if ((!(t6 >= 0.0f) ? t3 : t6) > 8192.0f ||
++                        (!(u3 >= 0.0f) ? u1 : u3) > 8192.0f) {
++                        bit2 = 1;
++                    }
++                }
++            }
++        }
++        if (bit2) {
++            w3 |= 2;
++        }
++    }
++    ctx2 = cpu_ldq_le_mmuidx_ra(env, x[0] + 8, mmu, ra);
++    tab = cpu_ldq_le_mmuidx_ra(env, tex + 0x30, mmu, ra);
++    fn = helper_xpaci(env, cpu_ldq_le_mmuidx_ra(env, tab + 8ull * w3, mmu, ra)) - slide;
++    switch (fn) {
++    case CA_SAMPLER_ARGB8_ADDR:
++        run = ios_hcall_ca_image_sampler_argb8;
++        break;
++    case 0x1837200e4ull:
++        affine = 1;
++        break;
++    case 0x1837211acull:
++        affine = 0;
++        break;
++    case 0x183721590ull:
++        run = ios_hcall_ca_nearest_argb8;
++        break;
++    case 0x183721014ull:
++        run = ios_hcall_ca_clamp_argb8;
++        break;
++    }
++    if (!run && affine < 0) {
++        /* Not ours: the prologue, then the guest's own code (stores first). */
++        cpu_stq_le_mmuidx_ra(env, frame + 0x70, x[22], mmu, ra);
++        cpu_stq_le_mmuidx_ra(env, frame + 0x78, x[21], mmu, ra);
++        x[30] = helper_pacib(env, x[30], sp);
++        x[31] = frame;
++        x[16] = 0;
++        return;
++    }
++
++    /* The SamplerData, where the code puts it. */
++    cpu_stq_le_mmuidx_ra(env, frame + 0x0, tex, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0x8, w2, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0xc, w3in, mmu, ra);
++    cpu_stq_le_mmuidx_ra(env, frame + 0x10, x[4], mmu, ra);
++    cpu_stq_le_mmuidx_ra(env, frame + 0x18, x[5], mmu, ra);
++    cpu_stq_le_mmuidx_ra(env, frame + 0x20, x[6], mmu, ra);
++    cpu_stq_le_mmuidx_ra(env, frame + 0x28, x[7], mmu, ra);
++    cpu_stb_mmuidx_ra(env, frame + 0x30, mode, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0x34, (uint32_t)u, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0x38, (uint32_t)du, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0x3c, (uint32_t)v, mmu, ra);
++    cpu_stl_le_mmuidx_ra(env, frame + 0x40, (uint32_t)dv, mmu, ra);
++    if (mode == 5 || mode == 3) {
++        for (int i = 0; i < 16; i += 8) {
++            cpu_stq_le_mmuidx_ra(env, frame + 0x54 + i,
++                                 cpu_ldq_le_mmuidx_ra(env, ctx2 + 0x1d8 + i, mmu, ra),
++                                 mmu, ra);
++        }
++    }
++    p = cpu_ldq_le_mmuidx_ra(env, ctx2 + 0x1d0, mmu, ra);
++    if (p) {
++        uint32_t c;
++
++        cpu_stl_le_mmuidx_ra(env, frame + 0x44,
++                             cpu_ldub_mmuidx_ra(env, p + 4, mmu, ra) ? 0xbf800000u : 0x3f800000u,
++                             mmu, ra);
++        cpu_stl_le_mmuidx_ra(env, frame + 0x48, cpu_ldl_le_mmuidx_ra(env, p + 0x10, mmu, ra),
++                             mmu, ra);
++        c = cpu_ldl_le_mmuidx_ra(env, p, mmu, ra) - 1;
++        if (c == 0) {
++            cpu_stl_le_mmuidx_ra(env, frame + 0x4c, cpu_ldl_le_mmuidx_ra(env, p + 8, mmu, ra),
++                                 mmu, ra);
++        } else if (c <= 3) {
++            float v3 = c == 2 ? -1.0f : c == 3 ? 0.0f : -0.5f;
++            float v0 = c == 2 ? 0.0f : c == 3 ? 1.0f : 0.5f;
++            float p8 = ca_ldf(env, p + 8, mmu, ra), pc = ca_ldf(env, p + 0xc, mmu, ra);
++            float q1 = fmaf(v3, pc, p8), q0 = fmaf(v0, pc, p8);
++            float lo = q0 > q1 ? q1 : q0, hi = q0 > q1 ? q0 : q1;
++            uint32_t lw, hw;
++
++            memcpy(&lw, &lo, 4);
++            memcpy(&hw, &hi, 4);
++            cpu_stl_le_mmuidx_ra(env, frame + 0x4c, lw, mmu, ra);
++            cpu_stl_le_mmuidx_ra(env, frame + 0x50, hw, mmu, ra);
++        }
++    }
++
++    /* The sampler, natively, on these arguments rather than the guest's registers. */
++    args[0] = frame;
++    args[1] = count;
++    args[2] = out;
++    args[17] = CA_SAMPLER_ARGB8_ADDR + slide;
++    ca_args = args;
++    if (run) {
++        run(env, ra);
++    } else {
++        ios_hcall_ca_affine_sampler(env, ra, affine == 1);
++    }
++    ca_args = NULL;
++
++    fmt = cpu_ldub_mmuidx_ra(env, ctx2 + (uint64_t)w2 + 0x11, mmu, ra);
++    if (fmt == 0xf && count) {
++        CaCache lc, sc;
++
++        ca_cache_init(&lc);
++        ca_cache_init(&sc);
++        for (uint32_t i = 0; i < count; i++) {
++            uint32_t w = ca_ld32(env, &lc, out + 4ull * i, mmu, ra);
++            uint32_t e = (uint32_t)((((uint64_t)(w >> 24)) << 32 | w) >> 24);
++            ca_st32(env, &sc, out + 4ull * i, e | e << 16, mmu, ra);
++        }
++    }
++    x[16] = 1;
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+     uint64_t *x = env->xregs;
+ 
++    ca_args = NULL;
+     switch (x[16]) {
+     case IOS_HCALL_PING:
+         x[0] = 0x494f5347; /* 'IOSG' */
+@@ -2923,6 +3177,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_LUMINANCE_CURVE:
+         ios_hcall_ca_luminance_curve(env, ra);
+         break;
++    case IOS_HCALL_CA_SAMPLE_TEXTURE:
++        ios_hcall_ca_sample_texture(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

@@ -175,6 +175,17 @@ public enum SharedCachePatches {
                   reason: "QuartzCore scanline luminance curve loop (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_8370_6FD4, original: 0x5310_5DD0, replacement: 0x1400_002C,
                   reason: "QuartzCore scanline luminance curve loop (virtual GPU hypercall): b past the loop"),
+            // QuartzCore sample_texture, the software rasterizer's per-span setup (hypercall 15, patch
+            // 0082): with a sampler the emulator runs natively the whole call is done there and
+            // `cbnz x16` returns (through a `ret` of tex_multiply_color); otherwise the hypercall does
+            // the three prologue instructions it replaces and the code goes on
+            // (scripts/vgpu-check/check_sample_texture.py).
+            Patch(address: 0x1_8370_7E14, original: 0xD503_237F, replacement: 0xD280_01F0,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): mov x16, #15"),
+            Patch(address: 0x1_8370_7E18, original: 0xD102_83FF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_7E1C, original: 0xA907_57F6, replacement: 0xB500_6710,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): cbnz x16, ret"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
