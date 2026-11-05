@@ -175,6 +175,17 @@ public enum SharedCachePatches {
                   reason: "QuartzCore scanline luminance curve loop (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_8370_6FD4, original: 0x5310_5DD0, replacement: 0x1400_002C,
                   reason: "QuartzCore scanline luminance curve loop (virtual GPU hypercall): b past the loop"),
+            // QuartzCore sample_texture, the software rasterizer's per-span setup (hypercall 15, patches
+            // 0082 and 0084, scripts/vgpu-check/check_sample_texture.py). Right after its prologue:
+            // with a sampler the emulator runs natively the hypercall does the whole call and the
+            // function returns through its own epilogue; otherwise the hypercall does the three
+            // instructions it replaces and the code goes on.
+            Patch(address: 0x1_8370_7E2C, original: 0xAA02_03F3, replacement: 0xD280_01F0,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): mov x16, #15"),
+            Patch(address: 0x1_8370_7E30, original: 0xAA00_03F4, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_7E34, original: 0x3940_43A8, replacement: 0xB500_1AF0,
+                  reason: "QuartzCore sample_texture (virtual GPU hypercall): cbnz x16, epilogue"),
             // The emulated phone has no passcode, but the simulated SEP's keystore reports a lock
             // state other than "disabled" (3), so SpringBoard thinks one is set and asks for it after
             // the swipe up. Report "disabled" from the lock state calls SpringBoard and the system
@@ -192,20 +203,8 @@ public enum SharedCachePatches {
     /// never activated and SetupDone in the preferences does not cover every reason iOS has to show
     /// Setup, so each check returns NO from its first instruction (mov w0, #0; ret, replacing
     /// pacibsp and the stack frame setup).
-    /// Patches still being tested, applied only with IOSEMUL_EXPERIMENTAL_PATCHES=1 (CI): QuartzCore
-    /// sample_texture as hypercall 15 (patches 0082, 0084); its first version left the screen black.
-    public static let experimentalByBuild: [String: [Patch]] = [
-        "18A373": [
-            // After the prologue: the hypercall does the work and branches to the epilogue, or
-            // does the three instructions it replaces (patch 0084).
-            Patch(address: 0x1_8370_7E2C, original: 0xAA02_03F3, replacement: 0xD280_01F0,
-                  reason: "QuartzCore sample_texture (virtual GPU hypercall): mov x16, #15"),
-            Patch(address: 0x1_8370_7E30, original: 0xAA00_03F4, replacement: 0xD503_2FFF,
-                  reason: "QuartzCore sample_texture (virtual GPU hypercall): hint #127"),
-            Patch(address: 0x1_8370_7E34, original: 0x3940_43A8, replacement: 0xB500_1AF0,
-                  reason: "QuartzCore sample_texture (virtual GPU hypercall): cbnz x16, epilogue"),
-        ],
-    ]
+    /// Patches still being tested, applied only with IOSEMUL_EXPERIMENTAL_PATCHES=1 (CI).
+    public static let experimentalByBuild: [String: [Patch]] = [:]
 
     public static let skipSetupByBuild: [String: [Patch]] = [
         "18A373": [
