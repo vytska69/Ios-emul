@@ -76,7 +76,7 @@ index 60f87e5..90e0790 100644
 +
 +    if (unlikely(enabled < 0)) {
 +        const char *v = getenv("QEMU_INLINE_LOOKUP");
-+        enabled = v && v[0] == '1';
++        enabled = !v || v[0] != '0';
 +    }
 +#if TCG_TARGET_REG_BITS == 64 && !HOST_BIG_ENDIAN
 +    if (enabled && !(cflags & CF_NO_GOTO_PTR) && cflags == curr_cflags(cpu)) {

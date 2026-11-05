@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-11-05
 - Virtual graphics chip: preparing each row of a picture for drawing, the step before its pixels are read, now runs directly on your device too, so pictures, icons and lists are drawn with less work (on a new install).
+- Faster everywhere: the emulator now finds the next piece of already-translated code much more quickly each time iOS jumps to a function or returns from one, which took about a quarter of the emulator's time. In a test, about 40% less time went to this, leaving more for the phone itself.
 
 ## 2026-11-04
 - Fewer restarts at boot on a slow or busy device: the emulated phone no longer gives up ("cannot find IOAESAccelerator") when its encryption engine takes more than a minute to come up.
