@@ -1,0 +1,112 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 1c25b3b..89779b2 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -330,6 +330,34 @@ typedef struct ASIDTLB {
+ 
+ static ASIDTLB *asid_tlbs[ASID_TLB_MAX_CPUS];
+ 
++/*
++ * QEMU_ASID_TLB_STATS=1: per CPU, printed to stderr every 65536 switches:
++ * switches, same tag, kept TLB back, saved, full drops, slots dropped by a
++ * range flush, fills of the user mmu_idx (with or without QEMU_ASID_TLB).
++ */
++static uint64_t asid_stats[ASID_TLB_MAX_CPUS][8];
++static int asid_user_midx = -1;
++static int asid_stats_on = -1;
++
++static inline void asid_stat(CPUState *cpu, int i)
++{
++    if (unlikely(asid_stats_on < 0)) {
++        const char *v = getenv("QEMU_ASID_TLB_STATS");
++        asid_stats_on = v && v[0] == '1';
++    }
++    if (unlikely(asid_stats_on) && cpu->cpu_index < ASID_TLB_MAX_CPUS) {
++        uint64_t *st = asid_stats[cpu->cpu_index];
++        st[i]++;
++        if (i == 0 && (st[0] & 0xffff) == 0) {
++            fprintf(stderr, "asid-tlb cpu%d", cpu->cpu_index);
++            for (int k = 0; k < 7; k++) {
++                fprintf(stderr, " %" PRIu64, st[k]);
++            }
++            fprintf(stderr, "\n");
++        }
++    }
++}
++
+ static bool asid_tlb_enabled(void)
+ {
+     static int on = -1;
+@@ -362,11 +390,16 @@ static void asid_tlb_drop(CPUState *cpu, int midx)
+     ASIDTLB *a = asid_tlb_of(cpu, midx);
+ 
+     if (a) {
++        bool any = false;
+         for (int i = 0; i < ASID_TLB_SLOTS; i++) {
+             if (a->slot[i].valid) {
+                 asid_tlb_slot_free(&a->slot[i]);
++                any = true;
+             }
+         }
++        if (any) {
++            asid_stat(cpu, 4);
++        }
+     }
+ }
+ 
+@@ -699,6 +732,7 @@ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+         a->midx = midx;
+     }
+     if (a->cur_known && a->cur_tag == tag) {
++        asid_stat(cpu, 1);
+         return;
+     }
+     for (int i = 0; i < ASID_TLB_SLOTS; i++) {
+@@ -726,6 +760,7 @@ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+         }
+         size_t n = tlb_n_entries(f);
+         asid_tlb_save(keep, d, f, a->cur_tag, ++a->clock);
++        asid_stat(cpu, 3);
+         if (back) {
+             asid_tlb_restore(back, d, f);
+         } else {
+@@ -740,6 +775,9 @@ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+     } else {
+         tlb_mmu_flush_locked(d, f);
+     }
++    if (back) {
++        asid_stat(cpu, 2);
++    }
+     a->cur_known = true;
+     a->cur_tag = tag;
+     cpu->neg.tlb.c.dirty |= 1 << midx;
+@@ -750,6 +788,10 @@ void tlb_switch_lower_half(CPUState *cpu, MMUIdxMap fullmap, MMUIdxMap halfmap,
+ {
+     CPUJumpCache *jc = cpu->tb_jmp_cache;
+ 
++    asid_stat(cpu, 0);
++    if (ctpop32(fullmap) == 1) {
++        asid_user_midx = ctz32(fullmap);
++    }
+     if (asid_tlb_enabled() && ctpop32(fullmap) == 1 &&
+         cpu->cpu_index < ASID_TLB_MAX_CPUS &&
+         (!asid_tlbs[cpu->cpu_index] ||
+@@ -898,6 +940,7 @@ static void asid_tlb_flush_range(CPUState *cpu, int midx, vaddr addr,
+             ((addr + len - 1) & s->large_page_mask) == s->large_page_addr ||
+             (addr & s->large_page_mask) == s->large_page_addr) {
+             asid_tlb_slot_free(s);
++            asid_stat(cpu, 5);
+             continue;
+         }
+         for (vaddr o = 0; o < len; o += TARGET_PAGE_SIZE) {
+@@ -1463,6 +1506,10 @@ void tlb_set_page_full(CPUState *cpu, int mmu_idx,
+     CPUTLBDesc *desc = &tlb->d[mmu_idx];
+     MemoryRegionSection *section;
+     unsigned int index, read_flags, write_flags;
++
++    if (unlikely(asid_stats_on > 0) && mmu_idx == asid_user_midx) {
++        asid_stat(cpu, 6);
++    }
+     uintptr_t addend;
+     CPUTLBEntry *te, tn;
+     hwaddr iotlb, xlat, sz, paddr_page;
