@@ -1,0 +1,171 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 8402a83..e6096c7 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -347,15 +347,31 @@ typedef struct ASIDTLBSlot {
+     vaddr large_page_addr;
+     vaddr large_page_mask;
+     size_t vindex;
++    uint64_t dirty_gen;     /* ASIDTLB.dirty_gen when it was put aside */
+     CPUTLBEntry vtable[CPU_VTLB_SIZE];
+     CPUTLBEntryFull vfulltlb[CPU_VTLB_SIZE];
+ } ASIDTLBSlot;
+ 
++/*
++ * tlb_reset_dirty on the kept TLBs is deferred: every display refresh
++ * calls it for the framebuffer, and walking eight kept TLBs per CPU each
++ * time was most of its cost. The ranges are logged (one entry per distinct
++ * range, with the generation of its latest reset) and applied to a kept TLB
++ * when it comes back; one whose resets fell out of the log is dropped.
++ */
++#define ASID_TLB_DIRTY_LOG 8
++
+ typedef struct ASIDTLB {
+     int midx;
+     bool cur_known;
+     uint64_t cur_tag;
+     uint64_t clock;
++    uint64_t dirty_gen;
++    uint64_t dirty_lost;    /* newest generation evicted from the log */
++    struct {
++        uintptr_t start, length;
++        uint64_t gen;
++    } dirty_log[ASID_TLB_DIRTY_LOG];
+     ASIDTLBSlot slot[ASID_TLB_SLOTS];
+ } ASIDTLB;
+ 
+@@ -728,6 +744,7 @@ static void asid_tlb_save(ASIDTLBSlot *s, CPUTLBDesc *d, CPUTLBDescFast *f,
+     s->large_page_addr = d->large_page_addr;
+     s->large_page_mask = d->large_page_mask;
+     s->vindex = d->vindex;
++    s->dirty_gen = 0;
+     memcpy(s->vtable, d->vtable, sizeof(s->vtable));
+     memcpy(s->vfulltlb, d->vfulltlb, sizeof(s->vfulltlb));
+ }
+@@ -748,6 +765,84 @@ static void asid_tlb_restore(ASIDTLBSlot *s, CPUTLBDesc *d, CPUTLBDescFast *f)
+     s->valid = false;
+ }
+ 
++static void tlb_reset_dirty_range_locked(CPUTLBEntryFull *full, CPUTLBEntry *ent,
++                                         uintptr_t start, uintptr_t length);
++
++static void asid_tlb_reset_dirty_slot(ASIDTLBSlot *s, uintptr_t start,
++                                      uintptr_t length)
++{
++    size_t n = (s->mask >> CPU_TLB_ENTRY_BITS) + 1;
++
++    for (size_t i = 0; i < n; i++) {
++        tlb_reset_dirty_range_locked(&s->fulltlb[i], &s->table[i],
++                                     start, length);
++    }
++    for (int i = 0; i < CPU_VTLB_SIZE; i++) {
++        tlb_reset_dirty_range_locked(&s->vfulltlb[i], &s->vtable[i],
++                                     start, length);
++    }
++}
++
++/*
++ * A tlb_reset_dirty for the kept TLBs (see ASIDTLB): a large range (the
++ * framebuffer, every display refresh) is logged, a small one (a page that
++ * gets translated code) or one the full log has no room for is applied now.
++ */
++static void asid_tlb_log_dirty(ASIDTLB *a, uintptr_t start, uintptr_t length)
++{
++    int i, free_i = -1;
++    bool any = false;
++
++    for (i = 0; i < ASID_TLB_SLOTS; i++) {
++        any |= a->slot[i].valid;
++    }
++    if (!any) {
++        return;
++    }
++    if (length >= 64 * 1024) {
++        for (i = 0; i < ASID_TLB_DIRTY_LOG; i++) {
++            if (a->dirty_log[i].gen && a->dirty_log[i].start == start &&
++                a->dirty_log[i].length == length) {
++                a->dirty_log[i].gen = ++a->dirty_gen;
++                return;
++            }
++            if (!a->dirty_log[i].gen && free_i < 0) {
++                free_i = i;
++            }
++        }
++        if (free_i >= 0) {
++            a->dirty_log[free_i].start = start;
++            a->dirty_log[free_i].length = length;
++            a->dirty_log[free_i].gen = ++a->dirty_gen;
++            return;
++        }
++    }
++    for (i = 0; i < ASID_TLB_SLOTS; i++) {
++        if (a->slot[i].valid) {
++            asid_tlb_reset_dirty_slot(&a->slot[i], start, length);
++        }
++    }
++}
++
++/* The resets logged since @s was put aside, applied to it; false if lost. */
++static bool asid_tlb_catch_up(ASIDTLB *a, ASIDTLBSlot *s)
++{
++    if (s->dirty_gen == a->dirty_gen) {
++        return true;
++    }
++    if (s->dirty_gen < a->dirty_lost) {
++        return false;
++    }
++    for (int k = 0; k < ASID_TLB_DIRTY_LOG; k++) {
++        if (a->dirty_log[k].gen > s->dirty_gen) {
++            asid_tlb_reset_dirty_slot(s, a->dirty_log[k].start,
++                                      a->dirty_log[k].length);
++        }
++    }
++    s->dirty_gen = a->dirty_gen;
++    return true;
++}
++
+ /* Called with tlb_c.lock held: the TLB of @midx becomes that of @tag. */
+ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+ {
+@@ -770,6 +865,10 @@ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+             back = &a->slot[i];
+         }
+     }
++    if (back && !asid_tlb_catch_up(a, back)) {
++        asid_tlb_slot_free(back);
++        back = NULL;
++    }
+     if (a->cur_known && d->n_used_entries) {
+         /* A slot for the current TLB: a free one, else the least recent. */
+         for (int i = 0; i < ASID_TLB_SLOTS; i++) {
+@@ -790,6 +889,7 @@ static void asid_tlb_switch(CPUState *cpu, int midx, uint64_t tag)
+         }
+         size_t n = tlb_n_entries(f);
+         asid_tlb_save(keep, d, f, a->cur_tag, ++a->clock);
++        keep->dirty_gen = a->dirty_gen;
+         asid_stat(cpu, 3);
+         if (back) {
+             asid_tlb_restore(back, d, f);
+@@ -1428,20 +1528,8 @@ void tlb_reset_dirty(CPUState *cpu, uintptr_t start, uintptr_t length)
+         }
+ 
+         ASIDTLB *a = asid_tlb_of(cpu, mmu_idx);
+-        for (int k = 0; a && k < ASID_TLB_SLOTS; k++) {
+-            ASIDTLBSlot *s = &a->slot[k];
+-            if (!s->valid) {
+-                continue;
+-            }
+-            n = (s->mask >> CPU_TLB_ENTRY_BITS) + 1;
+-            for (i = 0; i < n; i++) {
+-                tlb_reset_dirty_range_locked(&s->fulltlb[i], &s->table[i],
+-                                             start, length);
+-            }
+-            for (i = 0; i < CPU_VTLB_SIZE; i++) {
+-                tlb_reset_dirty_range_locked(&s->vfulltlb[i], &s->vtable[i],
+-                                             start, length);
+-            }
++        if (a) {
++            asid_tlb_log_dirty(a, start, length);
+         }
+     }
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
