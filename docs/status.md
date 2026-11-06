@@ -76,7 +76,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   (`wfi`). Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s, o be lietimo
   ekranas perpiešiamas 16–25 kartus per sekundę. Tempiant piešimas užima didelę vartotojo erdvės dalį: be
   hiperkvietimų dar lieka CoreAnimation rastrizatoriaus karkasas (`scanline`, `sample_texture`,
-  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0094):
+  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0096):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -96,6 +96,9 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   - ekrano atnaujinimas (`adp_v4_gfx_update`) nebelaukia, kol kiekvienas vCPU baigs TB
     (`run_on_cpu` po `snapshot_and_clear_dirty`; pagrindinė gija ten praleisdavo pusę laiko), o
     perpiešia ir ankstesniame kadre pakeistas eilutes (0094, `QEMU_ADP_SYNC=1` – kaip anksčiau);
+  - laikomų TLB „dirty“ atstatymai kadrų buferiui kaupiami žurnale ir pritaikomi grąžinant (0095);
+  - piešimo sampleriai (`affine`, `image_sampler_argb8`, `nearest`, `clamp`) kiekvienam pikselių srautui
+    laiko paskutinio puslapio hosto rodyklę (0096): jų dalis hosto profilyje ~10 % → <1 %;
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
     `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)
