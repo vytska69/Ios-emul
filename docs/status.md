@@ -90,7 +90,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   - GXF dvigubi EL1 registrai (`TPIDR`, `ELR`, `SPSR`, `ESR`, `FAR`) skaitomi/rašomi tiesiai iš
     sugeneruoto kodo be `lookup_cp_reg` + `get_cp_reg64` (0088, `QEMU_GXF_DIRECT=0` išjungia);
   - vartotojo TLB perjungiant TTBR0 nebeišmetamas: iki 8 adresų erdvių TLB laikomi atskirai ir
-    grąžinami (0089, `QEMU_ASID_TLB=0` išjungia), o TLB nebesusitraukia žemiau 4096 įrašų (0091,
+    grąžinami (0089, `QEMU_ASID_TLB=0` išjungia), o vartotojo TLB nebesusitraukia žemiau 4096 įrašų (0091, 0093 – tik vartotojo, kitaip įkrovoje užraktų laikas baigdavosi;
     `QEMU_TLB_MIN_BITS`); `QEMU_ASID_TLB_STATS=1` (0090) skaičiuoja: vartotojo TLB užpildymų
     vienam perjungimui 135 → 99 (minimumas) → 62 (su laikomais TLB);
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): pertraukimų priėmimas be BQL
