@@ -1,0 +1,26 @@
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 5232432..88de283 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -451,6 +451,8 @@ static inline bool use_goto_tb(DisasContext *s, uint64_t dest)
+     return translator_use_goto_tb(&s->base, dest);
+ }
+ 
++static void gen_a64_lookup_and_goto_ptr(DisasContext *s, CPUState *cpu);
++
+ static void gen_goto_tb(DisasContext *s, int n, int64_t diff)
+ {
+     if (use_goto_tb(s, s->pc_curr + diff)) {
+@@ -476,7 +478,11 @@ static void gen_goto_tb(DisasContext *s, int n, int64_t diff)
+         if (s->ss_active) {
+             gen_step_complete_exception(s);
+         } else {
+-            tcg_gen_lookup_and_goto_ptr();
++            /*
++             * A direct branch that cannot be linked (to another page): the
++             * same lookup as an indirect one, inline (a third of all lookups).
++             */
++            gen_a64_lookup_and_goto_ptr(s, current_cpu);
+             s->base.is_jmp = DISAS_NORETURN;
+         }
+     }
