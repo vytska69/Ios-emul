@@ -76,7 +76,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   (`wfi`). Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s, o be lietimo
   ekranas perpiešiamas 16–25 kartus per sekundę. Tempiant piešimas užima didelę vartotojo erdvės dalį: be
   hiperkvietimų dar lieka CoreAnimation rastrizatoriaus karkasas (`scanline`, `sample_texture`,
-  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0088):
+  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0092):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -89,6 +89,10 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
     `QEMU_APPLE_BTI=1` grąžina): dingo `guarded_page_check`/`guarded_page_br` helperiai (~2 % hosto laiko);
   - GXF dvigubi EL1 registrai (`TPIDR`, `ELR`, `SPSR`, `ESR`, `FAR`) skaitomi/rašomi tiesiai iš
     sugeneruoto kodo be `lookup_cp_reg` + `get_cp_reg64` (0088, `QEMU_GXF_DIRECT=0` išjungia);
+  - vartotojo TLB perjungiant TTBR0 nebeišmetamas: iki 8 adresų erdvių TLB laikomi atskirai ir
+    grąžinami (0089, `QEMU_ASID_TLB=0` išjungia), o TLB nebesusitraukia žemiau 4096 įrašų (0091,
+    `QEMU_TLB_MIN_BITS`); `QEMU_ASID_TLB_STATS=1` (0090) skaičiuoja: vartotojo TLB užpildymų
+    vienam perjungimui 135 → 99 (minimumas) → 62 (su laikomais TLB);
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
     `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)

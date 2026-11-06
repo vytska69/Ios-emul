@@ -1,0 +1,28 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index c684ef5..a283dff 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -217,7 +217,11 @@ static size_t tlb_min_entries(void)
+     static size_t min;
+     if (unlikely(!min)) {
+         const char *v = getenv("QEMU_TLB_MIN_BITS");
+-        int bits = v ? atoi(v) : 0;
++        /*
++         * Default 12 (4096 entries): with iOS, user TLB fills per context
++         * switch 135 -> 99, and with the kept TLBs above -> 62.
++         */
++        int bits = v ? atoi(v) : 12;
+         if (bits < CPU_TLB_DYN_MIN_BITS || bits > 16) {
+             bits = CPU_TLB_DYN_MIN_BITS;
+         }
+@@ -381,8 +385,8 @@ static bool asid_tlb_enabled(void)
+ {
+     static int on = -1;
+     if (unlikely(on < 0)) {
+-        const char *v = getenv("QEMU_ASID_TLB");
+-        on = v && v[0] == '1';
++        const char *v = getenv("QEMU_ASID_TLB");  /* 0: flush on a switch */
++        on = !v || v[0] != '0';
+     }
+     return on;
+ }

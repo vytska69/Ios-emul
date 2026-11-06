@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-06
+- Faster switching between apps and background tasks: the emulator now remembers where each recently used app's memory is instead of looking it all up again every time iOS switches to it. In a test this cut that lookup work by about half.
+
 ## 2026-11-05
 - Virtual graphics chip: preparing each row of a picture for drawing, the step before its pixels are read, now runs directly on your device too, so pictures, icons and lists are drawn with less work (on a new install).
 - Faster everywhere: the emulator now finds the next piece of already-translated code much more quickly each time iOS jumps to a function or returns from one, which took about a quarter of the emulator's time. In a test, about 40% less time went to this, leaving more for the phone itself.
