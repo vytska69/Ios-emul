@@ -1,0 +1,184 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 3b14c0b..a163897 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -2183,11 +2183,79 @@ static inline void ca_st32(CPUARMState *env, CaCache *c, uint64_t a, uint32_t v,
+     }
+ }
+ 
++/*
++ * One stream of pixel addresses (a texture row, the output) and the host page
++ * it last used: most pixels of a span fall in the page of the one before, so
++ * one compare finds them, where ca_ld32/ca_st32 searched a page cache each
++ * time. A pixel across a page boundary or outside RAM goes the slow way.
++ */
++typedef struct CaOne {
++    uint64_t lo;    /* guest page of h; at first a non-canonical address */
++    uint8_t *h;
++} CaOne;
++
++/* No pixel address is within a page of 0x8000000000000001 (not canonical). */
++#define CA_ONE_INIT { 0x8000000000000001ull, NULL }
++
++static uint32_t __attribute__((noinline)) ca_ld32_one_slow(CPUARMState *env, CaOne *o,
++                                               CaCache *c, uint64_t a,
++                                               int mmu, uintptr_t ra)
++{
++    uint8_t *h = ca_cache_find(env, c, a, MMU_DATA_LOAD, mmu, ra);
++
++    if (!h) {
++        return cpu_ldl_le_mmuidx_ra(env, a, mmu, ra);
++    }
++    o->lo = a & TARGET_PAGE_MASK;
++    o->h = h - (a - o->lo);
++    return ldl_le_p(h);
++}
++
++static inline uint32_t ca_ld32_one(CPUARMState *env, CaOne *o, CaCache *c,
++                                   uint64_t a, int mmu, uintptr_t ra)
++{
++    uint64_t off = a - o->lo;
++
++    if (likely(off <= TARGET_PAGE_SIZE - 4)) {
++        return ldl_le_p(o->h + off);
++    }
++    return ca_ld32_one_slow(env, o, c, a, mmu, ra);
++}
++
++static void __attribute__((noinline)) ca_st32_one_slow(CPUARMState *env, CaOne *o,
++                                           CaCache *c, uint64_t a, uint32_t v,
++                                           int mmu, uintptr_t ra)
++{
++    uint8_t *h = ca_cache_find(env, c, a, MMU_DATA_STORE, mmu, ra);
++
++    if (!h) {
++        cpu_stl_le_mmuidx_ra(env, a, v, mmu, ra);
++        return;
++    }
++    o->lo = a & TARGET_PAGE_MASK;
++    o->h = h - (a - o->lo);
++    stl_le_p(h, v);
++}
++
++static inline void ca_st32_one(CPUARMState *env, CaOne *o, CaCache *c,
++                               uint64_t a, uint32_t v, int mmu, uintptr_t ra)
++{
++    uint64_t off = a - o->lo;
++
++    if (likely(off <= TARGET_PAGE_SIZE - 4)) {
++        stl_le_p(o->h + off, v);
++        return;
++    }
++    ca_st32_one_slow(env, o, c, a, v, mmu, ra);
++}
++
+ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+ {
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
++    CaOne o00 = CA_ONE_INIT, o01 = CA_ONE_INIT, o10 = CA_ONE_INIT;
++    CaOne o11 = CA_ONE_INIT, oo = CA_ONE_INIT;
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2], slide = x[17] - CA_SAMPLER_ARGB8_ADDR;
+@@ -2281,15 +2349,15 @@ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+         uint64_t row1 = base + stride * (int64_t)(int16_t)(y1 >> 16);
+         int64_t c0 = x0 >> 16, c1 = x1 >> 16;
+         uint32_t px[4] = {
+-            ca_ld32(env, &lc, row0 + c0 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row0 + c1 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row1 + c0 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row1 + c1 * 4, mmu, ra),
++            ca_ld32_one(env, &o00, &lc, row0 + c0 * 4, mmu, ra),
++            ca_ld32_one(env, &o01, &lc, row0 + c1 * 4, mmu, ra),
++            ca_ld32_one(env, &o10, &lc, row1 + c0 * 4, mmu, ra),
++            ca_ld32_one(env, &o11, &lc, row1 + c1 * 4, mmu, ra),
+         };
+         int16_t fy = ((uint32_t)y0 >> 1) & 0x7f80;
+         int16_t fx = ((uint32_t)x0 >> 1) & 0x7f80;
+         uint32_t o = ca_bilerp(px[0], px[1], px[2], px[3], fy, fx);
+-        ca_st32(env, &sc, out, o, mmu, ra);
++        ca_st32_one(env, &oo, &sc, out, o, mmu, ra);
+         out += 4;
+         w = dw + w;
+         u += du;
+@@ -2308,6 +2376,8 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
++    CaOne o00 = CA_ONE_INIT, o01 = CA_ONE_INIT, o10 = CA_ONE_INIT;
++    CaOne o11 = CA_ONE_INIT, oo = CA_ONE_INIT;
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2];
+@@ -2332,14 +2402,14 @@ static void ios_hcall_ca_affine_sampler(CPUARMState *env, uintptr_t ra, bool xrg
+     while (count--) {
+         int64_t c0 = xf >> 16, c1 = (int32_t)(xf + 0x10000) >> 16;
+         uint32_t px[4] = {
+-            ca_ld32(env, &lc, row0 + c0 * 4, mmu, ra) | or,
+-            ca_ld32(env, &lc, row0 + c1 * 4, mmu, ra) | or,
+-            ca_ld32(env, &lc, row1 + c0 * 4, mmu, ra) | or,
+-            ca_ld32(env, &lc, row1 + c1 * 4, mmu, ra) | or,
++            ca_ld32_one(env, &o00, &lc, row0 + c0 * 4, mmu, ra) | or,
++            ca_ld32_one(env, &o01, &lc, row0 + c1 * 4, mmu, ra) | or,
++            ca_ld32_one(env, &o10, &lc, row1 + c0 * 4, mmu, ra) | or,
++            ca_ld32_one(env, &o11, &lc, row1 + c1 * 4, mmu, ra) | or,
+         };
+         int16_t fx = ((uint32_t)xf >> 1) & 0x7f80;
+         uint32_t o = ca_bilerp(px[0], px[1], px[2], px[3], fy, fx);
+-        ca_st32(env, &sc, out, o, mmu, ra);
++        ca_st32_one(env, &oo, &sc, out, o, mmu, ra);
+         out += 4;
+         xf += du;
+     }
+@@ -2446,6 +2516,7 @@ static void ios_hcall_ca_nearest_argb8(CPUARMState *env, uintptr_t ra)
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
++    CaOne o00 = CA_ONE_INIT, oo = CA_ONE_INIT;
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2];
+@@ -2462,9 +2533,9 @@ static void ios_hcall_ca_nearest_argb8(CPUARMState *env, uintptr_t ra)
+                    cpu_ldq_le_mmuidx_ra(env, tex + 0x10, mmu, ra) * (int64_t)(int16_t)(v >> 16);
+ 
+     while (count--) {
+-        ca_st32(env, &sc, out,
+-                             ca_ld32(env, &lc, row + (int64_t)(u >> 16) * 4, mmu, ra),
+-                             mmu, ra);
++        ca_st32_one(env, &oo, &sc, out,
++                    ca_ld32_one(env, &o00, &lc, row + (int64_t)(u >> 16) * 4, mmu, ra),
++                    mmu, ra);
+         out += 4;
+         u += du;
+     }
+@@ -2523,6 +2594,8 @@ static void ios_hcall_ca_clamp_argb8(CPUARMState *env, uintptr_t ra)
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+     int mmu = arm_env_mmu_index(env);
+     CaCache lc, sc;
++    CaOne o00 = CA_ONE_INIT, o01 = CA_ONE_INIT, o10 = CA_ONE_INIT;
++    CaOne o11 = CA_ONE_INIT, oo = CA_ONE_INIT;
+     ca_cache_init(&lc);
+     ca_cache_init(&sc);
+     uint64_t sd = x[0], out = x[2];
+@@ -2555,14 +2628,14 @@ static void ios_hcall_ca_clamp_argb8(CPUARMState *env, uintptr_t ra)
+         x1 = x1 < maxu ? x1 : maxu;
+         int64_t c0 = x0 >> 16, c1 = x1 >> 16;
+         uint32_t px[4] = {
+-            ca_ld32(env, &lc, row0 + c0 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row0 + c1 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row1 + c0 * 4, mmu, ra),
+-            ca_ld32(env, &lc, row1 + c1 * 4, mmu, ra),
++            ca_ld32_one(env, &o00, &lc, row0 + c0 * 4, mmu, ra),
++            ca_ld32_one(env, &o01, &lc, row0 + c1 * 4, mmu, ra),
++            ca_ld32_one(env, &o10, &lc, row1 + c0 * 4, mmu, ra),
++            ca_ld32_one(env, &o11, &lc, row1 + c1 * 4, mmu, ra),
+         };
+         int16_t fx = ((uint32_t)x0 >> 1) & 0x7f80;
+         uint32_t o = ca_bilerp(px[0], px[1], px[2], px[3], fy, fx);
+-        ca_st32(env, &sc, out, o, mmu, ra);
++        ca_st32_one(env, &oo, &sc, out, o, mmu, ra);
+         out += 4;
+         u += du;
+     }

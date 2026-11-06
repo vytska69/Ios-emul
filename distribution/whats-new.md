@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-06
+- Virtual graphics chip: reading the pixels of pictures (icons, photos, the wallpaper) while drawing them on your device is quicker, because it remembers where in memory it was reading.
 - Smoother while the screen changes: updating the picture you see no longer pauses the emulated iPhone's processor cores every time.
 - Faster switching between apps and background tasks: the emulator now remembers where each recently used app's memory is instead of looking it all up again every time iOS switches to it. In a test this cut that lookup work by about half.
 
