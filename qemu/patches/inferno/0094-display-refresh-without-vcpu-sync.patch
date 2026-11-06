@@ -1,0 +1,104 @@
+diff --git a/hw/display/apple_displaypipe_v4.c b/hw/display/apple_displaypipe_v4.c
+index 66912d7..04805a4 100644
+--- a/hw/display/apple_displaypipe_v4.c
++++ b/hw/display/apple_displaypipe_v4.c
+@@ -174,6 +174,9 @@ struct AppleDisplayPipeV4State {
+     uint32_t int_enable;
+     ADPV4GenPipe genpipe[ADP_V4_GP_COUNT];
+     ADPV4BlendUnitState blend_unit;
++    /* Rows the previous refresh found dirty (see adp_v4_gfx_update). */
++    uint8_t *prev_dirty;
++    uint32_t prev_dirty_rows;
+     QemuConsole *console;
+     QEMUBH *update_disp_image_bh;
+     QEMUTimer *boot_splash_timer;
+@@ -651,16 +654,41 @@ static void adp_v4_gfx_update(void *opaque)
+     DirtyBitmapSnapshot *snap;
+     bool dirty;
+     uint32_t y, ys;
++    static int sync = -1;
+ 
+-    snap = memory_region_snapshot_and_clear_dirty(
+-        adp->vram_mr, adp->vram_off + adp->fb_off,
+-        adp->height * adp->width * sizeof(uint32_t), DIRTY_MEMORY_VGA);
++    /*
++     * Without the vCPU sync of memory_region_snapshot_and_clear_dirty: it
++     * made every refresh stop all vCPUs and wait for each to take the BQL,
++     * and the main loop spent half its time there. A write it would have
++     * caught lands in a row the previous snapshot found dirty, so those rows
++     * are redrawn once more. QEMU_ADP_SYNC=1: the old way.
++     */
++    if (sync < 0) {
++        const char *v = getenv("QEMU_ADP_SYNC");
++        sync = v && v[0] == '1';
++    }
++    if (adp->prev_dirty_rows != adp->height) {
++        g_free(adp->prev_dirty);
++        adp->prev_dirty = g_new0(uint8_t, adp->height);
++        adp->prev_dirty_rows = adp->height;
++    }
++    if (sync) {
++        snap = memory_region_snapshot_and_clear_dirty(
++            adp->vram_mr, adp->vram_off + adp->fb_off,
++            adp->height * adp->width * sizeof(uint32_t), DIRTY_MEMORY_VGA);
++    } else {
++        snap = memory_region_snapshot_and_clear_dirty_nosync(
++            adp->vram_mr, adp->vram_off + adp->fb_off,
++            adp->height * adp->width * sizeof(uint32_t), DIRTY_MEMORY_VGA);
++    }
+     ys = -1U;
+     for (y = 0; y < adp->height; ++y) {
+-        dirty = memory_region_snapshot_get_dirty(
++        bool now = memory_region_snapshot_get_dirty(
+             adp->vram_mr, snap,
+             adp->vram_off + adp->fb_off + adp->width * sizeof(uint32_t) * y,
+             adp->width * sizeof(uint32_t));
++        dirty = now || (!sync && adp->prev_dirty[y]);
++        adp->prev_dirty[y] = now;
+         if (dirty && ys == -1U) {
+             ys = y;
+         }
+diff --git a/include/system/memory.h b/include/system/memory.h
+index 26225f4..b8d865b 100644
+--- a/include/system/memory.h
++++ b/include/system/memory.h
+@@ -2094,6 +2094,18 @@ void memory_region_clear_dirty_bitmap(MemoryRegion *mr, hwaddr start,
+  * @size: the size of the range being queried.
+  * @client: the user of the logging information; typically %DIRTY_MEMORY_VGA.
+  */
++/*
++ * memory_region_snapshot_and_clear_dirty_nosync: the same without waiting for
++ * every vCPU to end its TB afterwards (the log_global_after_sync step), which
++ * stops all of them. A write racing with the snapshot can then be missed in
++ * it; a caller that looks at the same memory again soon (a display refresh
++ * that also redraws what the previous snapshot found dirty) sees it next time.
++ */
++DirtyBitmapSnapshot *memory_region_snapshot_and_clear_dirty_nosync(MemoryRegion *mr,
++                                                                   hwaddr addr,
++                                                                   hwaddr size,
++                                                                   unsigned client);
++
+ DirtyBitmapSnapshot *memory_region_snapshot_and_clear_dirty(MemoryRegion *mr,
+                                                             hwaddr addr,
+                                                             hwaddr size,
+diff --git a/system/memory.c b/system/memory.c
+index 8600612..e215c6c 100644
+--- a/system/memory.c
++++ b/system/memory.c
+@@ -2293,6 +2293,16 @@ DirtyBitmapSnapshot *memory_region_snapshot_and_clear_dirty(MemoryRegion *mr,
+     return snapshot;
+ }
+ 
++DirtyBitmapSnapshot *memory_region_snapshot_and_clear_dirty_nosync(MemoryRegion *mr,
++                                                                   hwaddr addr,
++                                                                   hwaddr size,
++                                                                   unsigned client)
++{
++    assert(mr->ram_block);
++    memory_region_sync_dirty_bitmap(mr, false);
++    return cpu_physical_memory_snapshot_and_clear_dirty(mr, addr, size, client);
++}
++
+ bool memory_region_snapshot_get_dirty(MemoryRegion *mr, DirtyBitmapSnapshot *snap,
+                                       hwaddr addr, hwaddr size)
+ {
