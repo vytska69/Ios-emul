@@ -1,0 +1,70 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index ebb70f4..7f7d0a9 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -520,8 +520,8 @@ static void apple_mca_out_callback(void *opaque, int avail)
+     static int delayed = -1;
+ 
+     if (delayed < 0) {
+-        const char *v = getenv("QEMU_MCA_DELAY");  /* 0: read when consumed */
+-        delayed = !v || v[0] != '0';
++        const char *v = getenv("QEMU_MCA_DELAY");  /* 1: read up to 60 ms later */
++        delayed = v && v[0] == '1';
+     }
+     if (delayed) {
+         int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+@@ -537,7 +537,17 @@ static void apple_mca_out_callback(void *opaque, int avail)
+         s->carry = due - want * NANOSECONDS_PER_SECOND;
+ 
+         /* Consume what the real rate gives; the capture side gets silence. */
+-        apple_sio_dma_consume(s->tx_ep, want, apple_mca_consumed, s);
++        uint64_t got = apple_sio_dma_consume(s->tx_ep, want, apple_mca_consumed, s);
++        static int dbg = -1;
++        static uint64_t st_want, st_got, st_peekfail, st_played, st_stale, st_calls;
++        static int64_t st_last;
++        if (dbg < 0) {
++            const char *v = getenv("QEMU_MCA_DEBUG");
++            dbg = v && v[0] == '1';
++        }
++        st_calls++;
++        st_want += want;
++        st_got += got;
+         memset(s->buf, 0, sizeof(s->buf));
+         for (uint64_t left = want; left > 0;) {
+             uint64_t n = MIN(left, sizeof(s->buf));
+@@ -558,6 +568,7 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             uint32_t written = n;
+             if (!apple_sio_dma_peek(s->tx_ep, addr, s->buf, n)) {
+                 memset(s->buf, 0, n);
++                st_peekfail++;
+             }
+             uint64_t hash = 0xcbf29ce484222325ULL;
+             for (uint32_t i = 0; i < n; ++i) {
+@@ -567,9 +578,12 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             MCABlock *b = apple_mca_block(s, addr);
+             if (b->hash != hash) {
+                 written = apple_mca_play(s, s->buf, n);
++                st_played += written;
+                 if (written == n) {
+                     b->hash = hash;
+                 }
++            } else {
++                st_stale += n;
+             }
+             s->pend_off += written;
+             if (written < n) {
+@@ -581,6 +595,14 @@ static void apple_mca_out_callback(void *opaque, int avail)
+                 s->pend_n--;
+             }
+         }
++        if (dbg && now - st_last > NANOSECONDS_PER_SECOND) {
++            st_last = now;
++            fprintf(stderr, "mca: calls %" PRIu64 " want %" PRIu64 " got %" PRIu64
++                    " played %" PRIu64 " stale %" PRIu64 " peekfail %" PRIu64
++                    " pend %u ring %" PRId64 "us avail %d\n", st_calls, st_want,
++                    st_got, st_played, st_stale, st_peekfail, s->pend_n,
++                    s->ring_ns / 1000, avail);
++        }
+         return;
+     }
+ 
