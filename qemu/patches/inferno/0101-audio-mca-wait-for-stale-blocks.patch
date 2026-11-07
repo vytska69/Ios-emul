@@ -68,10 +68,18 @@ index 7f7d0a9..84796ef 100644
              /*
               * The guest has nothing queued (emulated, it often falls behind real
 diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
-index 37c409f..6c635e7 100644
+index 37c409f..14c8fe2 100644
 --- a/hw/dma/apple_sio.c
 +++ b/hw/dma/apple_sio.c
-@@ -360,6 +360,21 @@ static uint64_t apple_sio_dma_buf_addr(SIODMABuffer *buf, uint64_t offset)
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/cutils.h"
+ #include "hw/dma/apple_sio.h"
+ #include "hw/misc/apple-silicon/a7iop/rtkit.h"
+ #include "migration/vmstate.h"
+@@ -360,6 +361,21 @@ static uint64_t apple_sio_dma_buf_addr(SIODMABuffer *buf, uint64_t offset)
   */
  uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
                                    uint64_t len, uint64_t *consumed)
@@ -93,7 +101,7 @@ index 37c409f..6c635e7 100644
  {
      AppleSIOState *s;
      SIODMABuffer *buf;
-@@ -370,6 +385,7 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+@@ -370,6 +386,7 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
  
      QEMU_LOCK_GUARD(&ep->mutex);
  
@@ -101,7 +109,7 @@ index 37c409f..6c635e7 100644
      s = container_of(ep, AppleSIOState, eps[ep->id]);
      if (ep->played == NULL) {
          ep->played = g_hash_table_new_full(g_int64_hash, g_int64_equal,
-@@ -396,6 +412,11 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+@@ -396,6 +413,11 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
          }
          hash ^= piece;
          uint64_t *last = g_hash_table_lookup(ep->played, &addr);
