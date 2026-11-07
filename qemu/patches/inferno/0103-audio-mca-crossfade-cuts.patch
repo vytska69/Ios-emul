@@ -1,0 +1,146 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 84796ef..676c436 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -167,6 +167,13 @@ struct AppleMCAState {
+     int64_t ring_ns;
+     /* Since when the device waits for the guest to refill a block (0: not). */
+     int64_t stall_since;
++    /* apple_mca_out: the last frames, held back for a crossfade. */
++    int16_t hold[64 * 2];
++    uint32_t hold_frames;
++    bool splice;
++    /* apple_mca_out: what the host's buffer had no room for yet. */
++    uint8_t queued[16384];
++    uint32_t queued_len;
+     /* By 512-byte block of the ring: hash of what was played, last consumed. */
+     GHashTable *blocks;
+     uint8_t buf[32768];
+@@ -414,6 +421,77 @@ static bool apple_mca_frame_silent(const uint8_t *frame)
+     return !(frame[0] | frame[1] | frame[2] | frame[3]);
+ }
+ 
++/*
++ * Sends the guest's sound to the host. Where a piece was left out (a part of the
++ * ring the guest filled too late), the sound used to jump from one sample to an
++ * unrelated one: a click, the crackle heard in every sound. Now the last 64
++ * frames (1.3 ms) are held back, and at such a cut they fade out while the next
++ * piece fades in. Everything is taken: what the host has no room for yet waits
++ * in a queue (dropped past 16 KB).
++ */
++#define MCA_XF 64
++
++static void apple_mca_flush(AppleMCAState *s)
++{
++    if (s->queued_len) {
++        uint32_t w = AUD_write(s->voice, s->queued, s->queued_len);
++        memmove(s->queued, s->queued + w, s->queued_len - w);
++        s->queued_len -= w;
++    }
++}
++
++static void apple_mca_send(AppleMCAState *s, const void *data, uint32_t len)
++{
++    uint32_t w = 0;
++
++    apple_mca_flush(s);
++    if (!s->queued_len) {
++        w = AUD_write(s->voice, (void *)data, len);
++    }
++    len -= w;
++    len = MIN(len, (uint32_t)sizeof(s->queued) - s->queued_len);
++    memcpy(s->queued + s->queued_len, (const uint8_t *)data + w, len);
++    s->queued_len += len;
++}
++
++static void apple_mca_out(AppleMCAState *s, const uint8_t *data, uint32_t len)
++{
++    const int16_t *in = (const int16_t *)data;
++    uint32_t frames = len / MCA_FRAME, i = 0;
++
++    if (s->splice && s->hold_frames == MCA_XF && frames >= MCA_XF) {
++        int16_t mix[MCA_XF * 2];
++        for (uint32_t k = 0; k < MCA_XF; k++) {
++            int32_t a = MCA_XF - k, b = k;
++            for (int c = 0; c < 2; c++) {
++                mix[k * 2 + c] = (s->hold[k * 2 + c] * a + in[k * 2 + c] * b) /
++                                 MCA_XF;
++            }
++        }
++        memcpy(s->hold, mix, sizeof(mix));
++        i = MCA_XF;
++    }
++    s->splice = false;
++    for (; i < frames; i++) {
++        if (s->hold_frames == MCA_XF) {
++            /* The oldest held frame goes out; batch the common case. */
++            uint32_t run = frames - i;
++            if (run > MCA_XF) {
++                apple_mca_send(s, s->hold, MCA_XF * MCA_FRAME);
++                apple_mca_send(s, in + i * 2, (run - MCA_XF) * MCA_FRAME);
++                memcpy(s->hold, in + (frames - MCA_XF) * 2, MCA_XF * MCA_FRAME);
++                return;
++            }
++            apple_mca_send(s, s->hold, MCA_FRAME);
++            memmove(s->hold, s->hold + 2, (MCA_XF - 1) * MCA_FRAME);
++            s->hold_frames--;
++        }
++        s->hold[s->hold_frames * 2] = in[i * 2];
++        s->hold[s->hold_frames * 2 + 1] = in[i * 2 + 1];
++        s->hold_frames++;
++    }
++}
++
+ static uint32_t apple_mca_play(AppleMCAState *s, uint8_t *data, uint32_t len)
+ {
+     uint32_t done = 0;
+@@ -430,18 +508,15 @@ static uint32_t apple_mca_play(AppleMCAState *s, uint8_t *data, uint32_t len)
+             end += MCA_FRAME;
+         }
+         if (end > done) {
+-            uint32_t n = end - done;
+-            uint32_t written = AUD_write(s->voice, data + done, n);
+-            done += written;
+-            if (written < n) {
+-                return done;
+-            }
++            apple_mca_out(s, data + done, end - done);
++            done = end;
+         }
+         /* Silent frames, left out while the silence is short. */
+         while (done < len && apple_mca_frame_silent(data + done) &&
+                s->held_silence < MCA_SILENCE_KEPT) {
+             s->held_silence += MCA_FRAME;
+             done += MCA_FRAME;
++            s->splice = true;
+         }
+     }
+     return done;
+@@ -620,12 +695,14 @@ static void apple_mca_out_callback(void *opaque, int avail)
+      * QEMU_MCA_WAIT=0: leave it out at once, as before.
+      */
+     if (wait_mode < 0) {
+-        const char *v = getenv("QEMU_MCA_WAIT");
+-        wait_mode = !v || v[0] != '0';
++        const char *v = getenv("QEMU_MCA_WAIT");  /* 1: wait (it stopped the guest's sound) */
++        wait_mode = v && v[0] == '1';
+     }
+ 
++    apple_mca_flush(s);
+     while (to_play > 0) {
+-        uint32_t chunk = MIN(to_play, sizeof(s->buf));
++        /* One 512-byte block at a time: a block left out is a cut there. */
++        uint32_t chunk = MIN(to_play, 512);
+ 
+         uint64_t consumed = 0;
+         bool stale = false;
+@@ -681,6 +758,9 @@ static void apple_mca_out_callback(void *opaque, int avail)
+          */
+         memset(temp + pulled, 0, consumed - pulled);
+         apple_sio_dma_write(s->rx_ep, temp, consumed);
++        if (pulled < consumed) {
++            s->splice = true;
++        }
+         uint32_t written = pulled ? apple_mca_play(s, temp, pulled) : 0;
+ 
+         to_play -= consumed;
