@@ -1,0 +1,129 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 7f7d0a9..84796ef 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -165,6 +165,8 @@ struct AppleMCAState {
+     int64_t last_ns, now_ns;
+     uint64_t carry;
+     int64_t ring_ns;
++    /* Since when the device waits for the guest to refill a block (0: not). */
++    int64_t stall_since;
+     /* By 512-byte block of the ring: hash of what was played, last consumed. */
+     GHashTable *blocks;
+     uint8_t buf[32768];
+@@ -608,13 +610,53 @@ static void apple_mca_out_callback(void *opaque, int avail)
+ 
+     uint8_t *temp = s->buf;
+     int64_t to_play = avail;
++    static int wait_mode = -1;
++
++    /*
++     * A block of the ring the guest has not refilled yet (it is late,
++     * emulated): wait for it, up to 30 ms, rather than leave it out at once.
++     * Left out, the sound jumped there, heard as a crackle; waited for, it
++     * comes a little later and in one piece (the app evens the pace out).
++     * QEMU_MCA_WAIT=0: leave it out at once, as before.
++     */
++    if (wait_mode < 0) {
++        const char *v = getenv("QEMU_MCA_WAIT");
++        wait_mode = !v || v[0] != '0';
++    }
+ 
+     while (to_play > 0) {
+         uint32_t chunk = MIN(to_play, sizeof(s->buf));
+ 
+         uint64_t consumed = 0;
+-        uint32_t pulled = apple_sio_dma_read_fresh(s->tx_ep, temp, chunk,
+-                                                   &consumed);
++        bool stale = false;
++        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        bool wait = wait_mode &&
++                    (!s->stall_since || now - s->stall_since < 30 * SCALE_MS);
++        uint32_t pulled = apple_sio_dma_read_fresh_wait(s->tx_ep, temp, chunk,
++                                                        &consumed, wait, &stale);
++        if (stale) {
++            /* Play what came before it; the rest of this round waits. */
++            if (!s->stall_since) {
++                s->stall_since = now;
++            }
++            if (consumed) {
++                apple_sio_dma_write(s->rx_ep, temp, consumed);
++                if (pulled) {
++                    apple_mca_play(s, temp, pulled);
++                }
++            }
++            /* The capture side still gets silence at the real rate. */
++            memset(temp, 0, sizeof(s->buf));
++            for (int64_t left = to_play - consumed; left > 0;) {
++                uint32_t n = MIN(left, sizeof(s->buf));
++                apple_sio_dma_write(s->rx_ep, temp, n);
++                left -= n;
++            }
++            break;
++        }
++        if (consumed) {
++            s->stall_since = 0;
++        }
+         if (consumed == 0) {
+             /*
+              * The guest has nothing queued (emulated, it often falls behind real
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 37c409f..6c635e7 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -360,6 +360,21 @@ static uint64_t apple_sio_dma_buf_addr(SIODMABuffer *buf, uint64_t offset)
+  */
+ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+                                   uint64_t len, uint64_t *consumed)
++{
++    bool stale;
++    return apple_sio_dma_read_fresh_wait(ep, buffer, len, consumed, false,
++                                         &stale);
++}
++
++/*
++ * apple_sio_dma_read_fresh, and with wait set, stops before a block the guest
++ * has not changed since it was last read (not consuming it, *stale set): the
++ * caller can wait for the guest to fill it rather than leave it out. A block
++ * of silence is never taken for stale.
++ */
++uint64_t apple_sio_dma_read_fresh_wait(AppleSIODMAEndpoint *ep, void *buffer,
++                                       uint64_t len, uint64_t *consumed,
++                                       bool wait, bool *stale)
+ {
+     AppleSIOState *s;
+     SIODMABuffer *buf;
+@@ -370,6 +385,7 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+ 
+     QEMU_LOCK_GUARD(&ep->mutex);
+ 
++    *stale = false;
+     s = container_of(ep, AppleSIOState, eps[ep->id]);
+     if (ep->played == NULL) {
+         ep->played = g_hash_table_new_full(g_int64_hash, g_int64_equal,
+@@ -396,6 +412,11 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+         }
+         hash ^= piece;
+         uint64_t *last = g_hash_table_lookup(ep->played, &addr);
++        if (wait && last != NULL && *last == hash &&
++            !buffer_is_zero(dst, piece)) {
++            *stale = true;
++            break;
++        }
+         if (last == NULL || *last != hash) {
+             if (last == NULL) {
+                 uint64_t *key = g_new(uint64_t, 1);
+diff --git a/include/hw/dma/apple_sio.h b/include/hw/dma/apple_sio.h
+index e992913..4ec451f 100644
+--- a/include/hw/dma/apple_sio.h
++++ b/include/hw/dma/apple_sio.h
+@@ -15,6 +15,9 @@ uint64_t apple_sio_dma_read(AppleSIODMAEndpoint *ep, void *buffer,
+                             uint64_t len);
+ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+                                   uint64_t len, uint64_t *consumed);
++uint64_t apple_sio_dma_read_fresh_wait(AppleSIODMAEndpoint *ep, void *buffer,
++                                       uint64_t len, uint64_t *consumed,
++                                       bool wait, bool *stale);
+ uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
+                                void (*cb)(void *opaque, uint64_t addr,
+                                           uint64_t n),
