@@ -1,0 +1,34 @@
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 14c8fe2..a6ad330 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -77,6 +77,8 @@ struct AppleSIODMAEndpoint {
+     QTAILQ_HEAD(, SIODMABuffer) buffers;
+     /* apple_sio_dma_read_fresh: content hash of what was last read, by guest address. */
+     GHashTable *played;
++    /* apple_sio_dma_read_fresh_wait: the last block taken held sound. */
++    bool sounding;
+ };
+ 
+ struct AppleSIOClass {
+@@ -413,11 +415,18 @@ uint64_t apple_sio_dma_read_fresh_wait(AppleSIODMAEndpoint *ep, void *buffer,
+         }
+         hash ^= piece;
+         uint64_t *last = g_hash_table_lookup(ep->played, &addr);
+-        if (wait && last != NULL && *last == hash &&
+-            !buffer_is_zero(dst, piece)) {
++        bool zero = buffer_is_zero(dst, piece);
++        /*
++         * Not yet written: unchanged sound, or silence right after sound
++         * (the guest's audio engine clears what was played, so a part it
++         * is late with holds zeros).
++         */
++        if (wait && ((last != NULL && *last == hash && !zero) ||
++                     (zero && ep->sounding))) {
+             *stale = true;
+             break;
+         }
++        ep->sounding = !zero;
+         if (last == NULL || *last != hash) {
+             if (last == NULL) {
+                 uint64_t *key = g_new(uint64_t, 1);
