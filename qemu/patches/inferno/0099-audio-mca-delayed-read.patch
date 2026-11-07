@@ -1,0 +1,263 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index a6f2ba8..ebb70f4 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -22,6 +22,7 @@
+ #include "hw/audio/apple-silicon/mca.h"
+ #include "qemu/error-report.h"
+ #include "qemu/fifo32.h"
++#include "qemu/timer.h"
+ 
+ #if 0
+ #define MCA_DPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+@@ -154,6 +155,18 @@ struct AppleMCAState {
+     SWVoiceOut *voice;
+     /* Bytes of silence held back (apple_mca_play). */
+     uint64_t held_silence;
++    /* Delayed playback (apple_mca_out_callback): consumed pieces of the ring. */
++    struct {
++        uint64_t addr;
++        uint32_t len;
++        int64_t t;
++    } pend[2048];
++    uint32_t pend_head, pend_n, pend_off;
++    int64_t last_ns, now_ns;
++    uint64_t carry;
++    int64_t ring_ns;
++    /* By 512-byte block of the ring: hash of what was played, last consumed. */
++    GHashTable *blocks;
+     uint8_t buf[32768];
+ };
+ 
+@@ -432,9 +445,144 @@ static uint32_t apple_mca_play(AppleMCAState *s, uint8_t *data, uint32_t len)
+     return done;
+ }
+ 
++/*
++ * The guest's audio output, played a little after the device takes it.
++ *
++ * The device consumes the guest's ring at the real rate (48 kHz stereo S16,
++ * by the virtual clock), completing its DMA buffers on time as the guest's
++ * driver expects; it used to read the bytes at that moment too. Emulated, the
++ * guest often fills a part of its ring only after that moment: the device then
++ * read what the part held one lap before, an echo, or, left out as stale, a
++ * jump in the waveform, heard as a crackle (about 90 a second in a ringtone).
++ * Now the bytes are read up to 60 ms later (at most half a lap of the ring, so
++ * the guest has not yet written its next lap there), by when the guest has
++ * written them. A block still unchanged since the device last played it is
++ * left out as before.
++ */
++typedef struct MCABlock {
++    uint64_t hash;
++    int64_t consumed;
++} MCABlock;
++
++#define MCA_BLOCK 512
++#define MCA_BYTES_PER_SEC (48000 * MCA_FRAME)
++#define MCA_DELAY_MAX_NS (60 * SCALE_MS)
++
++static MCABlock *apple_mca_block(AppleMCAState *s, uint64_t addr)
++{
++    uint64_t key = addr & ~(uint64_t)(MCA_BLOCK - 1);
++    MCABlock *b;
++
++    if (s->blocks == NULL) {
++        s->blocks = g_hash_table_new_full(g_int64_hash, g_int64_equal,
++                                          g_free, g_free);
++    }
++    b = g_hash_table_lookup(s->blocks, &key);
++    if (b == NULL) {
++        uint64_t *k = g_new(uint64_t, 1);
++        *k = key;
++        b = g_new0(MCABlock, 1);
++        g_hash_table_insert(s->blocks, k, b);
++    }
++    return b;
++}
++
++static void apple_mca_consumed(void *opaque, uint64_t addr, uint64_t n)
++{
++    AppleMCAState *s = opaque;
++    MCABlock *b = apple_mca_block(s, addr);
++
++    /* The ring's lap: how long since this block was taken the last time. */
++    /*
++     * A gap longer than half a second is a pause, not a lap. A shorter lap
++     * than the estimate is taken at once (a delay longer than the lap would
++     * read the guest's next lap), a longer one only slowly.
++     */
++    if (b->consumed && s->now_ns - b->consumed > 5 * SCALE_MS &&
++        s->now_ns - b->consumed < 500 * SCALE_MS) {
++        int64_t lap = s->now_ns - b->consumed;
++        s->ring_ns = (!s->ring_ns || lap < s->ring_ns) ? lap
++                     : (s->ring_ns * 15 + lap) / 16;
++    }
++    b->consumed = s->now_ns;
++    if (s->pend_n < ARRAY_SIZE(s->pend)) {
++        uint32_t i = (s->pend_head + s->pend_n) % ARRAY_SIZE(s->pend);
++        s->pend[i].addr = addr;
++        s->pend[i].len = n;
++        s->pend[i].t = s->now_ns;
++        s->pend_n++;
++    }
++}
++
+ static void apple_mca_out_callback(void *opaque, int avail)
+ {
+     AppleMCAState *s = opaque;
++    static int delayed = -1;
++
++    if (delayed < 0) {
++        const char *v = getenv("QEMU_MCA_DELAY");  /* 0: read when consumed */
++        delayed = !v || v[0] != '0';
++    }
++    if (delayed) {
++        int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        int64_t elapsed = s->last_ns ? now - s->last_ns : 0;
++        uint64_t due, want;
++
++        s->now_ns = now;
++        s->last_ns = now;
++        elapsed = MIN(MAX(elapsed, 0), 100 * SCALE_MS);
++        due = (uint64_t)elapsed * MCA_BYTES_PER_SEC + s->carry;
++        want = due / NANOSECONDS_PER_SECOND;
++        want -= want % MCA_FRAME;
++        s->carry = due - want * NANOSECONDS_PER_SECOND;
++
++        /* Consume what the real rate gives; the capture side gets silence. */
++        apple_sio_dma_consume(s->tx_ep, want, apple_mca_consumed, s);
++        memset(s->buf, 0, sizeof(s->buf));
++        for (uint64_t left = want; left > 0;) {
++            uint64_t n = MIN(left, sizeof(s->buf));
++            apple_sio_dma_write(s->rx_ep, s->buf, n);
++            left -= n;
++        }
++
++        int64_t delay = s->ring_ns ? MIN(MCA_DELAY_MAX_NS, s->ring_ns / 2)
++                                   : 10 * SCALE_MS;
++        while (s->pend_n) {
++            typeof(s->pend[0]) *p = &s->pend[s->pend_head];
++            if (p->t > now - delay) {
++                break;
++            }
++            uint64_t addr = p->addr + s->pend_off;
++            uint32_t n = MIN(p->len - s->pend_off,
++                             MCA_BLOCK - (addr % MCA_BLOCK));
++            uint32_t written = n;
++            if (!apple_sio_dma_peek(s->tx_ep, addr, s->buf, n)) {
++                memset(s->buf, 0, n);
++            }
++            uint64_t hash = 0xcbf29ce484222325ULL;
++            for (uint32_t i = 0; i < n; ++i) {
++                hash = (hash ^ s->buf[i]) * 0x100000001b3ULL;
++            }
++            hash ^= n | (addr % MCA_BLOCK) << 16;
++            MCABlock *b = apple_mca_block(s, addr);
++            if (b->hash != hash) {
++                written = apple_mca_play(s, s->buf, n);
++                if (written == n) {
++                    b->hash = hash;
++                }
++            }
++            s->pend_off += written;
++            if (written < n) {
++                break;          /* the host's buffer is full: the rest later */
++            }
++            if (s->pend_off >= p->len) {
++                s->pend_off = 0;
++                s->pend_head = (s->pend_head + 1) % ARRAY_SIZE(s->pend);
++                s->pend_n--;
++            }
++        }
++        return;
++    }
+ 
+     uint8_t *temp = s->buf;
+     int64_t to_play = avail;
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 96415d7..37c409f 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -418,6 +418,65 @@ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+     return fresh;
+ }
+ 
++/*
++ * Consumes up to len bytes of the endpoint's queued buffers, as
++ * apple_sio_dma_read does, without copying them: each contiguous piece's DMA
++ * address and length goes to cb, so a device can read the bytes later
++ * (apple_sio_dma_peek). Returns the bytes consumed.
++ */
++uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
++                               void (*cb)(void *opaque, uint64_t addr,
++                                          uint64_t n),
++                               void *opaque)
++{
++    AppleSIOState *s;
++    SIODMABuffer *buf;
++    uint64_t taken = 0;
++
++    assert_cmpuint(ep->direction, ==, DMA_DIRECTION_TO_DEVICE);
++
++    QEMU_LOCK_GUARD(&ep->mutex);
++
++    s = container_of(ep, AppleSIOState, eps[ep->id]);
++    while (len > taken) {
++        buf = QTAILQ_FIRST(&ep->buffers);
++        if (buf == NULL || !apple_sio_dma_map_buf(ep, buf)) {
++            break;
++        }
++        uint64_t off = buf->completed, addr = 0, room = 0;
++        for (int i = 0; i < buf->sgl.nsg; ++i) {
++            if (off < buf->sgl.sg[i].len) {
++                addr = buf->sgl.sg[i].base + off;
++                room = buf->sgl.sg[i].len - off;
++                break;
++            }
++            off -= buf->sgl.sg[i].len;
++        }
++        uint64_t piece = MIN(MIN(len - taken, buf->iov.size - buf->completed),
++                             room);
++        if (piece == 0) {
++            break;
++        }
++        cb(opaque, addr, piece);
++        taken += piece;
++        buf->completed += piece;
++        if (buf->completed >= buf->iov.size) {
++            apple_sio_dma_writeback(s, ep, buf);
++        }
++    }
++    return taken;
++}
++
++/* Reads len bytes at DMA address addr of the endpoint's controller. */
++bool apple_sio_dma_peek(AppleSIODMAEndpoint *ep, uint64_t addr, void *buffer,
++                        uint64_t len)
++{
++    AppleSIOState *s = container_of(ep, AppleSIOState, eps[ep->id]);
++
++    return dma_memory_read(&s->dma_as, addr, buffer, len,
++                           MEMTXATTRS_UNSPECIFIED) == MEMTX_OK;
++}
++
+ uint64_t apple_sio_dma_write(AppleSIODMAEndpoint *ep, void *buffer,
+                              uint64_t len)
+ {
+diff --git a/include/hw/dma/apple_sio.h b/include/hw/dma/apple_sio.h
+index 24556a2..e992913 100644
+--- a/include/hw/dma/apple_sio.h
++++ b/include/hw/dma/apple_sio.h
+@@ -15,6 +15,12 @@ uint64_t apple_sio_dma_read(AppleSIODMAEndpoint *ep, void *buffer,
+                             uint64_t len);
+ uint64_t apple_sio_dma_read_fresh(AppleSIODMAEndpoint *ep, void *buffer,
+                                   uint64_t len, uint64_t *consumed);
++uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
++                               void (*cb)(void *opaque, uint64_t addr,
++                                          uint64_t n),
++                               void *opaque);
++bool apple_sio_dma_peek(AppleSIODMAEndpoint *ep, uint64_t addr, void *buffer,
++                        uint64_t len);
+ uint64_t apple_sio_dma_write(AppleSIODMAEndpoint *ep, void *buffer,
+                              uint64_t len);
+ uint64_t apple_sio_dma_remaining(AppleSIODMAEndpoint *ep);

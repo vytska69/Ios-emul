@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-07
+- Sound: fewer crackles. The emulated phone's speaker now reads each piece of sound a little later, after the slower emulated iOS has finished writing it, instead of playing an old or half-written piece.
 - The emulated iPhone no longer locks itself and turns its screen off a minute after you last touched it (Auto-Lock is set to Never on a new install).
 - Faster: when iOS changes only an app's memory, the emulator keeps the iOS kernel's already-translated code instead of throwing it all away.
 
