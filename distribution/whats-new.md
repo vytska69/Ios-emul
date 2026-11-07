@@ -8,6 +8,10 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-07
+- The emulated iPhone no longer locks itself and turns its screen off a minute after you last touched it (Auto-Lock is set to Never on a new install).
+- Faster: when iOS changes only an app's memory, the emulator keeps the iOS kernel's already-translated code instead of throwing it all away.
+
 ## 2026-11-06
 - Faster again: the quick code lookup now also covers jumps from one part of a program to a distant part, about a third of all lookups.
 - Virtual graphics chip: reading the pixels of pictures (icons, photos, the wallpaper) while drawing them on your device is quicker, because it remembers where in memory it was reading.

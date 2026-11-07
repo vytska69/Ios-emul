@@ -344,6 +344,24 @@ public struct InfernoBackend: EmulatorBackend {
             tree.files[springboard] = data
             tree.attributes[springboard] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
         }
+        // Auto-Lock "Never": the emulated phone has no power button to wake it in a hurry and its
+        // display going dark a minute after the last touch only got in the way (a test that waits
+        // between steps found the screen off). ManagedConfiguration keeps the setting in the
+        // user's settings and the effective ones computed from them (2147483647 is "Never").
+        let neverLock: [String: Any] = ["restrictedValue": ["maxInactivity": ["value": 2_147_483_647]]]
+        if ProcessInfo.processInfo.environment["IOSEMUL_AUTOLOCK"] != "1",
+           let data = try? PropertyListSerialization.data(fromPropertyList: neverLock, format: .binary, options: 0) {
+            for path in ["mobile/Library/UserConfigurationProfiles/UserSettings.plist",
+                         "mobile/Library/UserConfigurationProfiles/EffectiveUserSettings.plist",
+                         "mobile/Library/UserConfigurationProfiles/PublicInfo/PublicEffectiveUserSettings.plist"] {
+                tree.files[path] = data
+                tree.attributes[path] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o644)
+            }
+            for dir in ["mobile/Library/UserConfigurationProfiles",
+                        "mobile/Library/UserConfigurationProfiles/PublicInfo"] where tree.attributes[dir] == nil {
+                tree.attributes[dir] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
+            }
+        }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
             tree.attributes[path] = file.attributes
