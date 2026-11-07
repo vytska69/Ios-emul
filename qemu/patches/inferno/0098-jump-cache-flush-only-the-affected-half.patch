@@ -1,0 +1,74 @@
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 0fae72a..0bed478 100644
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -253,7 +253,7 @@ static void tb_jmp_cache_count(CPUState *cpu, CPUJumpCache *jc, uint32_t hash,
+     }
+     if ((jc->stats[0] & ((1u << 24) - 1)) == 0) {
+         fprintf(stderr, "jc-stats cpu%d", cpu->cpu_index);
+-        for (int i = 0; i < 12; i++) {
++        for (int i = 0; i < 16; i++) {
+             fprintf(stderr, " %" PRIu64, jc->stats[i]);
+         }
+         fprintf(stderr, "\n");
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index e6096c7..566cbb6 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -647,7 +647,22 @@ static void tlb_flush_by_mmuidx_async_work(CPUState *cpu, run_on_cpu_data data)
+ 
+     qemu_spin_unlock(&cpu->neg.tlb.c.lock);
+ 
+-    tcg_flush_jmp_cache(cpu);
++    /*
++     * A flush of the user's TLB alone (EL0: an SPRR permission change, a
++     * TLBI by ASID done as a full flush) only changes how user code is
++     * mapped: the jump cache's user entries go, the kernel's stay. It used
++     * to drop every entry, the kernel's included, many times a second.
++     */
++    if (asid_user_midx >= 0 && asked == (1u << asid_user_midx) &&
++        cpu->tb_jmp_cache) {
++        qatomic_inc(&cpu->tb_jmp_cache->user_gen);
++        cpu->tb_jmp_cache->stats[12]++;
++    } else {
++        tcg_flush_jmp_cache(cpu);
++        if (cpu->tb_jmp_cache) {
++            cpu->tb_jmp_cache->stats[13]++;
++        }
++    }
+ 
+     if (to_clean == ALL_MMUIDX_BITS) {
+         qatomic_set(&cpu->neg.tlb.c.full_flush_count,
+@@ -1332,7 +1347,18 @@ static void tlb_flush_range_by_mmuidx_async_0(CPUState *cpu,
+      * longer to clear each entry individually than it will to clear it all.
+      */
+     if (d.len >= (TARGET_PAGE_SIZE * TB_JMP_CACHE_SIZE)) {
+-        tcg_flush_jmp_cache(cpu);
++        /*
++         * A large range within one half of the address space only drops
++         * the jump cache entries of that half (see tb_jmp_cache_gen_ok).
++         */
++        CPUJumpCache *jc = cpu->tb_jmp_cache;
++        bool upper = (int64_t)d.addr < 0;
++        if (jc && upper == ((int64_t)(d.addr + d.len - 1) < 0)) {
++            qatomic_inc(upper ? &jc->all_gen : &jc->user_gen);
++            jc->stats[upper ? 15 : 14]++;
++        } else {
++            tcg_flush_jmp_cache(cpu);
++        }
+         return;
+     }
+ 
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index ba037f0..d0711b9 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -56,7 +56,7 @@ typedef struct CPUJumpCache {
+      */
+     uint64_t kern_tag;
+     /* QEMU_JC_STATS=1: lookup counters, printed to stderr (see tb_lookup). */
+-    uint64_t stats[12];
++    uint64_t stats[16];
+     struct {
+         TranslationBlock *tb;
+         vaddr pc;
