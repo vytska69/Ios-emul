@@ -342,7 +342,16 @@ final class IPSWKitTests: XCTestCase {
         let plain = InfernoBackend.dataVolumeTree(tweaks: GuestTweaks(), build: "18A373")
         XCTAssertEqual(Set(plain.files.keys), ["mobile/Library/Preferences/com.apple.migration.plist",
                                                "mobile/Library/Preferences/com.apple.springboard.plist",
-                                               "db/com.apple.xpc.launchd/disabled.plist"])
+                                               "db/com.apple.xpc.launchd/disabled.plist",
+                                               "mobile/Library/UserConfigurationProfiles/UserSettings.plist",
+                                               "mobile/Library/UserConfigurationProfiles/EffectiveUserSettings.plist",
+                                               "mobile/Library/UserConfigurationProfiles/PublicInfo/PublicEffectiveUserSettings.plist"])
+        // Auto-Lock "Never" (ManagedConfiguration's maxInactivity), owned by mobile.
+        let lock = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: plain.files["mobile/Library/UserConfigurationProfiles/UserSettings.plist"]!, format: nil) as? [String: Any])
+        let inactivity = (lock["restrictedValue"] as? [String: Any])?["maxInactivity"] as? [String: Any]
+        XCTAssertEqual(inactivity?["value"] as? Int, 2_147_483_647)
+        XCTAssertEqual(plain.attributes["mobile/Library/UserConfigurationProfiles"]?.uid, 501)
         let disabled = try XCTUnwrap(PropertyListSerialization.propertyList(
             from: plain.files["db/com.apple.xpc.launchd/disabled.plist"]!, format: nil) as? [String: Bool])
         XCTAssertEqual(disabled["com.apple.CommCenter"], true)
