@@ -1,0 +1,110 @@
+diff --git a/target/arm/tcg/vec_helper.c b/target/arm/tcg/vec_helper.c
+index 00ac598..e428ba9 100644
+--- a/target/arm/tcg/vec_helper.c
++++ b/target/arm/tcg/vec_helper.c
+@@ -1566,19 +1566,105 @@ void HELPER(NAME)(void *vd, void *vn, void *vm,                            \
+ 
+ DO_3OP(gvec_fadd_b16, bfloat16_add, float16)
+ DO_3OP(gvec_fadd_h, float16_add, float16)
++/*
++ * Single-precision vector add, subtract and multiply on an AArch64 host:
++ * four lanes at once with the host's NEON when every lane is the common case
++ * the scalar fast paths (fpu/softfloat-fast-arm.c.inc) take one at a time:
++ * zero or normal inputs, a result that is exactly zero or well inside the
++ * normal range, round to nearest, and the inexact flag already raised (so no
++ * flag can change). Any other group of four goes lane by lane as before.
++ * QEMU_FAST_FP=0 turns it off.
++ */
++#if defined(__aarch64__)
++#include <arm_neon.h>
++
++static bool vfastfp_off;
++
++static void __attribute__((constructor)) vfastfp_init(void)
++{
++    const char *v = getenv("QEMU_FAST_FP");
++    vfastfp_off = v && v[0] == '0';
++}
++
++static inline bool vfastfp_ok(float_status *s)
++{
++    return s->native_arm && !vfastfp_off &&
++           get_float_rounding_mode(s) == float_round_nearest_even &&
++           (get_float_exception_flags(s) & float_flag_inexact);
++}
++
++static inline uint32x4_t vf32_zon(uint32x4_t a)
++{
++    uint32x4_t e = vandq_u32(a, vdupq_n_u32(0x7f800000));
++    uint32x4_t notmax = vmvnq_u32(vceqq_u32(e, vdupq_n_u32(0x7f800000)));
++    uint32x4_t enz = vmvnq_u32(vceqzq_u32(e));
++    uint32x4_t mz = vceqzq_u32(vandq_u32(a, vdupq_n_u32(0x7fffff)));
++    return vandq_u32(notmax, vorrq_u32(enz, mz));
++}
++
++static inline uint32x4_t vf32_safe(float32x4_t z)
++{
++    float32x4_t m = vabsq_f32(z);
++    return vandq_u32(vcgeq_f32(m, vdupq_n_f32(0x1p-100f)),
++                     vcleq_f32(m, vdupq_n_f32(0x1p+120f)));
++}
++
++#define DO_3OP_FAST_S(NAME, FUNC, OPV, MUL)                                 \
++void HELPER(NAME)(void *vd, void *vn, void *vm,                            \
++                  float_status *stat, uint32_t desc)                       \
++{                                                                          \
++    intptr_t i = 0, oprsz = simd_oprsz(desc);                              \
++    float32 *d = vd, *n = vn, *m = vm;                                     \
++    intptr_t e = oprsz / sizeof(float32);                                  \
++    if (vfastfp_ok(stat)) {                                                \
++        for (; i + 4 <= e; i += 4) {                                       \
++            uint32x4_t a = vld1q_u32(n + i), b = vld1q_u32(m + i);         \
++            float32x4_t x = vreinterpretq_f32_u32(a);                      \
++            float32x4_t y = vreinterpretq_f32_u32(b);                      \
++            float32x4_t z = OPV(x, y);                                     \
++            uint32x4_t ok = vandq_u32(vf32_zon(a), vf32_zon(b));           \
++            uint32x4_t exact = vceqzq_f32(z);                              \
++            if (MUL) {                                                     \
++                exact = vorrq_u32(vceqzq_f32(x), vceqzq_f32(y));           \
++            }                                                              \
++            ok = vandq_u32(ok, vorrq_u32(exact, vf32_safe(z)));            \
++            if (vminvq_u32(ok) != UINT32_MAX) {                            \
++                for (int k = 0; k < 4; k++) {                              \
++                    d[i + k] = FUNC(n[i + k], m[i + k], stat);             \
++                }                                                          \
++                continue;                                                  \
++            }                                                              \
++            vst1q_f32((float *)(d + i), z);                                \
++        }                                                                  \
++    }                                                                      \
++    for (; i < e; i++) {                                                   \
++        d[i] = FUNC(n[i], m[i], stat);                                     \
++    }                                                                      \
++    clear_tail(d, oprsz, simd_maxsz(desc));                                \
++}
++
++DO_3OP_FAST_S(gvec_fadd_s, float32_add, vaddq_f32, false)
++DO_3OP_FAST_S(gvec_fsub_s, float32_sub, vsubq_f32, false)
++DO_3OP_FAST_S(gvec_fmul_s, float32_mul, vmulq_f32, true)
++#else
+ DO_3OP(gvec_fadd_s, float32_add, float32)
++#endif
+ DO_3OP(gvec_fadd_d, float64_add, float64)
+ DO_3OP(gvec_bfadd, bfloat16_add, bfloat16)
+ 
+ DO_3OP(gvec_fsub_b16, bfloat16_sub, float16)
+ DO_3OP(gvec_fsub_h, float16_sub, float16)
++#if !defined(__aarch64__)
+ DO_3OP(gvec_fsub_s, float32_sub, float32)
++#endif
+ DO_3OP(gvec_fsub_d, float64_sub, float64)
+ DO_3OP(gvec_bfsub, bfloat16_sub, bfloat16)
+ 
+ DO_3OP(gvec_fmul_b16, bfloat16_mul, float16)
+ DO_3OP(gvec_fmul_h, float16_mul, float16)
++#if !defined(__aarch64__)
+ DO_3OP(gvec_fmul_s, float32_mul, float32)
++#endif
+ DO_3OP(gvec_fmul_d, float64_mul, float64)
+ 
+ DO_3OP(gvec_ftsmul_h, float16_ftsmul, float16)

@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-08
+- Faster drawing: groups of four decimal-number calculations, which iOS uses a lot when drawing, are now done in one step on your device's processor instead of one at a time.
+
 ## 2026-11-07
 - Sound: softer and fewer crackles. Where the emulated iOS is too late with a bit of sound and it has to be left out, the sound around the gap now fades smoothly instead of jumping.
 - The emulated iPhone no longer locks itself and turns its screen off a minute after you last touched it (Auto-Lock is set to Never on a new install).
