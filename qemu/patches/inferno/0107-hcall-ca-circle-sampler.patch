@@ -1,0 +1,141 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index a163897..7abd7f1 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1916,6 +1916,7 @@ enum {
+     IOS_HCALL_CA_UNPREMULTIPLY = 13,
+     IOS_HCALL_CA_LUMINANCE_CURVE = 14,
+     IOS_HCALL_CA_SAMPLE_TEXTURE = 15,
++    IOS_HCALL_CA_CIRCLE_SAMPLER = 16,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2249,6 +2250,16 @@ static inline void ca_st32_one(CPUARMState *env, CaOne *o, CaCache *c,
+     ca_st32_one_slow(env, o, c, a, v, mmu, ra);
+ }
+ 
++/*
++ * QuartzCore (18A373) CA::OGL::SW::circle_sampler<false, false> (0x18370d938): a
++ * circle's coverage as one grey byte per pixel, written from its code
++ * (scripts/vgpu-check/check_circle.py: circle_ref.c, the same steps, matches it in
++ * Unicorn). x0 = SamplerData, w1 = count, x2 = out.
++ */
++#define CA_CIRCLE00_ADDR 0x18370d938ull
++
++static void ios_hcall_ca_circle00(CPUARMState *env, uintptr_t ra);
++
+ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+ {
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+@@ -3114,6 +3125,9 @@ static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
+     case 0x183721014ull:
+         run = ios_hcall_ca_clamp_argb8;
+         break;
++    case CA_CIRCLE00_ADDR:
++        run = ios_hcall_ca_circle00;
++        break;
+     }
+     {
+         /* QEMU_HCALL15_LOG=1: the first calls' choices; QEMU_HCALL15_FALLBACK=1: never native. */
+@@ -3222,6 +3236,91 @@ static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
+     x[16] = 1;
+ }
+ 
++static inline uint64_t ca_ld64_pair(CPUARMState *env, uint64_t a, int mmu, uintptr_t ra)
++{
++    return cpu_ldq_le_mmuidx_ra(env, a, mmu, ra);
++}
++
++static inline float ca_f32(uint32_t v)
++{
++    float f;
++    memcpy(&f, &v, 4);
++    return f;
++}
++
++static void ios_hcall_ca_circle00(CPUARMState *env, uintptr_t ra)
++{
++#ifdef __clang__
++#pragma clang fp contract(off)
++#endif
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache sc;
++    CaOne oo = CA_ONE_INIT;
++    uint64_t sd = x[0], out = x[2];
++    uint32_t count = (uint32_t)x[1];
++
++    if (!count) {
++        return;
++    }
++    ca_cache_init(&sc);
++    uint64_t off = (uint64_t)cpu_ldl_le_mmuidx_ra(env, sd + 8, mmu, ra) * 8 + 0x20;
++    uint64_t t10 = cpu_ldq_le_mmuidx_ra(env, sd + 0x10, mmu, ra);
++    uint64_t t18 = cpu_ldq_le_mmuidx_ra(env, sd + 0x18, mmu, ra);
++    uint64_t t20 = cpu_ldq_le_mmuidx_ra(env, sd + 0x20, mmu, ra);
++    uint64_t t28 = cpu_ldq_le_mmuidx_ra(env, sd + 0x28, mmu, ra);
++    uint64_t q0 = ca_ld64_pair(env, t18 + off, mmu, ra);
++    uint64_t q1 = ca_ld64_pair(env, t28 + off, mmu, ra);
++    uint64_t q2 = ca_ld64_pair(env, t20 + off, mmu, ra);
++    uint64_t q3 = ca_ld64_pair(env, t10 + off, mmu, ra);
++    float v0[2] = { ca_f32(q0), ca_f32(q0 >> 32) };
++    float v1[2] = { ca_f32(q1), ca_f32(q1 >> 32) };
++    float v2[2] = { ca_f32(q2), ca_f32(q2 >> 32) };
++    float v3[2] = { ca_f32(q3), ca_f32(q3 >> 32) };
++    float a0 = fabsf(v0[0]), a1 = fabsf(v0[1]);
++
++    while (count--) {
++        float t0 = a0 + fabsf(v2[0]);
++        float t1 = a1 + fabsf(v2[1]);
++        float s7 = t0 > t1 ? t0 : t1;
++        float m0 = v3[0] * v3[0];
++        float m1 = v3[1] * v3[1];
++        float s16 = m0 + m1;
++        float lo = 1.0f - s7;
++        uint32_t a;
++
++        if (s16 < lo) {
++            a = 0xff;
++        } else {
++            float hi = s7 + 1.0f;
++            if (!(s16 <= hi) && !isnan(s16) && !isnan(hi)) {
++                a = 0;
++            } else {
++                float q = sqrtf(s16);
++                float r = s16 / q;
++                float w = fmaf(s7, 0.5f, 1.0f);
++                float z = w - r;
++                z = z * 255.0f;
++                z = z / s7;
++                z = z + 0.5f;
++                int32_t k = ca_fcvtzs(z);
++                if (k < 0) {
++                    k = 0;
++                }
++                a = k < 0xff ? (uint32_t)k : 0xff;
++            }
++        }
++        a |= a << 8;
++        a |= a << 16;
++        ca_st32_one(env, &oo, &sc, out, a, mmu, ra);
++        out += 4;
++        v3[0] = v0[0] + v3[0];
++        v3[1] = v0[1] + v3[1];
++        v2[0] = v1[0] + v2[0];
++        v2[1] = v1[1] + v2[1];
++    }
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -3276,6 +3375,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_SAMPLE_TEXTURE:
+         ios_hcall_ca_sample_texture(env, ra);
+         break;
++    case IOS_HCALL_CA_CIRCLE_SAMPLER:
++        ios_hcall_ca_circle00(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

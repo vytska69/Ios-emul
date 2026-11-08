@@ -157,6 +157,14 @@ public enum SharedCachePatches {
                   reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_8370_C1F0, original: 0xA907_7BFD, replacement: 0xD65F_03C0,
                   reason: "QuartzCore Blend::Mode<Sover, true>::blend (virtual GPU hypercall): ret"),
+            // QuartzCore's circle coverage sampler (hypercall 16, patch 0107): a leaf function, its first
+            // three instructions become the hypercall and a return (scripts/vgpu-check/check_circle.py).
+            Patch(address: 0x1_8370_D938, original: 0x3400_06C1, replacement: 0xD280_0210,
+                  reason: "QuartzCore circle_sampler<false, false> (virtual GPU hypercall): mov x16, #16"),
+            Patch(address: 0x1_8370_D93C, original: 0xA941_2408, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore circle_sampler<false, false> (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_D940, original: 0xB940_080A, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore circle_sampler<false, false> (virtual GPU hypercall): ret"),
             // QuartzCore scanline's un-premultiplying loop (hypercall 13, patch 0078): its first three
             // instructions become the hypercall and a branch past the loop
             // (scripts/vgpu-check/check_unpremul.py).

@@ -89,3 +89,4 @@ python3 check_sample_texture.py 3000
 ```
 
 Rezultatas 2026-11-05: 3000 atvejų, 0 skirtumų.
+- `check_circle.py`: QuartzCore `circle_sampler<false, false>` (hypercall 16) against `circle_ref.c` (`cc -O2 -ffp-contract=off -shared -fPIC -o circle_ref.so circle_ref.c -lm`).
