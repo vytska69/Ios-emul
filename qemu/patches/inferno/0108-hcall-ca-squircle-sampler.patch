@@ -1,0 +1,152 @@
+diff --git a/target/arm/tcg/helper-a64.c b/target/arm/tcg/helper-a64.c
+index 7abd7f1..d09bed7 100644
+--- a/target/arm/tcg/helper-a64.c
++++ b/target/arm/tcg/helper-a64.c
+@@ -1917,6 +1917,7 @@ enum {
+     IOS_HCALL_CA_LUMINANCE_CURVE = 14,
+     IOS_HCALL_CA_SAMPLE_TEXTURE = 15,
+     IOS_HCALL_CA_CIRCLE_SAMPLER = 16,
++    IOS_HCALL_CA_SQUIRCLE_SAMPLER = 17,
+ };
+ 
+ /* Host addresses for each page of [addr, addr + len), or false if one is not RAM. */
+@@ -2260,6 +2261,17 @@ static inline void ca_st32_one(CPUARMState *env, CaOne *o, CaCache *c,
+ 
+ static void ios_hcall_ca_circle00(CPUARMState *env, uintptr_t ra);
+ 
++/*
++ * circle_sampler<false, true> (0x18370d624): the rounded rectangle ("squircle")
++ * version, its edge band through powf (the host's; scripts/vgpu-check/check_squircle.py
++ * matches it in Unicorn with the guest's powf calls answered by the same powf).
++ * Its constants are at 0x183876d40..d50 (slid with QuartzCore).
++ */
++#define CA_CIRCLE01_ADDR 0x18370d624ull
++#define CA_CIRCLE01_K 0x183876d40ull
++
++static void ios_hcall_ca_circle01(CPUARMState *env, uintptr_t ra);
++
+ static void ios_hcall_ca_image_sampler_argb8(CPUARMState *env, uintptr_t ra)
+ {
+     const uint64_t *x = ca_args ? ca_args : env->xregs;
+@@ -3128,6 +3140,9 @@ static void ios_hcall_ca_sample_texture(CPUARMState *env, uintptr_t ra)
+     case CA_CIRCLE00_ADDR:
+         run = ios_hcall_ca_circle00;
+         break;
++    case CA_CIRCLE01_ADDR:
++        run = ios_hcall_ca_circle01;
++        break;
+     }
+     {
+         /* QEMU_HCALL15_LOG=1: the first calls' choices; QEMU_HCALL15_FALLBACK=1: never native. */
+@@ -3321,6 +3336,101 @@ static void ios_hcall_ca_circle00(CPUARMState *env, uintptr_t ra)
+     }
+ }
+ 
++static void ios_hcall_ca_circle01(CPUARMState *env, uintptr_t ra)
++{
++#ifdef __clang__
++#pragma clang fp contract(off)
++#endif
++    const uint64_t *x = ca_args ? ca_args : env->xregs;
++    int mmu = arm_env_mmu_index(env);
++    CaCache sc;
++    CaOne oo = CA_ONE_INIT;
++    uint64_t sd = x[0], out = x[2];
++    uint32_t count = (uint32_t)x[1];
++    /*
++     * QuartzCore's slide: from sample_texture (hypercall 15) its x17 is the ARGB8
++     * sampler's slid address; called directly, pc is the hint after its first
++     * instruction (patch 0079 updates pc before a hypercall).
++     */
++    uint64_t slide = ca_args ? ca_args[17] - CA_SAMPLER_ARGB8_ADDR
++                             : env->pc - (CA_CIRCLE01_ADDR + 4);
++    float k[5];
++
++    if (!count) {
++        return;
++    }
++    ca_cache_init(&sc);
++    for (int i = 0; i < 5; i++) {
++        k[i] = ca_f32(cpu_ldl_le_mmuidx_ra(env, CA_CIRCLE01_K + slide + 4 * i, mmu, ra));
++    }
++    const float c7 = ca_f32(0x3f9978d5), c16 = ca_f32(0xbe4bc6a8);
++    uint64_t off = (uint64_t)cpu_ldl_le_mmuidx_ra(env, sd + 8, mmu, ra) * 8 + 0x20;
++    uint64_t q0 = cpu_ldq_le_mmuidx_ra(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x18, mmu, ra) + off, mmu, ra);
++    uint64_t q1 = cpu_ldq_le_mmuidx_ra(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x28, mmu, ra) + off, mmu, ra);
++    uint64_t q2 = cpu_ldq_le_mmuidx_ra(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x20, mmu, ra) + off, mmu, ra);
++    uint64_t q3 = cpu_ldq_le_mmuidx_ra(env, cpu_ldq_le_mmuidx_ra(env, sd + 0x10, mmu, ra) + off, mmu, ra);
++    float v0[2] = { ca_f32(q0), ca_f32(q0 >> 32) };
++    float v1[2] = { ca_f32(q1), ca_f32(q1 >> 32) };
++    float v2[2] = { ca_f32(q2), ca_f32(q2 >> 32) };
++    float v3[2] = { ca_f32(q3), ca_f32(q3 >> 32) };
++    float a0 = fabsf(v0[0]), a1 = fabsf(v0[1]);
++
++    while (count--) {
++        float t0 = a0 + fabsf(v2[0]);
++        float t1 = a1 + fabsf(v2[1]);
++        float p0 = fmaf(c7, fabsf(v3[0]), c16);
++        float p1 = fmaf(c7, fabsf(v3[1]), c16);
++        p0 = p0 > 0.0f ? p0 : 0.0f;
++        p1 = p1 > 0.0f ? p1 : 0.0f;
++        float s12 = t0 > t1 ? t0 : t1;
++        float s1 = s12 * k[0];
++        float sq0 = p0 * p0, sq1 = p1 * p1;
++        float s3 = sq0 + sq1;
++        float s8 = 1.0f - s1;
++        uint32_t a;
++
++        if (s3 < s8) {
++            a = 0xff;
++        } else {
++            float cube = sq0 * p0;
++            cube = fmaf(sq1, p1, cube);
++            float s13 = s1 + 1.0f;
++            if (!(cube <= s13) && !isnan(cube) && !isnan(s13)) {
++                a = 0;
++            } else {
++                float w0 = powf(p0, k[1]);
++                float w1 = powf(p1, k[1]);
++                float sum = w1 + w0;
++                if (sum < s8) {
++                    a = 0xff;
++                } else if (!(sum <= s13) && !isnan(sum) && !isnan(s13)) {
++                    a = 0;
++                } else {
++                    float r = powf(sum, k[2]);
++                    float u = fmaf(s12, k[3], 1.0f);
++                    float z = u - r;
++                    z = z * k[4];
++                    z = z / s12;
++                    z = z + 0.5f;
++                    int32_t kk = ca_fcvtzs(z);
++                    if (kk < 0) {
++                        kk = 0;
++                    }
++                    a = kk < 0xff ? (uint32_t)kk : 0xff;
++                }
++            }
++        }
++        a |= a << 8;
++        a |= a << 16;
++        ca_st32_one(env, &oo, &sc, out, a, mmu, ra);
++        out += 4;
++        v3[0] = v0[0] + v3[0];
++        v3[1] = v0[1] + v3[1];
++        v2[0] = v1[0] + v2[0];
++        v2[1] = v1[1] + v2[1];
++    }
++}
++
+ void HELPER(ios_hcall)(CPUARMState *env)
+ {
+     uintptr_t ra = GETPC();
+@@ -3378,6 +3488,9 @@ void HELPER(ios_hcall)(CPUARMState *env)
+     case IOS_HCALL_CA_CIRCLE_SAMPLER:
+         ios_hcall_ca_circle00(env, ra);
+         break;
++    case IOS_HCALL_CA_SQUIRCLE_SAMPLER:
++        ios_hcall_ca_circle01(env, ra);
++        break;
+     case IOS_HCALL_MEMSET:
+         if (x[2]) {
+             ios_hcall_memset(env, x[0], (int)(x[1] & 0xff), x[2], ra);

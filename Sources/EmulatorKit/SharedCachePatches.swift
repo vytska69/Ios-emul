@@ -165,6 +165,14 @@ public enum SharedCachePatches {
                   reason: "QuartzCore circle_sampler<false, false> (virtual GPU hypercall): hint #127"),
             Patch(address: 0x1_8370_D940, original: 0xB940_080A, replacement: 0xD65F_03C0,
                   reason: "QuartzCore circle_sampler<false, false> (virtual GPU hypercall): ret"),
+            // Its rounded-rectangle ("squircle") version (hypercall 17, patch 0108), with powf at the
+            // edges: the hypercall replaces the start of its prologue (scripts/vgpu-check/check_squircle.py).
+            Patch(address: 0x1_8370_D624, original: 0xD503_237F, replacement: 0xD280_0230,
+                  reason: "QuartzCore circle_sampler<false, true> (virtual GPU hypercall): mov x16, #17"),
+            Patch(address: 0x1_8370_D628, original: 0xD103_03FF, replacement: 0xD503_2FFF,
+                  reason: "QuartzCore circle_sampler<false, true> (virtual GPU hypercall): hint #127"),
+            Patch(address: 0x1_8370_D62C, original: 0x6D05_3BEF, replacement: 0xD65F_03C0,
+                  reason: "QuartzCore circle_sampler<false, true> (virtual GPU hypercall): ret"),
             // QuartzCore scanline's un-premultiplying loop (hypercall 13, patch 0078): its first three
             // instructions become the hypercall and a branch past the loop
             // (scripts/vgpu-check/check_unpremul.py).
