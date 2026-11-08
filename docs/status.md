@@ -76,7 +76,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   (`wfi`). Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s iki 0085, ~8–9 kadrai/s po 0097–0098 (ekranas įsijungia per ~335–450 s), o be lietimo
   ekranas perpiešiamas 16–25 kartus per sekundę. Tempiant piešimas užima didelę vartotojo erdvės dalį: be
   hiperkvietimų dar lieka CoreAnimation rastrizatoriaus karkasas (`scanline`, `sample_texture`,
-  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0105):
+  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0106):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -107,7 +107,8 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
     `QEMU_WFE_SLEEP=0` išjungia): užrakto laikytojas gauna hosto branduolį; A/B abiem tvarkomis
     tempiant 4,4→6,1 ir 5,5→7,0 kadro/s;
   - vektorinis `float32` sudėjimas/atimtis/daugyba (`gvec_fadd_s` ir kt.) bendruoju atveju keturiomis
-    juostomis hosto NEON (0105, `QEMU_FAST_FP=0` išjungia);
+    juostomis hosto NEON, „inexact“ skaičiuojamas pačiame kelyje (0105–0106, `QEMU_FAST_FP=0` išjungia):
+    `helper_gvec_fadd_s` profilyje 122 → 50;
   - garsas: kur vėluojanti dalis praleidžiama, 1,3 ms perėjimas vietoj šuolio (0103); laukti tos dalies
     (0101–0102, `QEMU_MCA_WAIT=1`) ar ją skaityti vėliau (0099, `QEMU_MCA_DELAY=1`) – iOS garsas nutrūkdavo;
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): pertraukimų priėmimas be BQL
