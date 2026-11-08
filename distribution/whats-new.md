@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-08
+- USB keyboard groundwork: when the emulated iPhone acts as a USB host, the USB controller no longer floods it with interrupts, which used to freeze it as soon as a keyboard was plugged in.
 - Virtual graphics chip: round shapes (circles, and the rounded corners of icons, buttons and panels) are now drawn directly on your device too (on a new install).
 - Smoother: when one of the emulated processor cores waits a long time for another, it now briefly rests and lets that other core run, instead of spinning and taking its time. In a test the screen kept up about 30% better while dragging.
 - Faster drawing: groups of four decimal-number calculations, which iOS uses a lot when drawing, are now done in one step on your device's processor instead of one at a time.

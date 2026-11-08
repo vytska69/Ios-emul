@@ -1,0 +1,193 @@
+diff --git a/hw/usb/hcd-dwc3.c b/hw/usb/hcd-dwc3.c
+index 5226b48..f5b845c 100644
+--- a/hw/usb/hcd-dwc3.c
++++ b/hw/usb/hcd-dwc3.c
+@@ -1917,6 +1917,11 @@ static void usb_dwc3_realize(DeviceState *dev, Error **errp)
+ 
+     obj = object_property_get_link(OBJECT(dev), "dma-xhci", &error_abort);
+     s->sysbus_xhci.xhci.dma_mr = MEMORY_REGION(obj);
++    {
++        /* iOS's host driver needs a reset that takes time (see hcd-xhci.c). */
++        const char *v = getenv("QEMU_XHCI_RESET_US");
++        s->sysbus_xhci.xhci.port_reset_us = v ? atoi(v) : 10000;
++    }
+ 
+     sysbus_realize(SYS_BUS_DEVICE(&s->sysbus_xhci), &err);
+     if (err) {
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index e71ec43..a8ecfe3 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -556,16 +556,20 @@ static void xhci_intr_update(XHCIState *xhci, int v)
+ {
+     int level = 0;
+ 
+-    if (v == 0) {
+-        if (xhci->intr[0].iman & IMAN_IP &&
+-            xhci->intr[0].iman & IMAN_IE &&
+-            xhci->usbcmd & USBCMD_INTE) {
+-            level = 1;
+-        }
+-        if (xhci->intr_raise) {
+-            if (xhci->intr_raise(xhci, 0, level)) {
+-                xhci->intr[0].iman &= ~IMAN_IP;
+-            }
++    /*
++     * Every interrupter, not only the first: on a controller with one wired
++     * line per interrupter (DWC3) a line left high after the guest cleared
++     * IMAN.IP keeps its interrupt handler running without end. MSI(-X)
++     * ignores a lowered level.
++     */
++    if (xhci->intr[v].iman & IMAN_IP &&
++        xhci->intr[v].iman & IMAN_IE &&
++        xhci->usbcmd & USBCMD_INTE) {
++        level = 1;
++    }
++    if (xhci->intr_raise) {
++        if (xhci->intr_raise(xhci, v, level)) {
++            xhci->intr[v].iman &= ~IMAN_IP;
+         }
+     }
+     if (xhci->intr_update) {
+@@ -2699,16 +2703,8 @@ static void xhci_port_update(XHCIPort *port, int is_detach)
+     xhci_port_notify(port, PORTSC_CSC);
+ }
+ 
+-static void xhci_port_reset(XHCIPort *port, bool warm_reset)
++static void xhci_port_reset_done(XHCIPort *port, bool warm_reset)
+ {
+-    trace_usb_xhci_port_reset(port->portnr, warm_reset);
+-
+-    if (!xhci_port_have_device(port)) {
+-        return;
+-    }
+-
+-    usb_device_reset(port->uport->dev);
+-
+     switch (port->uport->dev->speed) {
+     case USB_SPEED_SUPER:
+         if (warm_reset) {
+@@ -2728,6 +2724,49 @@ static void xhci_port_reset(XHCIPort *port, bool warm_reset)
+     xhci_port_notify(port, PORTSC_PRC);
+ }
+ 
++static void xhci_port_reset_timer(void *opaque)
++{
++    XHCIPort *port = opaque;
++
++    /* A detach or controller reset since then cleared PR: nothing to finish. */
++    if (!(port->portsc & PORTSC_PR) || !xhci_port_have_device(port)) {
++        port->portsc &= ~PORTSC_PR;
++        return;
++    }
++    xhci_port_reset_done(port, false);
++}
++
++static void xhci_port_reset(XHCIPort *port, bool warm_reset)
++{
++    trace_usb_xhci_port_reset(port->portnr, warm_reset);
++
++    if (!xhci_port_have_device(port)) {
++        return;
++    }
++
++    if (!warm_reset && port->xhci->port_reset_us && port->reset_timer &&
++        port->uport->dev->speed != USB_SPEED_SUPER) {
++        /*
++         * A real USB 2 port signals reset for 10 ms or more, with PR read
++         * back as 1. iOS's host driver writes PR again while it reads 0, so
++         * an instant reset turns into a storm of resets and port status
++         * change events that fills the event ring.
++         */
++        if (port->portsc & PORTSC_PR) {
++            return;
++        }
++        usb_device_reset(port->uport->dev);
++        port->portsc |= PORTSC_PR;
++        timer_mod(port->reset_timer,
++                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
++                  (int64_t)port->xhci->port_reset_us * 1000);
++        return;
++    }
++
++    usb_device_reset(port->uport->dev);
++    xhci_port_reset_done(port, warm_reset);
++}
++
+ static void xhci_reset(DeviceState *dev)
+ {
+     XHCIState *xhci = XHCI(dev);
+@@ -3019,7 +3058,10 @@ static void xhci_oper_write(void *ptr, hwaddr reg,
+         if (val & USBCMD_HCRST) {
+             xhci_reset(DEVICE(xhci));
+         }
+-        xhci_intr_update(xhci, 0);
++        /* INTE and a reset concern every interrupter's line. */
++        for (int i = 0; i < xhci->numintrs; i++) {
++            xhci_intr_update(xhci, i);
++        }
+         break;
+ 
+     case 0x04: /* USBSTS */
+@@ -3470,6 +3512,8 @@ static void usb_xhci_realize(DeviceState *dev, Error **errp)
+         XHCIPort *port = &xhci->ports[i];
+         uint32_t offset = OFF_OPER + 0x400 + 0x10 * i;
+         port->xhci = xhci;
++        port->reset_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
++                                         xhci_port_reset_timer, port);
+         memory_region_init_io(&port->mem, OBJECT(dev), &xhci_port_ops, port,
+                               port->name, 0x10);
+         memory_region_add_subregion(&xhci->mem, offset, &port->mem);
+@@ -3500,6 +3544,10 @@ static void usb_xhci_unrealize(DeviceState *dev)
+     for (i = 0; i < xhci->numports; i++) {
+         XHCIPort *port = &xhci->ports[i];
+         memory_region_del_subregion(&xhci->mem, &port->mem);
++        if (port->reset_timer) {
++            timer_free(port->reset_timer);
++            port->reset_timer = NULL;
++        }
+     }
+ 
+     usb_bus_release(&xhci->bus);
+@@ -3516,6 +3564,16 @@ static int usb_xhci_post_load(void *opaque, int version_id)
+     int slotid, epid, state;
+     uint64_t addr;
+ 
++    /* A port reset in progress when saved finishes after the load. */
++    for (int i = 0; i < xhci->numports; i++) {
++        XHCIPort *port = &xhci->ports[i];
++        if ((port->portsc & PORTSC_PR) && port->reset_timer) {
++            timer_mod(port->reset_timer,
++                      qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
++                      (int64_t)xhci->port_reset_us * 1000);
++        }
++    }
++
+     dcbaap = xhci_addr64(xhci->dcbaap_low, xhci->dcbaap_high);
+ 
+     for (slotid = 1; slotid <= xhci->numslots; slotid++) {
+diff --git a/hw/usb/hcd-xhci.h b/hw/usb/hcd-xhci.h
+index 9c3974f..30f43b4 100644
+--- a/hw/usb/hcd-xhci.h
++++ b/hw/usb/hcd-xhci.h
+@@ -128,6 +128,8 @@ typedef struct XHCIPort {
+     uint32_t speedmask;
+     char name[20];
+     MemoryRegion mem;
++    /* Holds PORTSC.PR for XHCIState.port_reset_us before the reset completes. */
++    QEMUTimer *reset_timer;
+ } XHCIPort;
+ 
+ typedef struct XHCISlot {
+@@ -199,6 +201,11 @@ typedef struct XHCIState {
+      */
+     bool (*intr_mapping_supported)(XHCIState *s);
+     DeviceState *hostOpaque;
++    /*
++     * USB 2 port resets last this long (PORTSC.PR stays set) instead of
++     * completing at once. 0 keeps QEMU's instant reset.
++     */
++    uint32_t port_reset_us;
+ 
+     /* Operational Registers */
+     uint32_t usbcmd;
