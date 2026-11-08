@@ -1,0 +1,75 @@
+diff --git a/target/arm/tcg/vec_helper.c b/target/arm/tcg/vec_helper.c
+index e428ba9..5931d5e 100644
+--- a/target/arm/tcg/vec_helper.c
++++ b/target/arm/tcg/vec_helper.c
+@@ -1571,8 +1571,10 @@ DO_3OP(gvec_fadd_h, float16_add, float16)
+  * four lanes at once with the host's NEON when every lane is the common case
+  * the scalar fast paths (fpu/softfloat-fast-arm.c.inc) take one at a time:
+  * zero or normal inputs, a result that is exactly zero or well inside the
+- * normal range, round to nearest, and the inexact flag already raised (so no
+- * flag can change). Any other group of four goes lane by lane as before.
++ * normal range, round to nearest. The only flag that can arise then is
++ * inexact, found as the scalar paths do (TwoSum for a sum, a fused
++ * multiply-add for a product) when it is not raised yet. Any other group of
++ * four goes lane by lane as before.
+  * QEMU_FAST_FP=0 turns it off.
+  */
+ #if defined(__aarch64__)
+@@ -1589,8 +1591,7 @@ static void __attribute__((constructor)) vfastfp_init(void)
+ static inline bool vfastfp_ok(float_status *s)
+ {
+     return s->native_arm && !vfastfp_off &&
+-           get_float_rounding_mode(s) == float_round_nearest_even &&
+-           (get_float_exception_flags(s) & float_flag_inexact);
++           get_float_rounding_mode(s) == float_round_nearest_even;
+ }
+ 
+ static inline uint32x4_t vf32_zon(uint32x4_t a)
+@@ -1609,7 +1610,18 @@ static inline uint32x4_t vf32_safe(float32x4_t z)
+                      vcleq_f32(m, vdupq_n_f32(0x1p+120f)));
+ }
+ 
+-#define DO_3OP_FAST_S(NAME, FUNC, OPV, MUL)                                 \
++/* The rounding error of each lane of z = x + y or z = x * y, nonzero if inexact. */
++static inline float32x4_t vf32_err(float32x4_t x, float32x4_t y,
++                                   float32x4_t z, bool mul)
++{
++    if (mul) {
++        return vfmaq_f32(vnegq_f32(z), x, y);
++    }
++    float32x4_t bb = vsubq_f32(z, x);
++    return vaddq_f32(vsubq_f32(x, vsubq_f32(z, bb)), vsubq_f32(y, bb));
++}
++
++#define DO_3OP_FAST_S(NAME, FUNC, OPV, MUL, NEGY)                           \
+ void HELPER(NAME)(void *vd, void *vn, void *vm,                            \
+                   float_status *stat, uint32_t desc)                       \
+ {                                                                          \
+@@ -1634,6 +1646,14 @@ void HELPER(NAME)(void *vd, void *vn, void *vm,                            \
+                 }                                                          \
+                 continue;                                                  \
+             }                                                              \
++            if (!(get_float_exception_flags(stat) & float_flag_inexact)) {  \
++                float32x4_t yy = NEGY ? vnegq_f32(y) : y;                  \
++                uint32x4_t inexact = vmvnq_u32(vceqzq_f32(                 \
++                    vf32_err(x, yy, z, MUL)));                             \
++                if (vmaxvq_u32(inexact)) {                                 \
++                    float_raise(float_flag_inexact, stat);                 \
++                }                                                          \
++            }                                                              \
+             vst1q_f32((float *)(d + i), z);                                \
+         }                                                                  \
+     }                                                                      \
+@@ -1643,9 +1663,9 @@ void HELPER(NAME)(void *vd, void *vn, void *vm,                            \
+     clear_tail(d, oprsz, simd_maxsz(desc));                                \
+ }
+ 
+-DO_3OP_FAST_S(gvec_fadd_s, float32_add, vaddq_f32, false)
+-DO_3OP_FAST_S(gvec_fsub_s, float32_sub, vsubq_f32, false)
+-DO_3OP_FAST_S(gvec_fmul_s, float32_mul, vmulq_f32, true)
++DO_3OP_FAST_S(gvec_fadd_s, float32_add, vaddq_f32, false, false)
++DO_3OP_FAST_S(gvec_fsub_s, float32_sub, vsubq_f32, false, true)
++DO_3OP_FAST_S(gvec_fmul_s, float32_mul, vmulq_f32, true, false)
+ #else
+ DO_3OP(gvec_fadd_s, float32_add, float32)
+ #endif
