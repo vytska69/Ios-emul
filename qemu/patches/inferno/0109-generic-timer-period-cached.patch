@@ -1,0 +1,26 @@
+diff --git a/target/arm/cpu.c b/target/arm/cpu.c
+index d434a4d..123da72 100644
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -1098,8 +1098,20 @@ unsigned int gt_cntfrq_period_ns(ARMCPU *cpu)
+      * Finally, CNTFRQ is effectively capped at 1GHz to ensure our scale factor
+      * cannot become zero.
+      */
+-    return NANOSECONDS_PER_SECOND > cpu->gt_cntfrq_hz ?
++    /* The last frequency and its period, packed (read on every counter access). */
++    static uint64_t last;
++    uint64_t l = qatomic_read(&last);
++    uint32_t period;
++
++    if (likely(l && (l >> 32) == cpu->gt_cntfrq_hz)) {
++        return (uint32_t)l;
++    }
++    period = NANOSECONDS_PER_SECOND > cpu->gt_cntfrq_hz ?
+       NANOSECONDS_PER_SECOND / cpu->gt_cntfrq_hz : 1;
++    if (cpu->gt_cntfrq_hz <= UINT32_MAX) {
++        qatomic_set(&last, (uint64_t)cpu->gt_cntfrq_hz << 32 | period);
++    }
++    return period;
+ }
+ 
+ static void arm_cpu_propagate_feature_implications(ARMCPU *cpu)
