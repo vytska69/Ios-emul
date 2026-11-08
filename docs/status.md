@@ -66,7 +66,8 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   dalis blokų būna dar neužpildyti: jie praleidžiami su 1,3 ms perėjimu (0103). Įrenginio sustabdymas
   ar vėlesnis skaitymas (0099–0102) iOS garsą nutraukdavo, todėl išjungti. Programa telefone garsą
   kaupia buferyje ir groja tokiu greičiu, kokiu iOS jį gamina (laiko tempimas be tono pokyčio).
-  Tiriama: ar iOS `override_iobuffer_duration` (AudioToolbox) padidina žiedą.
+  AudioToolbox `override_iobuffer_duration` (com.apple.coreaudio) išbandytas: 100 ms traškesių
+  nesumažino, su 50 ms garso nebuvo visai.
 - **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
   ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai

@@ -362,17 +362,6 @@ public struct InfernoBackend: EmulatorBackend {
                 tree.attributes[dir] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o755)
             }
         }
-        // Experiment (IOSEMUL_IOBUFFER=<seconds>): CoreAudio's I/O buffer duration override, so that
-        // iOS writes its sound further ahead of the emulated speaker.
-        if let value = ProcessInfo.processInfo.environment["IOSEMUL_IOBUFFER"], let seconds = Double(value),
-           let data = try? PropertyListSerialization.data(fromPropertyList: ["override_iobuffer_duration": seconds],
-                                                         format: .binary, options: 0) {
-            for domain in ["com.apple.coreaudio", "com.apple.audio.AudioToolbox", "com.apple.mediaserverd"] {
-                let path = "mobile/Library/Preferences/\(domain).plist"
-                tree.files[path] = data
-                tree.attributes[path] = APFSContainer.Attributes(uid: 501, gid: 501, mode: 0o600)
-            }
-        }
         for (path, file) in tweaks.files() {
             tree.files[path] = file.data
             tree.attributes[path] = file.attributes
