@@ -13,23 +13,23 @@ sukompiliuotomis kaip biblioteka ir paleidžiamomis programos viduje.
 ## Būsena
 
 Toliausiai pažengęs iPhone 11 su iOS 14.0. Jis įsidiegia tiesiai iš IPSW, be restore, ir pasileidžia
-iki sąrankos ekrano „Hello“, o su „Skip setup“ iki pagrindinio ekrano. Telefone (iPhone 16e su JIT)
-veikia ir programėlės, pavyzdžiui Settings ir jų skiltys.
+iki sąrankos ekrano „Hello“, o su „Skip setup“ iki pagrindinio ekrano. Veikia programėlės (Settings
+ir jų skiltys, Spotlight), valdymo centras, užrakinimo ekranas ir tamsus režimas.
 
-Lietimas veikia: perbraukus aukštyn užrakinimo ekrane atsidaro pagrindinis ekranas (slaptažodžio
-iOS nebeprašo), veikia ir valdymo centras.
-
-- Slaptažodžio nėra: emuliuotas saugos procesorius (SEP) netikrina tikrų raktų, todėl programa
+- **Lietimas** veikia: perbraukus aukštyn užrakinimo ekrane atsidaro pagrindinis ekranas.
+- **Slaptažodžio nėra:** emuliuotas saugos procesorius (SEP) netikrina tikrų raktų, todėl programa
   pataiso iOS taip, kad jis praneštų „slaptažodis nenustatytas“.
-- Be „Skip setup“ perbraukus „Hello“ sąranka nebegrįžta į pradžią (anksčiau lūždavo `backboardd`,
-  piešiantis ekraną be GPU).
-- Garso nėra. iOS garso sistema mato tik tuščią „Null“ įrenginį: garso lusto (CS42L77) tvarkyklė
-  negauna DSP programinės įrangos, todėl garsiakalbio nėra, o VirtualAudio nebaigia paleidimo.
-  Tiriama bandomojoje šakoje `test/audio-mca`.
+- **Garsas** veikia: girdėti sistemos garsai ir skambučio melodijos. Kai emuliacija nespėja, iOS
+  kai kurias garso dalis paruošia per vėlai; jos praleidžiamos su trumpu perėjimu, todėl dar galimi
+  nedideli traškesiai.
+- **Ekranas nebeužgęsta:** įdiegimas nustato automatinį užrakinimą į „Niekada“.
+- **Greitis:** CI kompiuteryje (macOS, 3 branduoliai, 4 emuliuoti procesoriai) su „Skip setup“
+  pagrindinis ekranas pasirodo per ~6–8 min., o tempiant ekraną piešiama ~6–9 kadrai/s.
+  Telefone greitis priklauso nuo modelio.
 
 | Įrenginys | iOS | Kur pasiekia |
 |---|---|---|
-| iPhone 11 | 14.0 | Pagrindinis ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“; lietimas veikia |
+| iPhone 11 | 14.0 | Pagrindinis ekranas su „Skip setup“, kitaip sąrankos ekranas „Hello“; lietimas, garsas, programėlės |
 | iPhone 11 | 14.1–14.8 | Ekrano kol kas nepasiekia (14.8: SpringBoard lūžta piešdamas ikonas); lietimo pakeitimai nuo versijos nepriklauso, bet nepatikrinti |
 | iPhone 6s / 6s Plus | 15.8 | Branduolys sustoja ties ekrano valdikliu |
 | iPhone XR | 14.0 | Branduolys sustoja prieš pirmą išvestį |
@@ -58,8 +58,8 @@ išlaiko.
 
 1. *Download* skirtuke pasirink įrenginį ir iOS versiją. IPSW atsisiunčia iš Apple serverių, o
    baigus patikrinamas SHA-1. Turimą `.ipsw` galima importuoti ir per Files.
-2. Firmware puslapyje paspausk *Boot*. Pirmą kartą iOS įdiegiama į virtualų diską, ir pirmas startas
-   užtrunka apie 20 min.
+2. Firmware puslapyje paspausk *Boot*. Pirmą kartą iOS įdiegiama į virtualų diską. Su „Skip setup“
+   pirmas startas trunka maždaug 6–8 min. CI kompiuteryje, be jo – ilgiau; telefone priklauso nuo modelio.
 3. Kol ekrane nieko nėra, programa rodo starto žingsnius ir laiką. Mašina valdoma lietimais ir
    mygtukais Home, Lock ir Vol −/+.
 
@@ -82,11 +82,14 @@ iPhone su TXM (iPhone 15 Pro, 16, 16e, 17 ir naujesni, iOS 26+) JIT atmintį tur
 
 - Hipervizoriaus nėra. Apple iPhone programoms jo neduoda, todėl visas kodas emuliuojamas.
 - Vienu metu galima paleisti vieną mašiną. Kitai reikia iš naujo atidaryti programą.
-- GPU neemuliuojamas. iOS ekraną piešia procesoriumi, ir tai lėčiausia starto dalis.
+- Tikras GPU neemuliuojamas: iOS ekraną piešia procesoriumi (QuartzCore programinis piešimas).
+  „Virtualus GPU“ – tai hiperkvietimai, kurie dažniausias piešimo funkcijas (maišymą, pikselių
+  skaitymą, spalvų konversijas) vykdo tiesiai telefono procesoriumi
+  ([docs/virtual-gpu.md](docs/virtual-gpu.md)). Metal ir OpenGL ES programėlės neveikia.
 - Emuliuotas iPhone neaktyvuojamas, o Data tomas nešifruojamas.
-- Garso ir tinklo (Wi-Fi) emuliuotame iPhone kol kas nėra.
-- Greitis žemas net su JIT: emuliuojamas visas telefonas, o ekraną piešia procesorius.
-  Keli QEMU branduoliai (MTTCG) šiai mašinai nepadeda.
+- Tinklo (Wi-Fi, mobiliojo ryšio) ir Bluetooth emuliuotame iPhone nėra.
+- Greitis vis dar gerokai mažesnis nei tikro iPhone: emuliuojamas visas telefonas. Mašina naudoja
+  4 emuliuotus procesorius (MTTCG, kiekvienas savo gijoje).
 - iOS 16+ kol kas nepasileidžia: Preboot tome trūksta cryptex failų.
 - iPhone 6s mašina visada turi 2 GB RAM.
 - Naudok tik teisėtai turimus IPSW ir laikykis Apple licencijos.

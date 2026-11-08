@@ -8,7 +8,7 @@ pačiu keliu.
 
 | Įrenginys, iOS | Kur pasiekia | Kas stabdo |
 |---|---|---|
-| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Su „Skip setup“: pagrindinis ekranas, atsidaro programėlės (pirmas startas apie 8 min.). Be jo: sąrankos ekranas „Hello“ (pirmas startas apie 20 min., po perkrovimo – 2–20 min.) | Garsas, Wi-Fi, greitis (žr. žemiau) |
+| iPhone 11 (A13), 14.0, tiesioginis įdiegimas | Su „Skip setup“: pagrindinis ekranas, programėlės, valdymo centras, Spotlight, garsas (CI: ekranas per ~6–8 min.). Be jo: sąrankos ekranas „Hello“ | Greitis, garso traškesiai, tinklo nėra (žr. žemiau) |
 | iPhone 11, 14.0, restore režimas | Restore ramdisk iki `launchd` | Reikia restore šeimininko (USB per TCP) |
 | iPhone 6s / 6s Plus (A9), 15.8 | IOKit: AIC, AES, SPI, I2C, PCIe, NVMe | „Kernel data abort“ po `AppleSynopsysMIPIDSIController::start` |
 | iPhone XR (A12), 14.0, ant iPhone 11 mašinos | Mašina susikuria, MMU įsijungia | Panika `rtclock` inicializacijoje, dar prieš serial išvestį |
@@ -53,7 +53,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Sąranka be „Skip setup“ (išspręsta).** Po perbraukimo „Hello“ ekrane `backboardd` lūždavo
   QuartzCore `AsynchronousDispatcher::stop_timer` ir `release_iosurface`, nes be Metal
   `renderer()` yra null. Abi vietos pataisytos.
-- **Garsas (iOS pusė veikia; galutinai patikrinti programoje).** Inferno garso mazgai paliekami
+- **Garsas (veikia; traškesiai, kai emuliacija vėluoja).** Inferno garso mazgai paliekami
   DeviceTree'e (patch'ai 0031–0032). Kodeko DSP programinė įranga (`AudioCodecFirmware`, 'acfw')
   dedama į Preboot FUD; branduolys ją skaito praleisdamas IMG4 antraštes ir laukia jos 60 s, ne
   2 s. VirtualAudio (APFS suspaustas failas; pataisomas per `CompressedFilePatch`): įrenginiai
@@ -61,7 +61,12 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   „Application Processor“ prievadas (`pap `) prijungiamas, o papildomi VAD, kuriems reikia
   nesamos aparatūros (haptika `pact`, AOP mikrofonas `phki`), laikomi neprivalomais. Tada
   sukuriamas numatytasis VAD, o MCA gauna garsą (CI: „tx dma … peak 4244“). MCA (patch 0035) garsą
-  siunčia į QEMU audio nepriklausomai nuo įrašymo kanalo, 48 kHz.
+  siunčia į QEMU audio nepriklausomai nuo įrašymo kanalo, 48 kHz. CI įraše (`wavcapture`) skambučio
+  melodija girdima visa. iOS garso žiedas trumpas (~18 ms ratas), todėl kai emuliuotas iOS vėluoja,
+  dalis blokų būna dar neužpildyti: jie praleidžiami su 1,3 ms perėjimu (0103). Įrenginio sustabdymas
+  ar vėlesnis skaitymas (0099–0102) iOS garsą nutraukdavo, todėl išjungti. Programa telefone garsą
+  kaupia buferyje ir groja tokiu greičiu, kokiu iOS jį gamina (laiko tempimas be tono pokyčio).
+  Tiriama: ar iOS `override_iobuffer_duration` (AudioToolbox) padidina žiedą.
 - **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
   ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai
@@ -72,11 +77,11 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
   `AppleANS2NVMeController::start`. Priežastis dar nežinoma.
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
-- **Greitis.** Ramiai: ~71 % mėginių branduolyje, ~26 % vartotojo erdvėje, ~38 % – laukimas
-  (`wfi`). Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s iki 0085, ~8–9 kadrai/s po 0097–0098 (ekranas įsijungia per ~335–450 s), o be lietimo
-  ekranas perpiešiamas 16–25 kartus per sekundę. Tempiant piešimas užima didelę vartotojo erdvės dalį: be
-  hiperkvietimų dar lieka CoreAnimation rastrizatoriaus karkasas (`scanline`, `sample_texture`,
-  `scan_convert`, apie 9 %) ir `circle_sampler`. QEMU pusėje (patch'ai 0061–0106):
+- **Greitis.** Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s iki 0085,
+  ~6–9 kadrai/s dabar (CI labai triukšmingas); ekranas įsijungia per ~335–500 s. Hosto profilyje
+  (`sample`, tempiant) didžiausios dalys: laukimas BQL (~20–25 %, laikas, ne CPU), sugeneruotas
+  kodas (~20 %), MMU/TLB (~15 %), slankiojo kablelio helperiai (~10 %), TB paieška (~9 %).
+  QEMU pusėje (patch'ai 0061–0106):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -138,6 +143,7 @@ konteinerį įrašomi Preboot, xART ir Data tomai, o `fstab` pritaikomas. Pirmam
   kai pašalinamos programos nediegiamos (jas įdiegia jo `SystemAppMigrator`).
 
 Ekranas. Be AGX GPU nėra nei Metal, nei OpenGL ES, todėl QuartzCore piešia `CA::OGL::SWContext`.
+Dažniausias jo funkcijas hiperkvietimai vykdo QEMU pusėje ([virtual-gpu.md](virtual-gpu.md)).
 Įdiegimas pataiso dyld shared cache instrukcijas (`Sources/EmulatorKit/SharedCachePatches.swift`):
 
 - MobileIcons ikonas mažina be CoreImage;
