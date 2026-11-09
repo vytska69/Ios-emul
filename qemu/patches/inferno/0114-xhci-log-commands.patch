@@ -1,0 +1,33 @@
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index a8ecfe3..5780eb3 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -2274,6 +2274,8 @@ static TRBCCode xhci_configure_slot(XHCIState *xhci, unsigned int slotid,
+     }
+ 
+     xhci_dma_read_u32s(xhci, ictx, ictl_ctx, sizeof(ictl_ctx));
++    qemu_log_mask(LOG_GUEST_ERROR, "xhci: configure slot %u drop %08x add %08x\n",
++                  slotid, ictl_ctx[0], ictl_ctx[1]);
+ 
+     if ((ictl_ctx[0] & 0x3) != 0x0 || (ictl_ctx[1] & 0x3) != 0x1) {
+         DPRINTF("xhci: invalid input context control %08x %08x\n",
+@@ -2302,6 +2304,10 @@ static TRBCCode xhci_configure_slot(XHCIState *xhci, unsigned int slotid,
+                     ep_ctx[3], ep_ctx[4]);
+             xhci_disable_ep(xhci, slotid, i);
+             res = xhci_enable_ep(xhci, slotid, i, octx+(32*i), ep_ctx);
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "xhci: configure slot %u ep %d ctx %08x %08x %08x %08x %08x -> cc %d\n",
++                          slotid, i, ep_ctx[0], ep_ctx[1], ep_ctx[2], ep_ctx[3],
++                          ep_ctx[4], res);
+             if (res != CC_SUCCESS) {
+                 return res;
+             }
+@@ -2634,6 +2640,8 @@ static void xhci_process_commands(XHCIState *xhci)
+             break;
+         }
+         event.slotid = slotid;
++        qemu_log_mask(LOG_GUEST_ERROR, "xhci: command %d slot %u -> cc %d\n",
++                      type, slotid, event.ccode);
+         xhci_event(xhci, &event, 0);
+ 
+         if (count++ > COMMAND_LIMIT) {
