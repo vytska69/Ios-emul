@@ -1,0 +1,63 @@
+diff --git a/hw/misc/apple-silicon/buttons.c b/hw/misc/apple-silicon/buttons.c
+index 536475c..bfcad30 100644
+--- a/hw/misc/apple-silicon/buttons.c
++++ b/hw/misc/apple-silicon/buttons.c
+@@ -162,10 +162,19 @@ static void apple_buttons_qdev_reset_hold(Object *obj, ResetType type)
+     s->states = 0;
+ }
+ 
++/* F1-F10 are the buttons; with a USB keyboard attached they still come here. */
++static bool apple_buttons_claims_key(DeviceState *dev, InputKeyEvent *key)
++{
++    int qcode = qemu_input_key_value_to_qcode(key->key);
++
++    return qcode >= Q_KEY_CODE_F1 && qcode <= Q_KEY_CODE_F10;
++}
++
+ static const QemuInputHandler apple_buttons_handler = {
+     .name = "Apple Buttons",
+     .mask = INPUT_EVENT_MASK_KEY,
+     .event = apple_buttons_handle_event,
++    .claims_key = apple_buttons_claims_key,
+ };
+ 
+ static void apple_buttons_realize(DeviceState *dev, Error **errp)
+diff --git a/include/ui/input.h b/include/ui/input.h
+index 8f9aac5..1091060 100644
+--- a/include/ui/input.h
++++ b/include/ui/input.h
+@@ -27,6 +27,12 @@ struct QemuInputHandler {
+     uint32_t               mask;
+     QemuInputHandlerEvent  event;
+     QemuInputHandlerSync   sync;
++    /*
++     * Optional: claims a key event for this handler even while another
++     * keyboard is the active one (a phone's side buttons next to a USB
++     * keyboard).
++     */
++    bool (*claims_key)(DeviceState *dev, InputKeyEvent *key);
+ };
+ 
+ QemuInputHandlerState *qemu_input_handler_register(DeviceState *dev,
+diff --git a/ui/input.c b/ui/input.c
+index 18e2a83..3480bda 100644
+--- a/ui/input.c
++++ b/ui/input.c
+@@ -309,6 +309,17 @@ void qemu_input_event_send_impl(QemuConsole *src, InputEvent *evt)
+ 
+     qemu_input_event_trace(src, evt);
+ 
++    if (evt->type == INPUT_EVENT_KIND_KEY) {
++        QTAILQ_FOREACH(s, &handlers, node) {
++            if (s->handler->claims_key &&
++                s->handler->claims_key(s->dev, evt->u.key.data)) {
++                s->handler->event(s->dev, src, evt);
++                s->events++;
++                return;
++            }
++        }
++    }
++
+     /* send event */
+     s = qemu_input_find_handler(1 << evt->type, src);
+     if (!s) {

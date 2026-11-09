@@ -85,13 +85,16 @@ public struct PrepareContext {
     public let removableApps: Bool
     /// Patch the shared cache to call into the emulator (TCG only; off for Hypervisor.framework).
     public let hypercalls: Bool
+    /// Run iOS's USB port as a host with a USB keyboard attached, which the host's keys go to
+    /// (a normal boot only; the port then no longer acts as a device).
+    public let usbKeyboard: Bool
     public let progress: (String, Double) -> Void
 
     public init(ipsw: IPSW, identity: BuildManifest.Identity, device: DeviceInfo, workDirectory: URL,
                 externalAssets: [String: URL], bootMode: BootMode, memoryMB: Int, cpuCount: Int,
                 verboseBoot: Bool = true, translationCacheMB: Int = QEMURunner.defaultTranslationCacheMB,
                 extraBootArgs: String = "", firstBootErase: Bool = true, guestTweaks: GuestTweaks = GuestTweaks(),
-                removableApps: Bool = true, hypercalls: Bool = true,
+                removableApps: Bool = true, hypercalls: Bool = true, usbKeyboard: Bool = true,
                 progress: @escaping (String, Double) -> Void = { _, _ in }) {
         self.ipsw = ipsw; self.identity = identity; self.device = device; self.workDirectory = workDirectory
         self.externalAssets = externalAssets; self.bootMode = bootMode; self.memoryMB = memoryMB
@@ -100,6 +103,7 @@ public struct PrepareContext {
         self.guestTweaks = guestTweaks
         self.removableApps = removableApps
         self.hypercalls = hypercalls
+        self.usbKeyboard = usbKeyboard
         self.progress = progress
     }
 }

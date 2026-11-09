@@ -174,6 +174,12 @@ public struct InfernoBackend: EmulatorBackend {
         // none of (with KernelPatches for the kind of request fud makes).
         bootArgs += " skipFWValidation=1"
         if let rootDevice { bootArgs += " rd=\(rootDevice)" }
+        // A USB keyboard: iOS runs its USB port as a host (KernelPatches power and start the
+        // port, and let the device take its configuration) and QEMU attaches usb-kbd to the
+        // controller's first USB 2 port. Keys typed on the host then reach iOS as a hardware
+        // keyboard; the side and volume buttons (F1-F10) still go to the buttons.
+        let usbKeyboard = ctx.usbKeyboard && files["RestoreRamDisk"] == nil
+        if usbKeyboard { bootArgs += " AppleEmbeddedUSBArbitrator-force-usbhost=1" }
         let extra = ctx.extraBootArgs.trimmingCharacters(in: .whitespaces)
         if !extra.isEmpty { bootArgs += " " + extra }
         let memory = min(max(ctx.memoryMB, memoryRangeMB.lowerBound), memoryRangeMB.upperBound)
@@ -198,6 +204,10 @@ public struct InfernoBackend: EmulatorBackend {
         args += ["-accel", "tcg,tb-size=\(cacheMB)" + (QEMURunner.needsJIT ? ",split-wx=on" : "")]
         #endif
         if let ramdisk = files["RestoreRamDisk"] { args += ["-initrd", ramdisk.path] }
+        if usbKeyboard {
+            args += ["-global", "sysbus-xhci.p3=0", "-global", "sysbus-xhci.p2=2",
+                     "-device", "usb-kbd,bus=usb-bus.1,id=kbd"]
+        }
         for ns in namespaces {
             let drive = "drive.\(ns.nsid)"
             let idSuffix = ns.device == "apple-nvram" ? ",id=nvram" : ""

@@ -105,7 +105,8 @@ final class FirmwareModel: ObservableObject {
                                  extraBootArgs: Pref.experimentalString(Pref.extraBootArgs) ?? "",
                                  firstBootErase: !Pref.experimentalBool(Pref.skipFirstBootErase),
                                  guestTweaks: Pref.guestTweaks,
-                                 removableApps: Pref.defaults.bool(forKey: Pref.removableApps)) { [weak self] name, fraction in
+                                 removableApps: Pref.defaults.bool(forKey: Pref.removableApps),
+                                 usbKeyboard: Pref.defaults.bool(forKey: Pref.usbKeyboard)) { [weak self] name, fraction in
             guard throttle.shouldReport(key: name, done: fraction <= 0 || fraction >= 1) else { return }
             Task { @MainActor in self?.progress = (name, fraction) }
         }
@@ -163,6 +164,7 @@ struct FirmwareDetailView: View {
     @State private var cpus = 2
     @State private var pickingAsset: ExternalAsset?
     @AppStorage(Pref.removableApps) private var removableApps = true
+    @AppStorage(Pref.usbKeyboard) private var usbKeyboard = true
 
     var body: some View {
         Group {
@@ -285,6 +287,9 @@ struct FirmwareDetailView: View {
                                   detail: "Music, Calendar, Weather, Mail, Notes, Maps and the other apps iOS lets you delete. Applies when iOS is installed on a new machine; the first start then takes longer while iOS installs them.",
                                   isOn: $removableApps)
                     }
+                    ToggleRow(title: "Hardware keyboard",
+                              detail: "Plugs a USB keyboard into the emulated iPhone, so what you type on a keyboard connected to this device goes to iOS. The emulated iPhone's USB port is then used for it.",
+                              isOn: $usbKeyboard)
                 }
                 .padding(.top, 4)
 

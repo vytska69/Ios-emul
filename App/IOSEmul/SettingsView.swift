@@ -56,6 +56,8 @@ enum Pref {
     static let guest24Hour = "guest24Hour"
     /// Copy the removable apps (Music, Weather, …) into a direct install.
     static let removableApps = "installRemovableApps"
+    /// Attach a USB keyboard to the emulated iPhone (iOS's USB port then runs as a host).
+    static let usbKeyboard = "usbKeyboard"
     static let guestKeys = [guestVoiceOver, guestZoom, guestAssistiveTouch, guestBoldText, guestReduceMotion,
                             guestReduceTransparency, guestIncreaseContrast, guestInvertColors, guestGrayscale,
                             guestTextSize, guestAppearance, guestLanguage, guestRegion, guestDeviceName,
@@ -99,6 +101,7 @@ enum Pref {
             runInBackground: true,
             experimental: false,
             removableApps: true,
+            usbKeyboard: true,
             forceBackend: "",
             qemuDebugFlags: "",
             extraBootArgs: "",

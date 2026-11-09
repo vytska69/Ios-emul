@@ -36,10 +36,11 @@ enum MacPref {
     static let skipSetup = "guestSkipSetup"
     static let accelerator = "accelerator"
     static let cacheMB = "translationCacheMB"
+    static let usbKeyboard = "usbKeyboard"
 
     static func register() {
         defaults.register(defaults: [memoryMB: 4096, cpus: 4, removableApps: true, skipSetup: true,
-                                     accelerator: Accelerator.tcg.rawValue, cacheMB: 1024])
+                                     accelerator: Accelerator.tcg.rawValue, cacheMB: 1024, usbKeyboard: true])
     }
 
     /// Where machines live: ~/Library/Application Support/IOSEmul/Machines.
@@ -263,7 +264,8 @@ final class MacLibrary: ObservableObject {
                                  bootMode: .direct, memoryMB: d.integer(forKey: MacPref.memoryMB),
                                  cpuCount: d.integer(forKey: MacPref.cpus), translationCacheMB: cacheMB,
                                  guestTweaks: tweaks, removableApps: d.bool(forKey: MacPref.removableApps),
-                                 hypercalls: accelerator == .tcg) { [weak self] name, fraction in
+                                 hypercalls: accelerator == .tcg,
+                                 usbKeyboard: d.bool(forKey: MacPref.usbKeyboard)) { [weak self] name, fraction in
             Task { @MainActor in self?.progress = (name, fraction) }
         }
         progress = ("OS", 0)
@@ -344,6 +346,7 @@ struct FirmwareDetail: View {
     @AppStorage(MacPref.memoryMB) private var memoryMB = 4096
     @AppStorage(MacPref.cpus) private var cpus = 4
     @AppStorage(MacPref.removableApps) private var removableApps = true
+    @AppStorage(MacPref.usbKeyboard) private var usbKeyboard = true
     @AppStorage(MacPref.skipSetup) private var skipSetup = true
     @AppStorage(MacPref.accelerator) private var accelerator = Accelerator.tcg.rawValue
     @State private var confirmWipe = false
@@ -372,6 +375,7 @@ struct FirmwareDetail: View {
                             }
                         }
                         Stepper("CPU cores: \(cpus)", value: $cpus, in: 1...8)
+                        Toggle("Hardware keyboard (what you type in the window goes to iOS)", isOn: $usbKeyboard)
                         Picker("Engine", selection: $accelerator) {
                             ForEach(Accelerator.allCases) { Text($0.title).tag($0.rawValue) }
                         }
