@@ -61,7 +61,8 @@ išlaiko.
 2. Firmware puslapyje paspausk *Boot*. Pirmą kartą iOS įdiegiama į virtualų diską. Su „Skip setup“
    pirmas startas trunka maždaug 6–8 min. CI kompiuteryje, be jo – ilgiau; telefone priklauso nuo modelio.
 3. Kol ekrane nieko nėra, programa rodo starto žingsnius ir laiką. Mašina valdoma lietimais ir
-   mygtukais Home, Lock ir Vol −/+.
+   mygtukais Home, Lock ir Vol −/+. Kas rašoma prijungta klaviatūra (iPhone, iPad ar Mac), patenka į
+   emuliuotą iPhone kaip USB klaviatūra (nustatymas „Hardware keyboard“, įjungtas pagal nutylėjimą).
 
 Su įjungtu *Settings → Emulator → Run in background* mašina veikia ir išėjus iš programos. Tada
 programa groja tylų garsą, todėl naudoja bateriją.

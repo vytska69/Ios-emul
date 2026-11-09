@@ -34,11 +34,9 @@ jų `compatible` vardais, MMIO adresais ir pertraukimais. Todėl:
 
 1. **iPhone 11, iOS 14: naudojamas telefonas.** Pagrindinis ekranas, programėlės ir garsas jau veikia.
    - Garsas be traškesių: didesnis iOS garso žiedas (IO buferis), kad iOS rašytų toliau į priekį.
-   - USB host režimas (klaviatūra, vėliau tinklas). Su `AppleEmbeddedUSBArbitrator-force-usbhost=1`
-     iOS jau aptinka prijungtą QEMU `usb-kbd`, suteikia adresą, nuskaito aprašus ir jį registruoja.
-     Patch'as 0110 sutvarkė pertraukimų audrą (xHCI linijos 1–2 nebuvo nuleidžiamos) ir prievado
-     perkrovimų audrą. Toliau: iOS nesiunčia SET_CONFIGURATION, todėl HID tvarkyklė neprisijungia.
-     Tikėtina priežastis yra `AppleUSBHostCompositeDevice::ConfigureDevice` (maitinimo biudžetas?).
+   - USB host režimas: klaviatūra jau veikia (žr. [status.md](status.md)). Kitas žingsnis tuo pačiu
+     keliu yra USB Ethernet tinklui.
+   - Šoninis ir garsumo mygtukai: CI teste F5/F4 nieko nepakeitė ekrane, ištirti.
    - Tinklas: USB valdiklis → USB Ethernet (QEMU NAT), vėliau galbūt Wi-Fi lusto (BCM4378) emuliacija.
    - Rasti retos NVMe panikos priežastį.
 2. **Greitis.** Matuojama ir gerinama nuolat (QEMU patch'ai, žr. [status.md](status.md)).

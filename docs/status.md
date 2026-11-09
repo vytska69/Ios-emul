@@ -74,7 +74,16 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   ir žemėlapiai) perkeliama ir padidinama iki 3 × (grupių + sąrašų) blokų, kaip ją išdėsto
   `newfs_apfs`. `fsck_apfs` erdvės tvarkyklę priima, Data tome laisva ~25 GB.
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
-  F6 – Home. Šoninis mygtukas iOS pasiekia.
+  F6 – Home. Šoninis mygtukas iOS pasiekia, bet 2026-11-09 CI teste (su klaviatūra ir be jos)
+  trumpas F5 paspaudimas atidarytame Spotlight ekrano neužrakino, o F4 garso lango neparodė.
+  Reikia ištirti.
+- **USB klaviatūra (veikia).** iOS USB prievadas veikia kaip host (`AppleEmbeddedUSBArbitrator-force-usbhost=1`),
+  QEMU prijungia `usb-kbd`. Reikėjo: prievado maitinimo ir paleidimo branduolio pataisų,
+  `IOUSBHostDevice::setConfigurationGated` srovės patikros praleidimo (skirstytuvas emuliuotame
+  prievade niekada neatsako), QEMU 0110 (xHCI linijos 1–2 nebuvo nuleidžiamos, todėl kildavo
+  pertraukimų audra ir „Spinlock timeout“ panika; prievado perkrovimas dabar trunka 10 ms) ir
+  0112 (F1–F10 lieka mygtukams). Prijungus klaviatūrą, ekraninė klaviatūra dingsta, o raidės
+  rašomos (CI: Spotlight „hellohi“). Išjungiama `--usb-keyboard 0` arba programos nustatymu.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
   `AppleANS2NVMeController::start`. Priežastis dar nežinoma.
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
