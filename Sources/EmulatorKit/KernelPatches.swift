@@ -137,6 +137,28 @@ public enum KernelPatches {
                 }
             }
         }
+        // AppleUSBXHCIIsochronousRequest::link refuses a chain of isochronous TDs whose first
+        // frame the controller has already passed (`add x25, x0, x8; cmp x25, x27; b.hi` to
+        // "kIOReturnIsoTooOld"). Emulated, iOS's USB audio takes tens of ms to queue a chain
+        // and the frame it picked is gone by then, so it never plays. QEMU (0116) runs a late
+        // TD at once; let the chain through.
+        for log in image.codeAfter(string: "%06lu.%06u %s: %s::%s: kIOReturnIsoTooOld: controllerFrame 0x%016llx + %d startFrame 0x%016llx\n", within: 1) {
+            for back in 1...600 {
+                let at = log - UInt64(4 * back)
+                guard image.word(at) != 0xD503_237F else { break }
+                let w = image.word(at)
+                if w & 0xFF00_001F == 0x5400_0008, image.word(at - 4) & 0xFFE0_FC1F == 0xEB00_001F,
+                   image.word(at - 8) & 0xFF20_0000 == 0x8B00_0000, !seen.contains(at) {
+                    var imm = Int32(bitPattern: (w >> 5) & 0x7FFFF)
+                    if imm & 0x40000 != 0 { imm -= 0x80000 }
+                    guard UInt64(bitPattern: Int64(bitPattern: at) &+ Int64(imm) * 4) > log else { continue }
+                    seen.insert(at)
+                    patches.append(Patch(address: at, original: w, replacement: 0xD503_201F,
+                                         reason: "AppleUSBXHCIIsochronousRequest::link: accept a late first frame (nop)"))
+                    break
+                }
+            }
+        }
         // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
         // and five identical copies) call a method of the pipeline object without checking it:
         // `ldr x8, [x0, #0x28]; ldr x8, [x8, #0x10]; ... ldr x16, [x8]` and then the method in

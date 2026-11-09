@@ -1,0 +1,19 @@
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index a1b5912..efccde8 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -1785,7 +1785,13 @@ static void xhci_calc_iso_kick(XHCIState *xhci, XHCITransfer *xfer,
+         xfer->mfindex_kick = ((xfer->trbs[0].control >> TRB_TR_FRAMEID_SHIFT)
+                               & TRB_TR_FRAMEID_MASK) << 3;
+         xfer->mfindex_kick |= mfindex & ~0x3fff;
+-        if (xfer->mfindex_kick + 0x100 < mfindex) {
++        /*
++         * A frame up to half the frame counter's range behind is late, not
++         * 2 s ahead: run it now. Emulated, a guest can take tens of ms to
++         * queue a chain of isochronous TDs (iOS's USB audio) and its first
++         * frame is gone by the time it rings the doorbell.
++         */
++        if (xfer->mfindex_kick + 0x2000 < mfindex) {
+             xfer->mfindex_kick += 0x4000;
+         }
+     }
