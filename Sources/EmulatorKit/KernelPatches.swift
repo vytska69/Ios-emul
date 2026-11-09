@@ -137,24 +137,25 @@ public enum KernelPatches {
                 }
             }
         }
-        // AppleUSBXHCIIsochronousRequest::link refuses a chain of isochronous TDs whose first
-        // frame the controller has already passed (`add x25, x0, x8; cmp x25, x27; b.hi` to
-        // "kIOReturnIsoTooOld"). Emulated, iOS's USB audio takes tens of ms to queue a chain
-        // and the frame it picked is gone by then, so it never plays. QEMU (0116) runs a late
-        // TD at once; let the chain through.
+        // AppleUSBXHCIIsochronousRequest::link refuses a chain of isochronous TDs whose frames
+        // the controller has already passed by more than the chain lasts ("kIOReturnIsoTooOld":
+        // `add x8, x27, x8; cmp x25, x8; b.ls` back to the linking, otherwise the error).
+        // Emulated, iOS's USB audio takes tens of ms to queue a chain and its frames are gone
+        // by then, so it never plays. QEMU (0116) runs a late TD at once; always link.
         for log in image.codeAfter(string: "%06lu.%06u %s: %s::%s: kIOReturnIsoTooOld: controllerFrame 0x%016llx + %d startFrame 0x%016llx\n", within: 1) {
-            for back in 1...600 {
-                let at = log - UInt64(4 * back)
-                guard image.word(at) != 0xD503_237F else { break }
+            for ahead in 1...600 {
+                let at = log + UInt64(4 * ahead)
                 let w = image.word(at)
-                if w & 0xFF00_001F == 0x5400_0008, image.word(at - 4) & 0xFFE0_FC1F == 0xEB00_001F,
+                guard w != 0xD503_237F else { break }
+                if w & 0xFF00_001F == 0x5400_0009, image.word(at - 4) & 0xFFE0_FC1F == 0xEB00_001F,
                    image.word(at - 8) & 0xFF20_0000 == 0x8B00_0000, !seen.contains(at) {
                     var imm = Int32(bitPattern: (w >> 5) & 0x7FFFF)
                     if imm & 0x40000 != 0 { imm -= 0x80000 }
-                    guard UInt64(bitPattern: Int64(bitPattern: at) &+ Int64(imm) * 4) > log else { continue }
+                    guard imm < 0 else { continue }
                     seen.insert(at)
-                    patches.append(Patch(address: at, original: w, replacement: 0xD503_201F,
-                                         reason: "AppleUSBXHCIIsochronousRequest::link: accept a late first frame (nop)"))
+                    patches.append(Patch(address: at, original: w,
+                                         replacement: 0x1400_0000 | (UInt32(bitPattern: imm) & 0x03FF_FFFF),
+                                         reason: "AppleUSBXHCIIsochronousRequest::link: link a late chain too (b)"))
                     break
                 }
             }
