@@ -1,0 +1,44 @@
+diff --git a/hw/misc/apple-silicon/smc.c b/hw/misc/apple-silicon/smc.c
+index 4b69eb5..1392e3a 100644
+--- a/hw/misc/apple-silicon/smc.c
++++ b/hw/misc/apple-silicon/smc.c
+@@ -26,6 +26,7 @@
+ #include "qemu/memalign.h"
+ #include "qemu/queue.h"
+ #include "system/runstate.h"
++#include "qemu/log.h"
+ 
+ #if 0
+ #include "qemu/log.h"
+@@ -327,6 +328,17 @@ static SMCResult apple_smc_sensor_query_read(SMCKey *key, SMCKeyData *data,
+     return SMC_RESULT_BAD_ARGUMENT_ERROR;
+ }
+ 
++static bool apple_smc_log_keys(void)
++{
++    static int on = -1;
++
++    if (on < 0) {
++        const char *v = getenv("QEMU_SMC_LOG");
++        on = v && v[0] == '1';
++    }
++    return on;
++}
++
+ static void apple_smc_handle_key_endpoint(void *opaque, uint8_t ep,
+                                           uint64_t msg)
+ {
+@@ -439,6 +451,13 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint8_t ep,
+         break;
+     }
+     }
++
++    if (apple_smc_log_keys()) {
++        /* QEMU_SMC_LOG=1: which keys iOS reads and writes, and the answers. */
++        qemu_log("SMC: cmd 0x%02x key '%c%c%c%c' len %u -> status 0x%02x\n",
++                 kmsg->cmd, (key >> 24) & 0xff, (key >> 16) & 0xff,
++                 (key >> 8) & 0xff, key & 0xff, kmsg->length, resp.status);
++    }
+ }
+ 
+ static void ascv2_core_reg_write(void *opaque, hwaddr addr, uint64_t data,
