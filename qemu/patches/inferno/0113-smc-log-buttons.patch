@@ -1,0 +1,49 @@
+diff --git a/hw/misc/apple-silicon/smc.c b/hw/misc/apple-silicon/smc.c
+index 1392e3a..d15b324 100644
+--- a/hw/misc/apple-silicon/smc.c
++++ b/hw/misc/apple-silicon/smc.c
+@@ -201,12 +201,27 @@ static SMCResult apple_smc_key_read(const SMCKey *key_entry,
+     return SMC_RESULT_SUCCESS;
+ }
+ 
++static bool apple_smc_log_keys(void)
++{
++    static int on = -1;
++
++    if (on < 0) {
++        const char *v = getenv("QEMU_SMC_LOG");
++        on = v && v[0] == '1';
++    }
++    return on;
++}
++
+ void apple_smc_send_hid_button(AppleSMCState *s, AppleSMCHIDButton button,
+                                bool state)
+ {
+     AppleRTKit *rtk = &s->parent_obj;
+     KeyResponse r = { 0 };
+ 
++    if (apple_smc_log_keys()) {
++        qemu_log("SMC: button %d %s%s\n", button, state ? "down" : "up",
++                 s->is_booted ? "" : " (dropped: SMC not booted)");
++    }
+     if (!s->is_booted) {
+         return;
+     }
+@@ -328,16 +343,6 @@ static SMCResult apple_smc_sensor_query_read(SMCKey *key, SMCKeyData *data,
+     return SMC_RESULT_BAD_ARGUMENT_ERROR;
+ }
+ 
+-static bool apple_smc_log_keys(void)
+-{
+-    static int on = -1;
+-
+-    if (on < 0) {
+-        const char *v = getenv("QEMU_SMC_LOG");
+-        on = v && v[0] == '1';
+-    }
+-    return on;
+-}
+ 
+ static void apple_smc_handle_key_endpoint(void *opaque, uint8_t ep,
+                                           uint64_t msg)
