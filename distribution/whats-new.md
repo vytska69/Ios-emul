@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-09
+- USB keyboard groundwork: the emulated iPhone no longer leaves a plugged-in USB device unused while it waits for bus power that an emulated phone never reports.
+
 ## 2026-11-08
 - USB keyboard groundwork: when the emulated iPhone acts as a USB host, the USB controller no longer floods it with interrupts, which used to freeze it as soon as a keyboard was plugged in.
 - Virtual graphics chip: round shapes (circles, and the rounded corners of icons, buttons and panels) are now drawn directly on your device too (on a new install).

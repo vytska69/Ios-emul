@@ -113,6 +113,30 @@ public enum KernelPatches {
                 }
             }
         }
+        // Before IOUSBHostDevice::setConfigurationGated sets a USB device's configuration it makes
+        // sure the device has the bus current the configuration asks for (`ldr w9, [x26, #0x134];
+        // mov x8, x25; cmp w9, w25; b.hs`) and otherwise asks the bus current allocator, which
+        // on the emulated port never answers: the keyboard stays unconfigured and its HID
+        // driver never loads. The emulated phone has no current to ration; always take the
+        // branch ("%dmA of bus current is not available" is the log on the other side).
+        for log in image.codeAfter(string: "%06lu.%06u %s@%s: %s::%s: %dmA of bus current is not available\n", within: 1) {
+            for back in 1...400 {
+                let at = log - UInt64(4 * back)
+                guard image.word(at) != 0xD503_237F else { break }
+                let w = image.word(at)
+                if w & 0xFF00_001F == 0x5400_0002, image.word(at - 12) & 0xFFFF_FC00 == 0xB941_3400,
+                   image.word(at - 4) & 0xFFE0_FC1F == 0x6B00_001F, !seen.contains(at) {
+                    var imm = Int32(bitPattern: (w >> 5) & 0x7FFFF)
+                    if imm & 0x40000 != 0 { imm -= 0x80000 }
+                    guard UInt64(bitPattern: Int64(bitPattern: at) &+ Int64(imm) * 4) > log else { continue }
+                    seen.insert(at)
+                    patches.append(Patch(address: at, original: w,
+                                         replacement: 0x1400_0000 | (UInt32(bitPattern: imm) & 0x03FF_FFFF),
+                                         reason: "IOUSBHostDevice::setConfigurationGated: skip the bus current check (b)"))
+                    break
+                }
+            }
+        }
         // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
         // and five identical copies) call a method of the pipeline object without checking it:
         // `ldr x8, [x0, #0x28]; ldr x8, [x8, #0x10]; ... ldr x16, [x8]` and then the method in
