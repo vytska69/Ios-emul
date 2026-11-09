@@ -159,6 +159,26 @@ public enum KernelPatches {
                     break
                 }
             }
+            // Before that, each frame the controller can no longer schedule (start frame +
+            // index ≤ current frame + IST: `add x25, x0, x8; cmp x25, x27; b.hi` to the code
+            // above) is completed with kIOReturnIsoTooOld and dropped; a chain queued late
+            // loses every frame. Always take the branch.
+            for back in 1...600 {
+                let at = log - UInt64(4 * back)
+                let w = image.word(at)
+                guard w != 0xD503_237F else { break }
+                if w & 0xFF00_001F == 0x5400_0008, image.word(at - 4) & 0xFFE0_FC1F == 0xEB00_001F,
+                   image.word(at - 8) & 0xFF20_0000 == 0x8B00_0000, !seen.contains(at) {
+                    var imm = Int32(bitPattern: (w >> 5) & 0x7FFFF)
+                    if imm & 0x40000 != 0 { imm -= 0x80000 }
+                    guard UInt64(bitPattern: Int64(bitPattern: at) &+ Int64(imm) * 4) > log else { continue }
+                    seen.insert(at)
+                    patches.append(Patch(address: at, original: w,
+                                         replacement: 0x1400_0000 | (UInt32(bitPattern: imm) & 0x03FF_FFFF),
+                                         reason: "AppleUSBXHCIIsochronousRequest::link: do not drop late frames (b)"))
+                    break
+                }
+            }
         }
         // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
         // and five identical copies) call a method of the pipeline object without checking it:
