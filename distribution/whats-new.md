@@ -9,6 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-09
+- Groundwork for clearer sound: the emulated iPhone can now start sound on a USB audio device.
 - Hardware keyboard: what you type on a keyboard connected to your iPhone, iPad or Mac now goes to the emulated iPhone as a real USB keyboard (on by default; "Hardware keyboard" in the machine's settings). The side and volume button keys keep working.
 - USB keyboard groundwork: the emulated iPhone no longer leaves a plugged-in USB device unused while it waits for bus power that an emulated phone never reports.
 

@@ -1,0 +1,19 @@
+diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
+index 5780eb3..a1b5912 100644
+--- a/hw/usb/hcd-xhci.c
++++ b/hw/usb/hcd-xhci.c
+@@ -2610,6 +2610,14 @@ static void xhci_process_commands(XHCIState *xhci)
+         case CR_GET_PORT_BANDWIDTH:
+             event.ccode = xhci_get_port_bandwidth(xhci, trb.parameter);
+             break;
++        case CR_SET_LATENCY_TOLERANCE:
++            /*
++             * Only a hint for the controller's power management, which this
++             * one has none of. iOS's USB audio sends it before it starts an
++             * isochronous stream, and gives up on the stream on an error.
++             */
++            event.ccode = CC_SUCCESS;
++            break;
+         case CR_NOOP:
+             event.ccode = CC_SUCCESS;
+             break;
