@@ -61,8 +61,11 @@ class FrameCounter(threading.Thread):
         while not self.stop:
             try:
                 kind = recv_exact(s, 1)[0]
-            except (socket.timeout, ConnectionError):
+            except socket.timeout:
                 continue
+            except Exception as e:  # a dead session counts nothing; say so
+                print(f"== fps counter stopped: {e!r}", flush=True)
+                return
             if kind == 0:
                 rects = struct.unpack(">xH", recv_exact(s, 3))[0]
                 for _ in range(rects):
@@ -88,8 +91,6 @@ def main():
     ap.add_argument("--rounds", type=int, default=3)
     args = ap.parse_args()
 
-    counter = FrameCounter(args.vnc)
-    counter.start()
     vnc = touch.VNC(args.vnc, 60)
     W, H = vnc.w, vnc.h
     # Unlock first: the lock screen's "Swipe up to open" shimmers (~20 updates a second when
@@ -105,6 +106,10 @@ def main():
     time.sleep(3)
     results = []
     for r in range(args.rounds):
+        # A session of its own each round: one that dies mid-run no longer zeroes the rest.
+        counter = FrameCounter(args.vnc)
+        counter.start()
+        time.sleep(1)
         f0 = counter.frames
         time.sleep(args.seconds)
         idle = (counter.frames - f0) / args.seconds
@@ -119,8 +124,12 @@ def main():
         vnc.pointer(x0, y, False)
         results.append(fps)
         print(f"== fps round {r + 1}: dragging {fps:.1f} frames/s (idle before {idle:.1f})", flush=True)
+        counter.stop = True
+        try:
+            counter.s.close()
+        except OSError:
+            pass
         time.sleep(5)
-    counter.stop = True
     print(f"== fps median {sorted(results)[len(results) // 2]:.1f} frames/s", flush=True)
 
 
