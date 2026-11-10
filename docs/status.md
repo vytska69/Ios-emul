@@ -68,6 +68,13 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   kaupia buferyje ir groja tokiu greičiu, kokiu iOS jį gamina (laiko tempimas be tono pokyčio).
   AudioToolbox `override_iobuffer_duration` (com.apple.coreaudio) išbandytas: 100 ms traškesių
   nesumažino, su 50 ms garso nebuvo visai.
+- **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
+  `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
+  todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
+  izochroninių TD vykdymo iš karto (0116) ir branduolio pataisų `AppleUSBXHCIIsochronousRequest::link`
+  (lėtai paruošta TD grandinė nebeišmetama kaip `kIOReturnIsoTooOld`). CI: iOS garsą nukreipia į
+  USB įrenginį ir skambučio melodija groja; įraše girdima ~1,3 s, toliau tiriama. Klaviatūra ir USB
+  garsas kartu dar neveikia: pro QEMU `usb-hub` iOS įrenginių neatpažįsta.
 - **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
   ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai
