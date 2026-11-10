@@ -2,7 +2,7 @@
 """Frame rate of the emulated iPhone's screen while a finger drags across it (CI).
 
 Opens a second, shared VNC session that only reads framebuffer updates, while the first one drags
-a finger back and forth on the home screen for a few seconds, and prints how many screen updates
+a finger back and forth on the home screen (after unlocking) for a few seconds, and prints how many screen updates
 QEMU sent per second. The home screen follows the finger, so every update is a frame iOS drew:
 this measures how fast the emulated phone renders while it is being used.
 
@@ -92,6 +92,16 @@ def main():
     counter.start()
     vnc = touch.VNC(args.vnc, 60)
     W, H = vnc.w, vnc.h
+    # Unlock first: the lock screen's "Swipe up to open" shimmers (~20 updates a second when
+    # idle), which made the counts noisy. On the home screen nothing moves until dragged.
+    for _ in range(2):
+        vnc.pointer(W // 2, int(H * 0.998), True)
+        for i in range(1, 21):
+            time.sleep(0.02)
+            vnc.pointer(W // 2, int(H * (0.998 - 0.55 * i / 20)), True)
+        time.sleep(0.3)
+        vnc.pointer(W // 2, int(H * 0.45), False)
+        time.sleep(8)
     time.sleep(3)
     results = []
     for r in range(args.rounds):
