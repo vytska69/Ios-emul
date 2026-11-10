@@ -1,23 +1,22 @@
 diff --git a/hw/usb/hcd-xhci.c b/hw/usb/hcd-xhci.c
-index efccde8..875da26 100644
+index efccde8..7deccc0 100644
 --- a/hw/usb/hcd-xhci.c
 +++ b/hw/usb/hcd-xhci.c
-@@ -1846,6 +1846,23 @@ static int xhci_submit(XHCIState *xhci, XHCITransfer *xfer, XHCIEPContext *epctx
+@@ -1846,6 +1846,22 @@ static int xhci_submit(XHCIState *xhci, XHCITransfer *xfer, XHCIEPContext *epctx
          xfer->timed_xfer = true;
          mfindex = xhci_mfindex_get(xhci);
          xhci_calc_iso_kick(xhci, xfer, epctx, mfindex);
 +        {
 +            /*
-+             * Run isochronous TDs as soon as the guest queues them instead of
-+             * at their frame (QEMU_XHCI_ISO_ASAP=0 keeps the frame timing).
-+             * Waking for each 1 ms frame on a busy emulator fell far behind
-+             * (iOS's USB audio got ~230 of its 1000 packets a second through);
-+             * the device (usb-audio) buffers and plays at its own pace.
++             * QEMU_XHCI_ISO_ASAP=1 (experiment): run isochronous TDs as soon
++             * as the guest queues them instead of at their frame. iOS's USB
++             * audio then drains its ring faster than it fills it (ring
++             * underrun events, "Frame Difference is greater than expected").
 +             */
 +            static int asap = -1;
 +            if (asap < 0) {
 +                const char *v = getenv("QEMU_XHCI_ISO_ASAP");
-+                asap = !(v && v[0] == '0');
++                asap = v && v[0] == '1';
 +            }
 +            if (asap && xfer->mfindex_kick > mfindex) {
 +                xfer->mfindex_kick = mfindex;
