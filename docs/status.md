@@ -73,8 +73,13 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
   izochroninių TD vykdymo iš karto (0116) ir branduolio pataisų `AppleUSBXHCIIsochronousRequest::link`
   (lėtai paruošta TD grandinė nebeišmetama kaip `kIOReturnIsoTooOld`). CI: iOS garsą nukreipia į
-  USB įrenginį ir skambučio melodija groja; įraše girdima ~1,3 s, toliau tiriama. Klaviatūra ir USB
-  garsas kartu dar neveikia: pro QEMU `usb-hub` iOS įrenginių neatpažįsta.
+  USB įrenginį ir skambučio melodija groja, bet ateina tik ~230 iš 1000 paketų per sekundę
+  (`QEMU_USB_AUDIO_STATS=1`, 0117): emuliuotas iOS nespėja ruošti 1 ms paketų, todėl melodija trumpa,
+  o kartais srautas nutrūksta („immediate error on write“). Išbandyta ir nepadėjo: didesnis QEMU
+  buferis (2 s), TD vykdymas iškart (0118, `QEMU_XHCI_ISO_ASAP=1`: iOS žiedas ištuštėja), USB 2.0
+  `usb-audio,hs=on` su 4 ms paketais (0119: `AppleUSBAudio` tokio intervalo nepriima). Programoje
+  garsas lieka per MCA. Klaviatūra ir USB garsas kartu dar neveikia: pro QEMU `usb-hub` iOS
+  įrenginių neatpažįsta.
 - **Disko vieta (išspręsta).** IPSW atvaizdo APFS konteineris yra 8 GB (laisvos vietos likdavo
   ~200 MB). Įdiegimas jį išplečia per visą 32 GiB NVMe skaidinį (`APFSContainer.grow`): naujos
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai
