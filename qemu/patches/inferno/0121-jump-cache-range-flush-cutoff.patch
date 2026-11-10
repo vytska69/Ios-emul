@@ -1,0 +1,19 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 566cbb6..2adace4 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -1346,7 +1346,13 @@ static void tlb_flush_range_by_mmuidx_async_0(CPUState *cpu,
+      * If the length is larger than the jump cache size, then it will take
+      * longer to clear each entry individually than it will to clear it all.
+      */
+-    if (d.len >= (TARGET_PAGE_SIZE * TB_JMP_CACHE_SIZE)) {
++    /*
++     * Clearing page by page costs TB_JMP_PAGE_SIZE entries a page; past 32
++     * pages a generation bump of that half is cheaper (0121: tied to
++     * TB_JMP_CACHE_SIZE, the cut-off grew with the 64K jump cache to 1 GB
++     * and iOS's large range flushes went page by page).
++     */
++    if (d.len >= TARGET_PAGE_SIZE * 32) {
+         /*
+          * A large range within one half of the address space only drops
+          * the jump cache entries of that half (see tb_jmp_cache_gen_ok).
