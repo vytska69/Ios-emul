@@ -1,0 +1,54 @@
+diff --git a/hw/usb/dev-audio.c b/hw/usb/dev-audio.c
+index 26af709..2b15733 100644
+--- a/hw/usb/dev-audio.c
++++ b/hw/usb/dev-audio.c
+@@ -30,6 +30,8 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/cutils.h"
++#include "qemu/timer.h"
+ #include "qemu/module.h"
+ #include "hw/qdev-properties.h"
+ #include "hw/usb.h"
+@@ -899,6 +901,40 @@ static void usb_audio_handle_dataout(USBAudioState *s, USBPacket *p)
+     }
+ 
+     streambuf_put(&s->out.buf, p, s->out.channels);
++    {
++        /* QEMU_USB_AUDIO_STATS=1: per second, packets taken, refused and their sizes. */
++        static int on = -1;
++        static uint64_t ok, full, badsize, lastsize, nonzero, t0;
++        if (on < 0) {
++            const char *v = getenv("QEMU_USB_AUDIO_STATS");
++            on = v && v[0] == '1';
++        }
++        if (on) {
++            uint64_t now = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
++            if (p->actual_length) {
++                ok++;
++            } else if (p->iov.size != USBAUDIO_PACKET_SIZE(s->out.channels)) {
++                badsize++;
++                lastsize = p->iov.size;
++            } else {
++                full++;
++            }
++            if (p->actual_length && s->out.buf.prod >= USBAUDIO_PACKET_SIZE(s->out.channels)) {
++                uint8_t *d = s->out.buf.data + ((s->out.buf.prod - USBAUDIO_PACKET_SIZE(s->out.channels)) % s->out.buf.size);
++                if (!buffer_is_zero(d, USBAUDIO_PACKET_SIZE(s->out.channels))) {
++                    nonzero++;
++                }
++            }
++            if (now - t0 >= 1000) {
++                fprintf(stderr, "usb-audio stats: ok %" PRIu64 " (sound %" PRIu64 ") full %" PRIu64
++                        " badsize %" PRIu64 " (last %" PRIu64 ") queued %" PRId64 " bytes\n",
++                        ok, nonzero, full, badsize, lastsize,
++                        (int64_t)(s->out.buf.prod - s->out.buf.cons));
++                ok = full = badsize = nonzero = 0;
++                t0 = now;
++            }
++        }
++    }
+     if (p->actual_length < p->iov.size && s->debug > 1) {
+         fprintf(stderr, "usb-audio: output overrun (%zd bytes)\n",
+                 p->iov.size - p->actual_length);
