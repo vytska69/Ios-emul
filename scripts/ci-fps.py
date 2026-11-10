@@ -121,6 +121,14 @@ def main():
             vnc.pointer(int(x0 + W * 0.3 * math.sin(2 * math.pi * 0.5 * t)), y, True)
             time.sleep(0.016)
         fps = (counter.frames - f0) / (time.time() - t0)
+        # Glide back to the start and hold before lifting: lifting mid-swing was a flick, which
+        # paged to the widgets view (and its "Refreshed Widgets" sheet), and later rounds dragged
+        # a screen that no longer moved.
+        x = int(x0 + W * 0.3 * math.sin(2 * math.pi * 0.5 * (time.time() - t0)))
+        for i in range(1, 31):
+            vnc.pointer(x + (x0 - x) * i // 30, y, True)
+            time.sleep(0.03)
+        time.sleep(0.5)
         vnc.pointer(x0, y, False)
         results.append(fps)
         print(f"== fps round {r + 1}: dragging {fps:.1f} frames/s (idle before {idle:.1f})", flush=True)
