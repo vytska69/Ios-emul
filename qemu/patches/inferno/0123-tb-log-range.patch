@@ -1,0 +1,29 @@
+diff --git a/accel/tcg/translate-all.c b/accel/tcg/translate-all.c
+index 85d9105..327f94d 100644
+--- a/accel/tcg/translate-all.c
++++ b/accel/tcg/translate-all.c
+@@ -389,6 +389,24 @@ TranslationBlock *tb_gen_code(CPUState *cpu, TCGTBCPUState s)
+         goto buffer_overflow;
+     }
+     tb->tc.size = gen_code_size;
++    {
++        /*
++         * QEMU_TB_LOG_RANGE=lo-hi (host addresses, hex): log the guest pc of
++         * every TB placed there, to name the hot addresses of a host profile.
++         */
++        static int on = -1;
++        static uintptr_t lo, hi;
++        if (on < 0) {
++            const char *v = getenv("QEMU_TB_LOG_RANGE");
++            on = v && sscanf(v, "%" SCNxPTR "-%" SCNxPTR, &lo, &hi) == 2;
++        }
++        uintptr_t rx = (uintptr_t)tb->tc.ptr;
++        if (on && rx + gen_code_size > lo && rx < hi) {
++            fprintf(stderr, "tb-log: host %#" PRIxPTR "-%#" PRIxPTR " pc %#" PRIx64
++                    " flags %#x cflags %#x\n", rx, rx + gen_code_size,
++                    (uint64_t)s.pc, s.flags, s.cflags);
++        }
++    }
+ 
+     /*
+      * For CF_PCREL, attribute all executions of the generated code
