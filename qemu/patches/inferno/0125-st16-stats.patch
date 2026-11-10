@@ -1,0 +1,37 @@
+diff --git a/accel/tcg/cputlb.c b/accel/tcg/cputlb.c
+index 2adace4..af72349 100644
+--- a/accel/tcg/cputlb.c
++++ b/accel/tcg/cputlb.c
+@@ -3402,6 +3402,32 @@ static void do_st16_mmu(CPUState *cpu, vaddr addr, Int128 val,
+ 
+     cpu_req_mo(cpu, TCG_MO_LD_ST | TCG_MO_ST_ST);
+     crosspage = mmu_lookup(cpu, addr, oi, ra, MMU_DATA_STORE, &l);
++    {
++        /* QEMU_ST16_STATS=1: why 16-byte stores leave the inline path. */
++        static int on = -1;
++        static uint64_t n[8];
++        if (on < 0) {
++            const char *v = getenv("QEMU_ST16_STATS");
++            on = v && v[0] == '1';
++        }
++        if (on) {
++            n[0]++;
++            n[crosspage ? 1 : (l.page[0].flags & TLB_MMIO) ? 2 :
++              (l.page[0].flags & TLB_DISCARD_WRITE) ? 3 : (addr & 15) ? 4 : 5]++;
++            if (!crosspage && (l.page[0].flags & TLB_NOTDIRTY)) {
++                n[6]++;
++            }
++            if (l.memop & MO_ATOM_MASK) {
++                n[7]++;
++            }
++            if ((n[0] & ((1u << 22) - 1)) == 0) {
++                fprintf(stderr, "st16-stats total %" PRIu64 " cross %" PRIu64
++                        " mmio %" PRIu64 " discard %" PRIu64 " unaligned %" PRIu64
++                        " aligned %" PRIu64 " notdirty %" PRIu64 " atom %" PRIu64 "\n",
++                        n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7]);
++            }
++        }
++    }
+     if (likely(!crosspage)) {
+         if (unlikely(l.page[0].flags & TLB_MMIO)) {
+             if ((l.memop & MO_BSWAP) != MO_LE) {
