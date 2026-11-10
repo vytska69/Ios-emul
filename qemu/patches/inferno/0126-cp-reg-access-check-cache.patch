@@ -1,0 +1,33 @@
+diff --git a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+index 4571b23..18e5bd3 100644
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -847,7 +847,27 @@ const void *HELPER(access_check_cp_reg)(CPUARMState *env, uint32_t key,
+                                         uint32_t fgt_active)
+ {
+     ARMCPU *cpu = env_archcpu(env);
+-    const ARMCPRegInfo *ri = ARMCPRegTable_cget(cpu->cp_regs, key);
++    /*
++     * The register descriptions do not change after realize: remember the
++     * last few per thread instead of a hash table lookup for every runtime
++     * checked access (iOS reads CNTVCT_EL0 and friends very often).
++     */
++    static __thread struct {
++        const void *table;
++        uint32_t key;
++        const ARMCPRegInfo *ri;
++    } ri_cache[64];
++    unsigned slot = (key ^ (key >> 6) ^ (key >> 12)) & 63;
++    const ARMCPRegInfo *ri;
++    if (ri_cache[slot].table == cpu->cp_regs && ri_cache[slot].key == key &&
++        ri_cache[slot].ri) {
++        ri = ri_cache[slot].ri;
++    } else {
++        ri = ARMCPRegTable_cget(cpu->cp_regs, key);
++        ri_cache[slot].table = cpu->cp_regs;
++        ri_cache[slot].key = key;
++        ri_cache[slot].ri = ri;
++    }
+     CPAccessResult res = CP_ACCESS_OK;
+     int target_el;
+     uint32_t excp;

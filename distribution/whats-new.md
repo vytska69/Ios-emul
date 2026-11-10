@@ -10,6 +10,7 @@ published with each build (scripts/make-sidestore-source.py).
 
 ## 2026-11-10
 - Faster: the emulator finds already translated code more often instead of searching for it.
+- Faster: the emulated iPhone reading its clock and other system registers costs less.
 
 ## 2026-11-09
 - Groundwork for clearer sound: the emulated iPhone can now start sound on a USB audio device, even when it is slow to hand over the first sound.
