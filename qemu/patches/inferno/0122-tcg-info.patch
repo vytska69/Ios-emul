@@ -1,0 +1,17 @@
+diff --git a/tcg/tcg.c b/tcg/tcg.c
+index 83799dd..2887a5f 100644
+--- a/tcg/tcg.c
++++ b/tcg/tcg.c
+@@ -1876,6 +1876,12 @@ void tcg_prologue_init(void)
+ 
+     prologue_size = tcg_current_code_size(s);
+     perf_report_prologue(s->code_gen_ptr, prologue_size);
++    if (getenv("QEMU_TCG_INFO")) {
++        /* Where the shared code lives, to place a host profile's addresses. */
++        fprintf(stderr, "tcg-info: prologue %p (rx %p) size %zu epilogue %p\n",
++                s->code_gen_ptr, tcg_splitwx_to_rx(s->code_gen_ptr),
++                prologue_size, (void *)tcg_code_gen_epilogue);
++    }
+ 
+ #ifndef CONFIG_TCG_INTERPRETER
+     flush_idcache_range((uintptr_t)tcg_splitwx_to_rx(s->code_buf),
