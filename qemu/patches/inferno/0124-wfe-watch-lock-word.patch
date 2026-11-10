@@ -1,0 +1,63 @@
+diff --git a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+index 6bb5c9e..4571b23 100644
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -514,12 +514,57 @@ static void arm_spin_wait(CPUARMState *env)
+     }
+ }
+ 
++/*
++ * QEMU_WFE_WATCH=1 (experiment): a WFE after a load-exclusive (a spinlock
++ * waiting for its lock word to change: XNU's ldaxrb; cmp; b.eq; wfe) waits in
++ * here until that word changes, an interrupt is pending or 200 us pass,
++ * yielding the host CPU meanwhile, instead of running the guest loop again.
++ * On hardware the store that releases the lock wakes the WFE the same way.
++ */
++static bool arm_wfe_watch(CPUARMState *env)
++{
++    static int on = -1;
++    CPUState *cs = env_cpu(env);
++    uint64_t *p, v;
++    int64_t end;
++
++    if (on < 0) {
++        const char *e = getenv("QEMU_WFE_WATCH");
++        on = e && e[0] == '1';
++    }
++    if (!on || env->exclusive_addr == -1) {
++        return false;
++    }
++    p = tlb_vaddr_to_host(env, env->exclusive_addr & ~7ull, MMU_DATA_LOAD,
++                          arm_env_mmu_index(env));
++    if (!p) {
++        return false;
++    }
++    v = qatomic_read(p);
++    end = get_clock() + 200000;
++    for (int i = 0; ; i++) {
++        if (qatomic_read(p) != v ||
++            (qatomic_read(&cs->interrupt_request) & CPU_INTERRUPT_HARD) ||
++            qatomic_read(&cs->exit_request) || get_clock() > end) {
++            break;
++        }
++        if (i < 64) {
++            g_thread_yield();
++        } else {
++            g_usleep(5);
++        }
++    }
++    return true;
++}
++
+ void HELPER(yield)(CPUARMState *env)
+ {
+     CPUState *cs = env_cpu(env);
+ 
+     if (arm_yield_in_place()) {
+-        arm_spin_wait(env);
++        if (!arm_wfe_watch(env)) {
++            arm_spin_wait(env);
++        }
+         return;
+     }
+ 
