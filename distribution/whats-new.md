@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-10
+- Faster: the emulator finds already translated code more often instead of searching for it.
+
 ## 2026-11-09
 - Groundwork for clearer sound: the emulated iPhone can now start sound on a USB audio device, even when it is slow to hand over the first sound.
 - Hardware keyboard: what you type on a keyboard connected to your iPhone, iPad or Mac now goes to the emulated iPhone as a real USB keyboard (on by default; "Hardware keyboard" in the machine's settings). The side and volume button keys keep working.

@@ -1,0 +1,18 @@
+diff --git a/accel/tcg/tb-jmp-cache.h b/accel/tcg/tb-jmp-cache.h
+index d0711b9..28893eb 100644
+--- a/accel/tcg/tb-jmp-cache.h
++++ b/accel/tcg/tb-jmp-cache.h
+@@ -18,7 +18,12 @@
+  * cache code missed in 4096 often enough that the hash table walk behind it
+  * was a large part of QEMU's time.
+  */
+-#define TB_JMP_CACHE_BITS 14
++/*
++ * 65536 entries (0120; was 16384). With 16K target pages the softmmu hash
++ * spends half its bits on the page number, and 7 of them (128 page buckets)
++ * left most slow-path lookups finding no entry for the pc in either way.
++ */
++#define TB_JMP_CACHE_BITS 16
+ #define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+ 
+ /*
