@@ -1,0 +1,33 @@
+diff --git a/hw/misc/apple-silicon/buttons.c b/hw/misc/apple-silicon/buttons.c
+index bafe0f4..7bccad4 100644
+--- a/hw/misc/apple-silicon/buttons.c
++++ b/hw/misc/apple-silicon/buttons.c
+@@ -123,19 +123,21 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+ }
+ 
+ /*
+- * QEMU_BUTTONS_FLIP (experiment): 1 reports every button key with the other
+- * polarity, 2 only the push buttons (volume and hold), not the ringer switch,
+- * 3 only the volume buttons, 4 the push buttons but hold reads as held (as when
+- * it powered the phone on) until the first hold key event, 5 the push buttons
+- * with hold held at power-on and released QEMU_BUTTONS_BOOT_HOLD_MS (3000)
+- * after iOS first reads it.
++ * iOS reads the push buttons (volume, hold) as 1 = pressed. At power-on the
++ * hold button is held (that is what lights the screen on a "dark boot") and is
++ * released QEMU_BUTTONS_BOOT_HOLD_MS (3000) after iOS first reads it.
++ * QEMU_BUTTONS_FLIP picks other behaviour for experiments: 0 the old polarity
++ * (every button reads as held, presses do nothing), 1 every key flipped, 2 the
++ * push buttons flipped without the power-on hold (the screen stays dark after
++ * boot), 3 only the volume buttons, 4 hold held until the first hold key
++ * event, 5 (default) as described above.
+  */
+ static int apple_buttons_flip_mode(void)
+ {
+     static int on = -1;
+     if (on < 0) {
+         const char *v = getenv("QEMU_BUTTONS_FLIP");
+-        on = v ? atoi(v) : 0;
++        on = v ? atoi(v) : 5;
+     }
+     return on;
+ }

@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-11
+- Fixed: the side button now locks and wakes the screen. Before, iOS treated every button as held down and ignored presses.
+
 ## 2026-11-10
 - Faster: the emulator finds already translated code more often instead of searching for it.
 - Faster: the emulated iPhone reading its clock and other system registers costs less.
