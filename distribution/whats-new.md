@@ -9,7 +9,7 @@ published with each build (scripts/make-sidestore-source.py).
 -->
 
 ## 2026-11-11
-- Fixed: the side button now locks and wakes the screen. Before, iOS treated every button as held down and ignored presses.
+- Fixed: the side and volume buttons work. The side button locks and wakes the screen, and holding it opens Siri. The volume buttons change the volume. Before, iOS treated every button as held down and ignored presses.
 
 ## 2026-11-10
 - Faster: the emulator finds already translated code more often instead of searching for it.

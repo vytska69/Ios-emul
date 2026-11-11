@@ -93,8 +93,9 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   mygtukus nuspaustus ir paspaudimų nepaisė. QEMU 0130: mygtukai skaitomi teisingai, o šoninis
   įjungimo metu laikomas nuspaustas ir atleidžiamas po 3 s. Be to iOS po įkrovos ekrano neįjungia
   („dark boot“: SpringBoard backlight factor 0, kol nepaspaustas šoninis). Dabar F5 užrakina ir
-  pažadina ekraną, įkrova trunka kaip anksčiau. Garso mygtukų įvykiai iOS pasiekia, bet garso
-  indikatorius CI nuotraukose nepasirodo – dar tirti. Eksperimentams `QEMU_BUTTONS_FLIP` (0–5),
+  pažadina ekraną, įkrova trunka kaip anksčiau. Garso mygtukai keičia garsumą (iOS žurnale
+  `Volume Change by delta '-0.062500' was Accepted`, garso langas pasirodo po ~1,5 s), ilgas
+  šoninio paspaudimas kviečia Siri. Eksperimentams `QEMU_BUTTONS_FLIP` (0–5),
   žurnalas `QEMU_SMC_LOG=1`.
 - **USB klaviatūra (veikia).** iOS USB prievadas veikia kaip host (`AppleEmbeddedUSBArbitrator-force-usbhost=1`),
   QEMU prijungia `usb-kbd`. Reikėjo: prievado maitinimo ir paleidimo branduolio pataisų,

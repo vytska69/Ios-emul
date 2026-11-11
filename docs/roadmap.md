@@ -36,7 +36,6 @@ jų `compatible` vardais, MMIO adresais ir pertraukimais. Todėl:
    - Garsas be traškesių: didesnis iOS garso žiedas (IO buferis), kad iOS rašytų toliau į priekį.
    - USB host režimas: klaviatūra jau veikia (žr. [status.md](status.md)). Kitas žingsnis tuo pačiu
      keliu yra USB Ethernet tinklui.
-   - Garsumo mygtukai: įvykiai iOS pasiekia, bet garso indikatorius nepasirodo, ištirti. Šoninis veikia.
    - Tinklas: USB valdiklis → USB Ethernet (QEMU NAT), vėliau galbūt Wi-Fi lusto (BCM4378) emuliacija.
    - Rasti retos NVMe panikos priežastį.
 2. **Greitis.** Matuojama ir gerinama nuolat (QEMU patch'ai, žr. [status.md](status.md)).
