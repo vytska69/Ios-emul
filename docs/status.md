@@ -88,7 +88,12 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
 - **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
   F6 – Home. Šoninis mygtukas iOS pasiekia, bet 2026-11-09 CI teste (su klaviatūra ir be jos)
   trumpas F5 paspaudimas atidarytame Spotlight ekrano neužrakino, o F4 garso lango neparodė.
-  Reikia ištirti.
+  Tyrimas (2026-11-11): SMC pranešimai pasiekia branduolį (`AppleSMCPMU::_smcNotifyCallout(): HID
+  buttonIndex=1 buttonState=1`, `QEMU_SMC_LOG=1`), DeviceTree grandinė yra (`smc-pmu`
+  `event_name-btn1 = hold`, `function-pmu_button` → `buttons`, `function-button_*` → `btnR` su
+  `bHLD`/`bVUP`/`bVDN`/`bRIN`). Apvertus `b*` raktų poliškumą (0127, `QEMU_BUTTONS_FLIP=1`, `=2` be
+  ringer) šoninis mygtukas užrakina ir užgesina ekraną, Home iškviečia užrakinimo ekraną, bet įkrova
+  trunka ~1500 s vietoj ~550 s (3 iš 3 paleidimų). Todėl pagal nutylėjimą neįjungta.
 - **USB klaviatūra (veikia).** iOS USB prievadas veikia kaip host (`AppleEmbeddedUSBArbitrator-force-usbhost=1`),
   QEMU prijungia `usb-kbd`. Reikėjo: prievado maitinimo ir paleidimo branduolio pataisų,
   `IOUSBHostDevice::setConfigurationGated` srovės patikros praleidimo (skirstytuvas emuliuotame
