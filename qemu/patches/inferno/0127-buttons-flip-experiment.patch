@@ -1,18 +1,21 @@
 diff --git a/hw/misc/apple-silicon/buttons.c b/hw/misc/apple-silicon/buttons.c
-index bfcad30..b31c8a9 100644
+index bfcad30..91eb616 100644
 --- a/hw/misc/apple-silicon/buttons.c
 +++ b/hw/misc/apple-silicon/buttons.c
-@@ -109,14 +109,28 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+@@ -109,14 +109,33 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
      }
  }
  
-+/* QEMU_BUTTONS_FLIP=1 (experiment): report the button keys with the other polarity. */
-+static bool apple_buttons_flip(void)
++/*
++ * QEMU_BUTTONS_FLIP (experiment): 1 reports every button key with the other
++ * polarity, 2 only the push buttons (volume and hold), not the ringer switch.
++ */
++static int apple_buttons_flip_mode(void)
 +{
 +    static int on = -1;
 +    if (on < 0) {
 +        const char *v = getenv("QEMU_BUTTONS_FLIP");
-+        on = v && v[0] == '1';
++        on = v ? atoi(v) : 0;
 +    }
 +    return on;
 +}
@@ -26,7 +29,9 @@ index bfcad30..b31c8a9 100644
 -        stl_le_p(data->data,                                              \
 -                 (s->states & BIT32(SMC_HID_BUTTON_##_enum)) _op 0);      \
 +        bool v = (s->states & BIT32(SMC_HID_BUTTON_##_enum)) _op 0;       \
-+        if (apple_buttons_flip()) {                                       \
++        if (apple_buttons_flip_mode() == 1 ||                             \
++            (apple_buttons_flip_mode() == 2 &&                            \
++             SMC_HID_BUTTON_##_enum != SMC_HID_BUTTON_RINGER)) {          \
 +            v = !v;                                                       \
 +        }                                                                 \
 +        stl_le_p(data->data, v);                                          \
