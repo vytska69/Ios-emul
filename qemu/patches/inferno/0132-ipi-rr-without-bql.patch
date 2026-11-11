@@ -1,0 +1,215 @@
+diff --git a/hw/arm/apple-silicon/a13.c b/hw/arm/apple-silicon/a13.c
+index c1a26b1..f01e06f 100644
+--- a/hw/arm/apple-silicon/a13.c
++++ b/hw/arm/apple-silicon/a13.c
+@@ -251,6 +251,26 @@ static void apple_a13_deliver_ipi(AppleA13State *cpu, uint64_t src_cpu,
+     qemu_irq_raise(cpu->fast_ipi);
+ }
+ 
++/*
++ * Delivery from an IPI_RR write. Without the BQL (QEMU_IPI_RR_NOBQL) the
++ * lock is taken only when the target has no IPI waiting, since raising the
++ * FIQ line needs it; a target that already has one drops the new IPI, as
++ * apple_a13_deliver_ipi does.
++ */
++static void apple_a13_rr_deliver_ipi(AppleA13State *cpu, uint64_t src_cpu)
++{
++    if (bql_locked()) {
++        apple_a13_deliver_ipi(cpu, src_cpu, IPI_RR_TYPE_IMMEDIATE);
++        return;
++    }
++    if (qatomic_read(&cpu->ipi_sr)) {
++        return;
++    }
++    bql_lock();
++    apple_a13_deliver_ipi(cpu, src_cpu, IPI_RR_TYPE_IMMEDIATE);
++    bql_unlock();
++}
++
+ static void apple_a13_cluster_deliver_ipi(AppleA13Cluster *c, uint64_t cpu_id,
+                                           uint64_t src_cpu, uint64_t flag)
+ {
+@@ -421,23 +441,22 @@ static void apple_a13_ipi_rr_local(CPUARMState *env, const ARMCPRegInfo *ri,
+     switch (value & IPI_RR_TYPE_MASK) {
+     case IPI_RR_TYPE_NOWAKE:
+         if (apple_a13_is_asleep(dst_acpu)) {
+-            c->noWakeIPI[acpu->cpu_id] |= BIT32(dst_cpu_id);
++            qatomic_or(&c->noWakeIPI[acpu->cpu_id], BIT32(dst_cpu_id));
+             apple_a13_ipi_timer_arm();
+         } else {
+-            apple_a13_deliver_ipi(dst_acpu, acpu->cpu_id,
+-                                  IPI_RR_TYPE_IMMEDIATE);
++            apple_a13_rr_deliver_ipi(dst_acpu, acpu->cpu_id);
+         }
+         break;
+     case IPI_RR_TYPE_DEFERRED:
+-        c->deferredIPI[acpu->cpu_id] |= BIT32(dst_cpu_id);
++        qatomic_or(&c->deferredIPI[acpu->cpu_id], BIT32(dst_cpu_id));
+         apple_a13_ipi_timer_arm();
+         break;
+     case IPI_RR_TYPE_RETRACT:
+-        c->deferredIPI[acpu->cpu_id] &= ~BIT32(dst_cpu_id);
+-        c->noWakeIPI[acpu->cpu_id] &= ~BIT32(dst_cpu_id);
++        qatomic_and(&c->deferredIPI[acpu->cpu_id], ~BIT32(dst_cpu_id));
++        qatomic_and(&c->noWakeIPI[acpu->cpu_id], ~BIT32(dst_cpu_id));
+         break;
+     case IPI_RR_TYPE_IMMEDIATE:
+-        apple_a13_deliver_ipi(dst_acpu, acpu->cpu_id, IPI_RR_TYPE_IMMEDIATE);
++        apple_a13_rr_deliver_ipi(dst_acpu, acpu->cpu_id);
+         break;
+     default:
+         assert_not_reached();
+@@ -479,23 +498,22 @@ static void apple_a13_ipi_rr_global(CPUARMState *env, const ARMCPRegInfo *ri,
+     switch (value & IPI_RR_TYPE_MASK) {
+     case IPI_RR_TYPE_NOWAKE:
+         if (apple_a13_is_asleep(dst_acpu)) {
+-            cluster->noWakeIPI[acpu->cpu_id] |= BIT32(dst_cpu_id);
++            qatomic_or(&cluster->noWakeIPI[acpu->cpu_id], BIT32(dst_cpu_id));
+             apple_a13_ipi_timer_arm();
+         } else {
+-            apple_a13_deliver_ipi(dst_acpu, acpu->cpu_id,
+-                                  IPI_RR_TYPE_IMMEDIATE);
++            apple_a13_rr_deliver_ipi(dst_acpu, acpu->cpu_id);
+         }
+         break;
+     case IPI_RR_TYPE_DEFERRED:
+-        cluster->deferredIPI[acpu->cpu_id] |= BIT32(dst_cpu_id);
++        qatomic_or(&cluster->deferredIPI[acpu->cpu_id], BIT32(dst_cpu_id));
+         apple_a13_ipi_timer_arm();
+         break;
+     case IPI_RR_TYPE_RETRACT:
+-        cluster->deferredIPI[acpu->cpu_id] &= ~BIT32(dst_cpu_id);
+-        cluster->noWakeIPI[acpu->cpu_id] &= ~BIT32(dst_cpu_id);
++        qatomic_and(&cluster->deferredIPI[acpu->cpu_id], ~BIT32(dst_cpu_id));
++        qatomic_and(&cluster->noWakeIPI[acpu->cpu_id], ~BIT32(dst_cpu_id));
+         break;
+     case IPI_RR_TYPE_IMMEDIATE:
+-        apple_a13_deliver_ipi(dst_acpu, acpu->cpu_id, IPI_RR_TYPE_IMMEDIATE);
++        apple_a13_rr_deliver_ipi(dst_acpu, acpu->cpu_id);
+         break;
+     default:
+         assert_not_reached();
+@@ -526,10 +544,10 @@ static void apple_a13_ipi_write_sr(CPUARMState *env, const ARMCPRegInfo *ri,
+ 
+     switch (value & IPI_RR_TYPE_MASK) {
+     case IPI_RR_TYPE_NOWAKE:
+-        c->noWakeIPI[src_cpu] &= ~BIT32(acpu->cpu_id);
++        qatomic_and(&c->noWakeIPI[src_cpu], ~BIT32(acpu->cpu_id));
+         break;
+     case IPI_RR_TYPE_DEFERRED:
+-        c->deferredIPI[src_cpu] &= ~BIT32(acpu->cpu_id);
++        qatomic_and(&c->deferredIPI[src_cpu], ~BIT32(acpu->cpu_id));
+         break;
+     default:
+         break;
+@@ -618,6 +636,38 @@ static const ARMCPRegInfo apple_a13_cp_reginfo_tcg[] = {
+     A13_CLUSTER_CPREG_DEF(CTRR_B_UPR_EL1, 3, 4, 15, 1, 6, PL1_RW),
+     A13_CLUSTER_CPREG_DEF(CTRR_CTL_EL1, 3, 4, 15, 2, 5, PL1_RW),
+     A13_CLUSTER_CPREG_DEF(CTRR_LOCK_EL1, 3, 4, 15, 2, 2, PL1_RW),
++    {
++        .cp = CP_REG_ARM64_SYSREG_CP,
++        .name = "ARM64_REG_IPI_SR",
++        .opc0 = 3,
++        .opc1 = 5,
++        .crn = 15,
++        .crm = 1,
++        .opc2 = 1,
++        .access = PL1_RW,
++        .type = ARM_CP_NO_RAW,  /* read on every FIQ: no BQL (the write takes it) */
++        .state = ARM_CP_STATE_AA64,
++        .readfn = apple_a13_ipi_read_sr,
++        .writefn = apple_a13_ipi_write_sr,
++    },
++    {
++        .cp = CP_REG_ARM64_SYSREG_CP,
++        .name = "ARM64_REG_IPI_CR",
++        .opc0 = 3,
++        .opc1 = 5,
++        .crn = 15,
++        .crm = 3,
++        .opc2 = 1,
++        .access = PL1_RW,
++        .type = ARM_CP_IO,
++        .state = ARM_CP_STATE_AA64,
++        .readfn = apple_a13_ipi_read_cr,
++        .writefn = apple_a13_ipi_write_cr,
++    },
++};
++
++/* IPI send registers: under the BQL (old) or without it (QEMU_IPI_RR_NOBQL). */
++static const ARMCPRegInfo apple_a13_ipi_rr_io[] = {
+     {
+         .cp = CP_REG_ARM64_SYSREG_CP,
+         .name = "ARM64_REG_IPI_RR_LOCAL",
+@@ -646,40 +696,58 @@ static const ARMCPRegInfo apple_a13_cp_reginfo_tcg[] = {
+         .readfn = arm_cp_read_zero,
+         .writefn = apple_a13_ipi_rr_global,
+     },
++};
++
++static const ARMCPRegInfo apple_a13_ipi_rr_nobql[] = {
+     {
+         .cp = CP_REG_ARM64_SYSREG_CP,
+-        .name = "ARM64_REG_IPI_SR",
++        .name = "ARM64_REG_IPI_RR_LOCAL",
+         .opc0 = 3,
+         .opc1 = 5,
+         .crn = 15,
+-        .crm = 1,
+-        .opc2 = 1,
+-        .access = PL1_RW,
+-        .type = ARM_CP_NO_RAW,  /* read on every FIQ: no BQL (the write takes it) */
++        .crm = 0,
++        .opc2 = 0,
++        .access = PL1_W,
++        .type = ARM_CP_NO_RAW,
+         .state = ARM_CP_STATE_AA64,
+-        .readfn = apple_a13_ipi_read_sr,
+-        .writefn = apple_a13_ipi_write_sr,
++        .readfn = arm_cp_read_zero,
++        .writefn = apple_a13_ipi_rr_local,
+     },
+     {
+         .cp = CP_REG_ARM64_SYSREG_CP,
+-        .name = "ARM64_REG_IPI_CR",
++        .name = "ARM64_REG_IPI_RR_GLOBAL",
+         .opc0 = 3,
+         .opc1 = 5,
+         .crn = 15,
+-        .crm = 3,
++        .crm = 0,
+         .opc2 = 1,
+-        .access = PL1_RW,
+-        .type = ARM_CP_IO,
++        .access = PL1_W,
++        .type = ARM_CP_NO_RAW,
+         .state = ARM_CP_STATE_AA64,
+-        .readfn = apple_a13_ipi_read_cr,
+-        .writefn = apple_a13_ipi_write_cr,
++        .readfn = arm_cp_read_zero,
++        .writefn = apple_a13_ipi_rr_global,
+     },
+ };
+ 
++static bool apple_a13_ipi_rr_nobql_on(void)
++{
++    static int on = -1;
++    if (on < 0) {
++        const char *v = getenv("QEMU_IPI_RR_NOBQL");
++        on = v ? atoi(v) != 0 : 0;
++    }
++    return on;
++}
++
+ static void apple_a13_add_cpregs(AppleA13State *acpu)
+ {
+     ARMCPU *cpu = &acpu->parent_obj;
+     define_arm_cp_regs(cpu, apple_a13_cp_reginfo_tcg);
++    if (apple_a13_ipi_rr_nobql_on()) {
++        define_arm_cp_regs(cpu, apple_a13_ipi_rr_nobql);
++    } else {
++        define_arm_cp_regs(cpu, apple_a13_ipi_rr_io);
++    }
+     apple_a13_init_gxf(acpu);
+ }
+ 
