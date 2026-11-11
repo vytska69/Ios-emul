@@ -157,7 +157,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): `wfe` po `ldaxr` laukia, kol pasikeis
     užrakto žodis (0124, `QEMU_WFE_WATCH=1`; 5,7 prieš 5,6 ir 4,3 prieš 4,2 kadro/s), pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), IPI siuntimo registrai be BQL (0132, `QEMU_IPI_RR_NOBQL=1`;
-    1,8 prieš 4,9 ir 3,1 prieš 2,8 kadro/s), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
+    lėčiau: 3,3 prieš 4,6 ir 3,5 prieš 4,5 kadro/s), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
     `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)
     atšauktas – daugiau nepataikymų.
 
