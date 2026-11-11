@@ -152,14 +152,18 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   - sisteminių registrų su patikra vykdymo metu aprašai (CNTVCT ir kt.) imami iš gijos podėlio, ne iš
     maišos lentelės (0126);
   - atidėtų IPI laikmatis (kas 64 µs, su BQL) veikia tik kai kuris nors IPI laukia, ne visą laiką
-    (0131, `QEMU_IPI_TIMER_ALWAYS=1` grąžina): A/B abiem tvarkomis neutralu (4,7 prieš 5,9 ir 4,3 prieš
-    sustojusį ekraną; antras paleidimas darbe visada greitesnis), bet mažiau pabudimų;
+    (0131, `QEMU_IPI_TIMER_ALWAYS=1` grąžina): A/B abiem tvarkomis neutralu (3,8 prieš 3,8 ir 3,2 prieš
+    3,8 kadro/s; antras paleidimas darbe dažniausiai greitesnis), bet mažiau pabudimų;
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): `wfe` po `ldaxr` laukia, kol pasikeis
     užrakto žodis (0124, `QEMU_WFE_WATCH=1`; 5,7 prieš 5,6 ir 4,3 prieš 4,2 kadro/s), pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), IPI siuntimo registrai be BQL (0132, `QEMU_IPI_RR_NOBQL=1`;
     lėčiau: 3,3 prieš 4,6 ir 3,5 prieš 4,5 kadro/s), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
     `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)
     atšauktas – daugiau nepataikymų.
+
+  `scripts/ci-fps.py` tempia tik į kairę ir atgal: tempiant į dešinę kartais atsidarydavo valdiklių
+  puslapis su „Refreshed Widgets“ langu, ir likę raundai rodė 0 kadrų/s (taip buvo sugadintos kelios
+  ankstesnės A/B medianos).
 
   CI kompiuteriai (3 branduoliai, 4 emuliuoti procesoriai) labai triukšmingi: to paties paleidimo
   įkrova svyruoja 400–650 s, todėl sprendžiama tik pagal A/B tame pačiame darbe.
