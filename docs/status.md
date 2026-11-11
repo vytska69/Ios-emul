@@ -85,15 +85,17 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   blokų grupės pridedamos laisvos, o vidinė sritis (internal pool, kurioje laikomi blokų sąrašai
   ir žemėlapiai) perkeliama ir padidinama iki 3 × (grupių + sąrašų) blokų, kaip ją išdėsto
   `newfs_apfs`. `fsck_apfs` erdvės tvarkyklę priima, Data tome laisva ~25 GB.
-- **Mygtukai.** Inferno mygtukus skaito tik iš F klavišų: F3 ir F4 – garsas, F5 – šoninis,
-  F6 – Home. Šoninis mygtukas iOS pasiekia, bet 2026-11-09 CI teste (su klaviatūra ir be jos)
-  trumpas F5 paspaudimas atidarytame Spotlight ekrano neužrakino, o F4 garso lango neparodė.
-  Tyrimas (2026-11-11): SMC pranešimai pasiekia branduolį (`AppleSMCPMU::_smcNotifyCallout(): HID
-  buttonIndex=1 buttonState=1`, `QEMU_SMC_LOG=1`), DeviceTree grandinė yra (`smc-pmu`
-  `event_name-btn1 = hold`, `function-pmu_button` → `buttons`, `function-button_*` → `btnR` su
-  `bHLD`/`bVUP`/`bVDN`/`bRIN`). Apvertus `b*` raktų poliškumą (0127, `QEMU_BUTTONS_FLIP=1`, `=2` be
-  ringer) šoninis mygtukas užrakina ir užgesina ekraną, Home iškviečia užrakinimo ekraną, bet įkrova
-  trunka ~1500 s vietoj ~550 s (3 iš 3 paleidimų). Todėl pagal nutylėjimą neįjungta.
+- **Mygtukai (šoninis veikia).** Inferno mygtukus skaito iš F klavišų: F3 ir F4 – garsas, F5 –
+  šoninis, F6 – Home. SMC pranešimą `AppleSMCPMU::_smcNotifyCallout` paverčia HID įvykiu
+  (1 → 0x0C/0x30, 2 → 0x0C/0xE9, 3 → 0x0C/0xEA) ir perduoda paslaugai iš DeviceTree
+  `function-pmu_button` (AppleM68Buttons). AppleM68Buttons pradinę būseną vieną kartą perskaito iš
+  `bVUP`/`bVDN`/`bHLD` (1 = nuspaustas). Inferno jas grąžindavo apverstas, todėl iOS laikė visus
+  mygtukus nuspaustus ir paspaudimų nepaisė. QEMU 0130: mygtukai skaitomi teisingai, o šoninis
+  įjungimo metu laikomas nuspaustas ir atleidžiamas po 3 s. Be to iOS po įkrovos ekrano neįjungia
+  („dark boot“: SpringBoard backlight factor 0, kol nepaspaustas šoninis). Dabar F5 užrakina ir
+  pažadina ekraną, įkrova trunka kaip anksčiau. Garso mygtukų įvykiai iOS pasiekia, bet garso
+  indikatorius CI nuotraukose nepasirodo – dar tirti. Eksperimentams `QEMU_BUTTONS_FLIP` (0–5),
+  žurnalas `QEMU_SMC_LOG=1`.
 - **USB klaviatūra (veikia).** iOS USB prievadas veikia kaip host (`AppleEmbeddedUSBArbitrator-force-usbhost=1`),
   QEMU prijungia `usb-kbd`. Reikėjo: prievado maitinimo ir paleidimo branduolio pataisų,
   `IOUSBHostDevice::setConfigurationGated` srovės patikros praleidimo (skirstytuvas emuliuotame
