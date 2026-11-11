@@ -1,0 +1,45 @@
+diff --git a/util/qemu-timer.c b/util/qemu-timer.c
+index 1fb48be..7d55fbc 100644
+--- a/util/qemu-timer.c
++++ b/util/qemu-timer.c
+@@ -427,16 +427,39 @@ void timer_del(QEMUTimer *ts)
+ 
+ /* modify the current timer so that it will be fired when current_time
+    >= expire_time. The corresponding callback will be called. */
++/*
++ * QEMU_TIMER_LAZY_NOTIFY=1: a timer that was already first in its list and
++ * only moves later does not wake the main loop. Its wait already ends at the
++ * old, earlier deadline, finds nothing expired and works out the new one.
++ */
++static bool timer_lazy_notify(void)
++{
++    static int on = -1;
++    if (on < 0) {
++        const char *v = getenv("QEMU_TIMER_LAZY_NOTIFY");
++        on = v ? atoi(v) != 0 : 0;
++    }
++    return on;
++}
++
+ void timer_mod_ns(QEMUTimer *ts, int64_t expire_time)
+ {
+     QEMUTimerList *timer_list = ts->timer_list;
+-    bool rearm;
++    bool rearm, was_first;
++    int64_t old_expire;
+ 
+     qemu_mutex_lock(&timer_list->active_timers_lock);
++    was_first = timer_list->active_timers == ts;
++    old_expire = ts->expire_time;
+     timer_del_locked(timer_list, ts);
+     rearm = timer_mod_ns_locked(timer_list, ts, expire_time);
+     qemu_mutex_unlock(&timer_list->active_timers_lock);
+ 
++    if (rearm && was_first && old_expire >= 0 &&
++        MAX(expire_time, 0) >= old_expire && timer_lazy_notify()) {
++        rearm = false;
++    }
++
+     if (rearm) {
+         timerlist_rearm(timer_list);
+     }
