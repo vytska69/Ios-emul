@@ -142,7 +142,8 @@ def main():
         except OSError:
             pass
         time.sleep(5)
-    print(f"== fps median {sorted(results)[len(results) // 2]:.1f} frames/s", flush=True)
+    print(f"== fps median {sorted(results)[len(results) // 2]:.1f} frames/s, "
+          f"mean {sum(results) / len(results):.2f}", flush=True)
 
 
 if __name__ == "__main__":
