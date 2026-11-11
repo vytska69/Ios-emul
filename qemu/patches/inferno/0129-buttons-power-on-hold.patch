@@ -1,0 +1,114 @@
+diff --git a/hw/misc/apple-silicon/buttons.c b/hw/misc/apple-silicon/buttons.c
+index e1ff42d..bafe0f4 100644
+--- a/hw/misc/apple-silicon/buttons.c
++++ b/hw/misc/apple-silicon/buttons.c
+@@ -23,6 +23,7 @@
+ #include "migration/vmstate.h"
+ #include "qapi/error.h"
+ #include "qemu/lockable.h"
++#include "qemu/timer.h"
+ #include "system/runstate.h"
+ #include "ui/input.h"
+ 
+@@ -38,6 +39,9 @@ struct AppleButtonsState {
+     uint16_t states;
+     /* QEMU_BUTTONS_FLIP=4: hold reads as held until the first hold key event */
+     bool hold_seen;
++    /* QEMU_BUTTONS_FLIP=5: hold is held at power-on and released shortly after */
++    bool hold_boot;
++    QEMUTimer *hold_release;
+ };
+ 
+ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+@@ -103,6 +107,10 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+ 
+     if (button == SMC_HID_BUTTON_HOLD) {
+         s->hold_seen = true;
++        if (s->hold_boot) {
++            s->hold_boot = false;
++            timer_del(s->hold_release);
++        }
+     }
+     if (((s->states & BIT32(button)) != 0) != key->down) {
+         if (key->down) {
+@@ -118,7 +126,9 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+  * QEMU_BUTTONS_FLIP (experiment): 1 reports every button key with the other
+  * polarity, 2 only the push buttons (volume and hold), not the ringer switch,
+  * 3 only the volume buttons, 4 the push buttons but hold reads as held (as when
+- * it powered the phone on) until the first hold key event.
++ * it powered the phone on) until the first hold key event, 5 the push buttons
++ * with hold held at power-on and released QEMU_BUTTONS_BOOT_HOLD_MS (3000)
++ * after iOS first reads it.
+  */
+ static int apple_buttons_flip_mode(void)
+ {
+@@ -140,6 +150,30 @@ static bool apple_buttons_smc_log(void)
+     return on;
+ }
+ 
++static int64_t apple_buttons_boot_hold_ms(void)
++{
++    const char *v = getenv("QEMU_BUTTONS_BOOT_HOLD_MS");
++    return v ? atoll(v) : 3000;
++}
++
++/* The power-on press ends: tell iOS the hold button went up. */
++static void apple_buttons_hold_release(void *opaque)
++{
++    AppleButtonsState *s = opaque;
++    AppleSMCState *smc = APPLE_SMC_IOP(object_property_get_link(
++        OBJECT(qdev_get_machine()), "smc", &error_fatal));
++
++    QEMU_LOCK_GUARD(&s->mutex);
++    if (!s->hold_boot) {
++        return;
++    }
++    s->hold_boot = false;
++    if (apple_buttons_smc_log()) {
++        fprintf(stderr, "buttons: power-on hold released\n");
++    }
++    apple_smc_send_hid_button(smc, SMC_HID_BUTTON_HOLD, false);
++}
++
+ #define BUTTON_READER(_btn, _op, _enum)                                   \
+     static SMCResult apple_buttons_smc_read_##_btn(                       \
+         SMCKey *key, SMCKeyData *data, const void *in, uint8_t in_length) \
+@@ -151,9 +185,18 @@ static bool apple_buttons_smc_log(void)
+         bool push = SMC_HID_BUTTON_##_enum != SMC_HID_BUTTON_RINGER;      \
+         bool hold = SMC_HID_BUTTON_##_enum == SMC_HID_BUTTON_HOLD;        \
+         if (m == 1 || (m == 2 && push) || (m == 3 && push && !hold) ||    \
+-            (m == 4 && push && !(hold && !s->hold_seen))) {               \
++            (m == 4 && push && !(hold && !s->hold_seen)) ||               \
++            (m == 5 && push)) {                                           \
+             v = !v;                                                       \
+         }                                                                 \
++        if (m == 5 && hold && s->hold_boot) {                             \
++            v = 1;                                                        \
++            if (!timer_pending(s->hold_release)) {                        \
++                timer_mod(s->hold_release,                                \
++                          qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) +         \
++                              apple_buttons_boot_hold_ms());              \
++            }                                                             \
++        }                                                                 \
+         if (apple_buttons_smc_log()) {                                    \
+             fprintf(stderr, "buttons: read %s -> %d\n", #_btn, v);        \
+         }                                                                 \
+@@ -192,6 +235,9 @@ SysBusDevice *apple_buttons_create(AppleDTNode *node)
+                       &powered_by_hold_btn);
+ 
+     qemu_mutex_init(&s->mutex);
++    s->hold_boot = true;
++    s->hold_release =
++        timer_new_ms(QEMU_CLOCK_VIRTUAL, apple_buttons_hold_release, s);
+ 
+     return sbd;
+ }
+@@ -202,6 +248,8 @@ static void apple_buttons_qdev_reset_hold(Object *obj, ResetType type)
+     QEMU_LOCK_GUARD(&s->mutex);
+     s->states = 0;
+     s->hold_seen = false;
++    s->hold_boot = true;
++    timer_del(s->hold_release);
+ }
+ 
+ /* F1-F10 are the buttons; with a USB keyboard attached they still come here. */
