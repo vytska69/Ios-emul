@@ -113,18 +113,22 @@ def main():
         f0 = counter.frames
         time.sleep(args.seconds)
         idle = (counter.frames - f0) / args.seconds
-        x0, y = W // 2, H // 2
+        # The finger only goes left of where it started and back: a drag to the right pulled the
+        # widgets view in now and then (with its "Refreshed Widgets" sheet), and every later round
+        # then measured a screen that no longer moved (0 frames/s).
+        x0, y = int(W * 0.7), H // 2
+
+        def finger(t):
+            return int(x0 - W * 0.4 * (1 - math.cos(math.pi * t)) / 2)
+
         vnc.pointer(x0, y, True)
         f0, t0 = counter.frames, time.time()
         while time.time() - t0 < args.seconds:
-            t = time.time() - t0
-            vnc.pointer(int(x0 + W * 0.3 * math.sin(2 * math.pi * 0.5 * t)), y, True)
+            vnc.pointer(finger(time.time() - t0), y, True)
             time.sleep(0.016)
         fps = (counter.frames - f0) / (time.time() - t0)
-        # Glide back to the start and hold before lifting: lifting mid-swing was a flick, which
-        # paged to the widgets view (and its "Refreshed Widgets" sheet), and later rounds dragged
-        # a screen that no longer moved.
-        x = int(x0 + W * 0.3 * math.sin(2 * math.pi * 0.5 * (time.time() - t0)))
+        # Glide back to the start and hold before lifting: lifting mid-swing was a flick.
+        x = finger(time.time() - t0)
         for i in range(1, 31):
             vnc.pointer(x + (x0 - x) * i // 30, y, True)
             time.sleep(0.03)
