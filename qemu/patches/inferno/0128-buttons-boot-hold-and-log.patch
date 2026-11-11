@@ -1,0 +1,101 @@
+diff --git a/hw/misc/apple-silicon/buttons.c b/hw/misc/apple-silicon/buttons.c
+index 91eb616..e1ff42d 100644
+--- a/hw/misc/apple-silicon/buttons.c
++++ b/hw/misc/apple-silicon/buttons.c
+@@ -36,6 +36,8 @@ struct AppleButtonsState {
+     /*< public >*/
+     QemuMutex mutex;
+     uint16_t states;
++    /* QEMU_BUTTONS_FLIP=4: hold reads as held until the first hold key event */
++    bool hold_seen;
+ };
+ 
+ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+@@ -99,6 +101,9 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+         return;
+     }
+ 
++    if (button == SMC_HID_BUTTON_HOLD) {
++        s->hold_seen = true;
++    }
+     if (((s->states & BIT32(button)) != 0) != key->down) {
+         if (key->down) {
+             s->states |= BIT32(button);
+@@ -111,7 +116,9 @@ static void apple_buttons_handle_event(DeviceState *dev, QemuConsole *src,
+ 
+ /*
+  * QEMU_BUTTONS_FLIP (experiment): 1 reports every button key with the other
+- * polarity, 2 only the push buttons (volume and hold), not the ringer switch.
++ * polarity, 2 only the push buttons (volume and hold), not the ringer switch,
++ * 3 only the volume buttons, 4 the push buttons but hold reads as held (as when
++ * it powered the phone on) until the first hold key event.
+  */
+ static int apple_buttons_flip_mode(void)
+ {
+@@ -123,6 +130,16 @@ static int apple_buttons_flip_mode(void)
+     return on;
+ }
+ 
++static bool apple_buttons_smc_log(void)
++{
++    static int on = -1;
++    if (on < 0) {
++        const char *v = getenv("QEMU_SMC_LOG");
++        on = v && v[0] == '1';
++    }
++    return on;
++}
++
+ #define BUTTON_READER(_btn, _op, _enum)                                   \
+     static SMCResult apple_buttons_smc_read_##_btn(                       \
+         SMCKey *key, SMCKeyData *data, const void *in, uint8_t in_length) \
+@@ -130,11 +147,16 @@ static int apple_buttons_flip_mode(void)
+         AppleButtonsState *s = key->opaque;                               \
+                                                                           \
+         bool v = (s->states & BIT32(SMC_HID_BUTTON_##_enum)) _op 0;       \
+-        if (apple_buttons_flip_mode() == 1 ||                             \
+-            (apple_buttons_flip_mode() == 2 &&                            \
+-             SMC_HID_BUTTON_##_enum != SMC_HID_BUTTON_RINGER)) {          \
++        int m = apple_buttons_flip_mode();                                \
++        bool push = SMC_HID_BUTTON_##_enum != SMC_HID_BUTTON_RINGER;      \
++        bool hold = SMC_HID_BUTTON_##_enum == SMC_HID_BUTTON_HOLD;        \
++        if (m == 1 || (m == 2 && push) || (m == 3 && push && !hold) ||    \
++            (m == 4 && push && !(hold && !s->hold_seen))) {               \
+             v = !v;                                                       \
+         }                                                                 \
++        if (apple_buttons_smc_log()) {                                    \
++            fprintf(stderr, "buttons: read %s -> %d\n", #_btn, v);        \
++        }                                                                 \
+         stl_le_p(data->data, v);                                          \
+                                                                           \
+         return SMC_RESULT_SUCCESS;                                        \
+@@ -179,6 +201,7 @@ static void apple_buttons_qdev_reset_hold(Object *obj, ResetType type)
+     AppleButtonsState *s = APPLE_BUTTONS(obj);
+     QEMU_LOCK_GUARD(&s->mutex);
+     s->states = 0;
++    s->hold_seen = false;
+ }
+ 
+ /* F1-F10 are the buttons; with a USB keyboard attached they still come here. */
+diff --git a/hw/misc/apple-silicon/smc.c b/hw/misc/apple-silicon/smc.c
+index d15b324..09cba98 100644
+--- a/hw/misc/apple-silicon/smc.c
++++ b/hw/misc/apple-silicon/smc.c
+@@ -219,7 +219,7 @@ void apple_smc_send_hid_button(AppleSMCState *s, AppleSMCHIDButton button,
+     KeyResponse r = { 0 };
+ 
+     if (apple_smc_log_keys()) {
+-        qemu_log("SMC: button %d %s%s\n", button, state ? "down" : "up",
++        fprintf(stderr, "SMC: button %d %s%s\n", button, state ? "down" : "up",
+                  s->is_booted ? "" : " (dropped: SMC not booted)");
+     }
+     if (!s->is_booted) {
+@@ -459,7 +459,7 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint8_t ep,
+ 
+     if (apple_smc_log_keys()) {
+         /* QEMU_SMC_LOG=1: which keys iOS reads and writes, and the answers. */
+-        qemu_log("SMC: cmd 0x%02x key '%c%c%c%c' len %u -> status 0x%02x\n",
++        fprintf(stderr, "SMC: cmd 0x%02x key '%c%c%c%c' len %u -> status 0x%02x\n",
+                  kmsg->cmd, (key >> 24) & 0xff, (key >> 16) & 0xff,
+                  (key >> 8) & 0xff, key & 0xff, kmsg->length, resp.status);
+     }
