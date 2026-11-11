@@ -111,7 +111,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   ~6–9 kadrai/s dabar (CI labai triukšmingas); ekranas įsijungia per ~335–500 s. Hosto profilyje
   (`sample`, tempiant) didžiausios dalys: laukimas BQL (~20–25 %, laikas, ne CPU), sugeneruotas
   kodas (~20 %), MMU/TLB (~15 %), slankiojo kablelio helperiai (~10 %), TB paieška (~9 %).
-  QEMU pusėje (patch'ai 0061–0126):
+  QEMU pusėje (patch'ai 0061–0131):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -151,6 +151,9 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
     profilyje TB paieška 15,7 % → 11,6 %, `tlb_flush_range` 12,6 % → 0 %;
   - sisteminių registrų su patikra vykdymo metu aprašai (CNTVCT ir kt.) imami iš gijos podėlio, ne iš
     maišos lentelės (0126);
+  - atidėtų IPI laikmatis (kas 64 µs, su BQL) veikia tik kai kuris nors IPI laukia, ne visą laiką
+    (0131, `QEMU_IPI_TIMER_ALWAYS=1` grąžina): A/B abiem tvarkomis neutralu (4,7 prieš 5,9 ir 4,3 prieš
+    sustojusį ekraną; antras paleidimas darbe visada greitesnis), bet mažiau pabudimų;
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): `wfe` po `ldaxr` laukia, kol pasikeis
     užrakto žodis (0124, `QEMU_WFE_WATCH=1`; 5,7 prieš 5,6 ir 4,3 prieš 4,2 kadro/s), pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
