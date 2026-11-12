@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-12
+- Fixed: the emulated iPhone no longer restarts now and then while it starts up on a busy device.
+
 ## 2026-11-11
 - Changed: the emulator does less background work when nothing is waiting, which saves some battery.
 - Fixed: the side and volume buttons work. The side button locks and wakes the screen, and holding it opens Siri. The volume buttons change the volume. Before, iOS treated every button as held down and ignored presses.

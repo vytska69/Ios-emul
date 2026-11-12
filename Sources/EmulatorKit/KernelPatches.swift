@@ -180,6 +180,26 @@ public enum KernelPatches {
                 }
             }
         }
+        // hw_lock_bit and hw_lock_bit_nopreempt wait for a bit lock with a fixed timeout,
+        // `mov w2, #0xc00000` (0.52 s of the 24 MHz timebase), not the slto_us boot-arg, and
+        // panic when it passes ("hw_lock_bit(): timed out"). Emulated, the vCPU holding the lock
+        // is sometimes not run for that long when the host is busy, and boot panics now and then.
+        // Wait 0xffff0000 ticks (about 3 minutes), like the other spinlocks with slto_us.
+        for string in ["\"hw_lock_bit(): timed out (%p)\"", "\"hw_lock_bit_nopreempt(): timed out (%p)\""] {
+            for log in image.codeAfter(string: string, within: 1) {
+                for back in 1...40 {
+                    let at = log - UInt64(4 * back)
+                    let w = image.word(at)
+                    guard w != 0xD503_237F else { break }
+                    if w == 0x52A0_1802, !seen.contains(at) {                       // mov w2, #0xc00000
+                        seen.insert(at)
+                        patches.append(Patch(address: at, original: w, replacement: 0x52BF_FFE2,
+                                             reason: "hw_lock_bit: wait about 3 minutes for a bit lock (mov w2, #0xffff0000)"))
+                        break
+                    }
+                }
+            }
+        }
         // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
         // and five identical copies) call a method of the pipeline object without checking it:
         // `ldr x8, [x0, #0x28]; ldr x8, [x8, #0x10]; ... ldr x16, [x8]` and then the method in
