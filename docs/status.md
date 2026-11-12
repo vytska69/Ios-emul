@@ -106,6 +106,11 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   rašomos (CI: Spotlight „hellohi“). Išjungiama `--usb-keyboard 0` arba programos nustatymu.
 - **Reta panika.** Maždaug 1 iš 8 antrų startų baigiasi „Kernel data abort“ ties
   `AppleANS2NVMeController::start`. Priežastis dar nežinoma.
+- **„hw_lock_bit(): timed out“ (pataisyta).** `hw_lock_bit` ir `hw_lock_bit_nopreempt` užrakto laukia
+  fiksuotą 0xc00000 tikų (0,52 s) laiką, ne `slto_us`. Kai hostas apkrautas, užraktą laikantis vCPU
+  kartais tiek nevykdomas, ir įkrova baigdavosi panika (CPU 2, kviečiama iš 0xfffffff007a4ca68).
+  Branduolio pataisa (`KernelPatches.swift`) visose 8 įterptose vietose `mov w2, #0xc00000` keičia į
+  `#0xffff0000` (~3 min).
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
 - **Greitis.** Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s iki 0085,
   ~6–9 kadrai/s dabar (CI labai triukšmingas); ekranas įsijungia per ~335–500 s. Hosto profilyje
