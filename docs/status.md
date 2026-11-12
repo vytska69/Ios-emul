@@ -110,7 +110,9 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   fiksuotą 0xc00000 tikų (0,52 s) laiką, ne `slto_us`. Kai hostas apkrautas, užraktą laikantis vCPU
   kartais tiek nevykdomas, ir įkrova baigdavosi panika (CPU 2, kviečiama iš 0xfffffff007a4ca68).
   Branduolio pataisa (`KernelPatches.swift`) visose 8 įterptose vietose `mov w2, #0xc00000` keičia į
-  `#0xffff0000` (~3 min).
+  `#0xffff0000` (~3 min). Tą patį numatytąjį limitą naudoja ir `hw_lock_to` paprastiems spinlock'ams
+  („Spinlock timeout after 12585668 ticks“ – dažniausia įkrovos panika CI žurnaluose); jis irgi
+  pakeistas į ~3 min.
 - **Interpretatorius telefone uždaro programą.** CI jis veikia.
 - **Greitis.** Tempiant pagrindinį ekraną (CI, `scripts/ci-fps.py`): 3–6 kadrai/s iki 0085,
   ~6–9 kadrai/s dabar (CI labai triukšmingas); ekranas įsijungia per ~335–500 s. Hosto profilyje

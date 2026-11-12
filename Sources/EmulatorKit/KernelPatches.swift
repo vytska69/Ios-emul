@@ -200,6 +200,22 @@ public enum KernelPatches {
                 }
             }
         }
+        // hw_lock_to does the same for an ordinary spinlock when its caller gives no timeout:
+        // `cmp x2, #0; mov w10, #0xc00000; csel x10, x10, x2, eq` ("Spinlock timeout after
+        // 12585668 ticks", the most frequent boot panic under load). Same 3 minutes.
+        for log in image.codeAfter(string: "\"Spinlock timeout after %llu ticks, %p = %lx\"", within: 1) {
+            for back in 1...80 {
+                let at = log - UInt64(4 * back)
+                let w = image.word(at)
+                guard w != 0xD503_237F else { break }
+                if w == 0x52A0_180A, image.word(at + 4) & 0xFFE0_FC00 == 0x9A80_0000, !seen.contains(at) {
+                    seen.insert(at)                                                       // mov w10, #0xc00000
+                    patches.append(Patch(address: at, original: w, replacement: 0x52BF_FFEA,
+                                         reason: "hw_lock_to: wait about 3 minutes for a spinlock without a timeout (mov w10, #0xffff0000)"))
+                    break
+                }
+            }
+        }
         // IOMobileFramebuffer's power-state work items (UnifiedPipeline::queue_power_state_change
         // and five identical copies) call a method of the pipeline object without checking it:
         // `ldr x8, [x0, #0x28]; ldr x8, [x8, #0x10]; ... ldr x16, [x8]` and then the method in
