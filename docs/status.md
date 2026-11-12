@@ -111,7 +111,7 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   ~6–9 kadrai/s dabar (CI labai triukšmingas); ekranas įsijungia per ~335–500 s. Hosto profilyje
   (`sample`, tempiant) didžiausios dalys: laukimas BQL (~20–25 %, laikas, ne CPU), sugeneruotas
   kodas (~20 %), MMU/TLB (~15 %), slankiojo kablelio helperiai (~10 %), TB paieška (~9 %).
-  QEMU pusėje (patch'ai 0061–0132):
+  QEMU pusėje (patch'ai 0061–0133):
   - be BQL: laikrodžiai, IPI būsena, ERET, užmaskuoti pertraukimai, sinchroninės išimtys,
     laikmačių registrai (0061–0066); `wfe`/`yield` neišeina iš `cpu_exec` (0074);
   - TB paieška (`QEMU_JC_STATS=1` skaičiuoja): branduolio kodo šuoliai tarp puslapių sujungiami
@@ -157,13 +157,18 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   - išbandyta ir išjungta pagal nutylėjimą (A/B nebuvo greičiau): `wfe` po `ldaxr` laukia, kol pasikeis
     užrakto žodis (0124, `QEMU_WFE_WATCH=1`; 5,7 prieš 5,6 ir 4,3 prieš 4,2 kadro/s), pertraukimų priėmimas be BQL
     (0067, `QEMU_IRQ_TAKE_NOBQL=1`), IPI siuntimo registrai be BQL (0132, `QEMU_IPI_RR_NOBQL=1`;
-    lėčiau: 3,3 prieš 4,6 ir 3,5 prieš 4,5 kadro/s), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
+    lėčiau: 3,3 prieš 4,6 ir 3,5 prieš 4,5 kadro/s),
+    laikmatis, kuris tik nusikelia vėliau, nežadina pagrindinio ciklo (0133, `QEMU_TIMER_LAZY_NOTIFY=1`;
+    4 A/B po 15 raundų, vidurkis 3,24 prieš 3,99 kadro/s), TLBI su patvirtinimu (0072, `QEMU_TLBI_ACK=1`), grįžimas į
     `cpu_exec` be BQL po „kick“ (0075, `QEMU_MTTCG_FAST=1`); didesnis šuolių podėlis (0073)
     atšauktas – daugiau nepataikymų.
 
   `scripts/ci-fps.py` tempia tik į kairę ir atgal: tempiant į dešinę kartais atsidarydavo valdiklių
   puslapis su „Refreshed Widgets“ langu, ir likę raundai rodė 0 kadrų/s (taip buvo sugadintos kelios
   ankstesnės A/B medianos).
+
+  Tame pačiame ekrane, toje pačioje būsenoje atskiri 10 s raundai svyruoja 2,7–9,1 kadro/s, todėl A/B
+  daromi po 15 raundų, o `ci-fps.py` rodo ir vidurkį.
 
   CI kompiuteriai (3 branduoliai, 4 emuliuoti procesoriai) labai triukšmingi: to paties paleidimo
   įkrova svyruoja 400–650 s, todėl sprendžiama tik pagal A/B tame pačiame darbe.
