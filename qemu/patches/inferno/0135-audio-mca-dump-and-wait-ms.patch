@@ -1,0 +1,52 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index ab519c8..d620cd6 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -444,6 +444,22 @@ static void apple_mca_flush(AppleMCAState *s)
+ static void apple_mca_send(AppleMCAState *s, const void *data, uint32_t len)
+ {
+     uint32_t w = 0;
++    static FILE *dump;
++    static int dump_on = -1;
++
++    /*
++     * QEMU_MCA_DUMP=file: the sound as the host gets it (48 kHz stereo S16,
++     * no gaps), what the app plays at its own pace; for measuring cuts.
++     */
++    if (dump_on < 0) {
++        const char *v = getenv("QEMU_MCA_DUMP");
++        dump = v && *v ? fopen(v, "wb") : NULL;
++        dump_on = dump != NULL;
++    }
++    if (dump_on) {
++        fwrite(data, 1, len, dump);
++        fflush(dump);
++    }
+ 
+     apple_mca_flush(s);
+     if (!s->queued_len) {
+@@ -699,9 +715,14 @@ static void apple_mca_out_callback(void *opaque, int avail)
+      * comes a little later and in one piece (the app evens the pace out).
+      * QEMU_MCA_WAIT=0: leave it out at once, as before.
+      */
++    static int64_t wait_ns = 30 * SCALE_MS;
+     if (wait_mode < 0) {
+-        const char *v = getenv("QEMU_MCA_WAIT");  /* 1: wait (it stopped the guest's sound) */
++        const char *v = getenv("QEMU_MCA_WAIT");  /* 1: wait */
+         wait_mode = v && v[0] == '1';
++        v = getenv("QEMU_MCA_WAIT_MS");           /* how long, 30 by default */
++        if (v && atoi(v) > 0) {
++            wait_ns = (int64_t)atoi(v) * SCALE_MS;
++        }
+     }
+ 
+     apple_mca_flush(s);
+@@ -713,7 +734,7 @@ static void apple_mca_out_callback(void *opaque, int avail)
+         bool stale = false;
+         int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+         bool wait = wait_mode &&
+-                    (!s->stall_since || now - s->stall_since < 30 * SCALE_MS);
++                    (!s->stall_since || now - s->stall_since < wait_ns);
+         uint32_t pulled = apple_sio_dma_read_fresh_wait(s->tx_ep, temp, chunk,
+                                                         &consumed, wait, &stale);
+         if (stale) {
