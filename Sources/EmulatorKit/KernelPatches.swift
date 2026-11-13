@@ -184,7 +184,8 @@ public enum KernelPatches {
         // `mov w2, #0xc00000` (0.52 s of the 24 MHz timebase), not the slto_us boot-arg, and
         // panic when it passes ("hw_lock_bit(): timed out"). Emulated, the vCPU holding the lock
         // is sometimes not run for that long when the host is busy, and boot panics now and then.
-        // Wait 0xffff0000 ticks (about 3 minutes), like the other spinlocks with slto_us.
+        // Wait 0x1ca00000 ticks (20 s): long enough for a holder the host does not run for a
+        // while, short enough that a real deadlock (seen once in many boots) restarts soon.
         for string in ["\"hw_lock_bit(): timed out (%p)\"", "\"hw_lock_bit_nopreempt(): timed out (%p)\""] {
             for log in image.codeAfter(string: string, within: 1) {
                 for back in 1...40 {
@@ -193,8 +194,8 @@ public enum KernelPatches {
                     guard w != 0xD503_237F else { break }
                     if w == 0x52A0_1802, !seen.contains(at) {                       // mov w2, #0xc00000
                         seen.insert(at)
-                        patches.append(Patch(address: at, original: w, replacement: 0x52BF_FFE2,
-                                             reason: "hw_lock_bit: wait about 3 minutes for a bit lock (mov w2, #0xffff0000)"))
+                        patches.append(Patch(address: at, original: w, replacement: 0x52A3_9402,
+                                             reason: "hw_lock_bit: wait 20 s for a bit lock (mov w2, #0x1ca00000)"))
                         break
                     }
                 }
@@ -202,7 +203,7 @@ public enum KernelPatches {
         }
         // hw_lock_to does the same for an ordinary spinlock when its caller gives no timeout:
         // `cmp x2, #0; mov w10, #0xc00000; csel x10, x10, x2, eq` ("Spinlock timeout after
-        // 12585668 ticks", the most frequent boot panic under load). Same 3 minutes.
+        // 12585668 ticks", the most frequent boot panic under load). Same 20 s.
         for log in image.codeAfter(string: "\"Spinlock timeout after %llu ticks, %p = %lx\"", within: 1) {
             for back in 1...80 {
                 let at = log - UInt64(4 * back)
@@ -210,8 +211,8 @@ public enum KernelPatches {
                 guard w != 0xD503_237F else { break }
                 if w == 0x52A0_180A, image.word(at + 4) & 0xFFE0_FC00 == 0x9A80_0000, !seen.contains(at) {
                     seen.insert(at)                                                       // mov w10, #0xc00000
-                    patches.append(Patch(address: at, original: w, replacement: 0x52BF_FFEA,
-                                         reason: "hw_lock_to: wait about 3 minutes for a spinlock without a timeout (mov w10, #0xffff0000)"))
+                    patches.append(Patch(address: at, original: w, replacement: 0x52A3_940A,
+                                         reason: "hw_lock_to: wait 20 s for a spinlock without a timeout (mov w10, #0x1ca00000)"))
                     break
                 }
             }
