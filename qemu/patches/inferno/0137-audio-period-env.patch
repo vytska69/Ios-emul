@@ -1,0 +1,23 @@
+diff --git a/audio/audio.c b/audio/audio.c
+index 89f091b..270d7b6 100644
+--- a/audio/audio.c
++++ b/audio/audio.c
+@@ -1783,6 +1783,18 @@ static AudioState *audio_init(Audiodev *dev, Error **errp)
+     } else {
+         s->period_ticks = dev->timer_period * (int64_t)SCALE_US;
+     }
++    /*
++     * QEMU_AUDIO_PERIOD_US: how often devices are asked for sound (10 ms by
++     * default). The Apple MCA takes the guest's ring and completes its DMA
++     * buffers in steps of this length; a shorter step keeps the guest's writes
++     * ahead of what the device takes.
++     */
++    {
++        const char *v = getenv("QEMU_AUDIO_PERIOD_US");
++        if (v && atoi(v) > 0) {
++            s->period_ticks = (int64_t)atoi(v) * SCALE_US;
++        }
++    }
+ 
+     vmse = qemu_add_vm_change_state_handler (audio_vm_change_state_handler, s);
+     if (!vmse) {
