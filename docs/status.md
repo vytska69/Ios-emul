@@ -75,6 +75,9 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   `QEMU_MCA_DELAY=1` sukeldavo branduolio paniką („dart-sio … PTE invalid“): garsas buvo skaitomas
   DART adresu, kai iOS buferį jau buvo atjungusi. 0134 jį skaito iš svečio RAM, panikos nebėra, bet
   žiedas tik ~11 ms, vėlinti galima ~5 ms, ir trūkių daugiau (79/s). Abu lieka išjungti.
+  `QEMU_AUDIO_PERIOD_US` (0137) trumpina QEMU garso laikmačio periodą (numatyta 10 ms). Tikrinta
+  2 ms ir 1 ms: 10 ms – 68 ir 56/s, 2 ms – 78/s, 1 ms – 28 ir 83/s. Sklaida tokia pati kaip
+  tarp vienodų paleidimų, pagerėjimo nėra, todėl paliekama išjungta.
 - **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
   `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
