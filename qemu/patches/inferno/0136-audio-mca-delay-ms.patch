@@ -1,0 +1,22 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index d620cd6..051f6ca 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -651,8 +651,15 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             left -= n;
+         }
+ 
+-        int64_t delay = s->ring_ns ? MIN(MCA_DELAY_MAX_NS, s->ring_ns / 2)
+-                                   : 10 * SCALE_MS;
++        /* QEMU_MCA_DELAY_MS: a fixed delay instead of half the measured lap. */
++        static int64_t fixed_delay = -1;
++        if (fixed_delay < 0) {
++            const char *v = getenv("QEMU_MCA_DELAY_MS");
++            fixed_delay = v && atoi(v) > 0 ? (int64_t)atoi(v) * SCALE_MS : 0;
++        }
++        int64_t delay = fixed_delay ? fixed_delay
++                        : s->ring_ns ? MIN(MCA_DELAY_MAX_NS, s->ring_ns / 2)
++                                     : 10 * SCALE_MS;
+         while (s->pend_n) {
+             typeof(s->pend[0]) *p = &s->pend[s->pend_head];
+             if (p->t > now - delay) {
