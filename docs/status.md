@@ -68,6 +68,13 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   kaupia buferyje ir groja tokiu greičiu, kokiu iOS jį gamina (laiko tempimas be tono pokyčio).
   AudioToolbox `override_iobuffer_duration` (com.apple.coreaudio) išbandytas: 100 ms traškesių
   nesumažino, su 50 ms garso nebuvo visai.
+  Matavimas: `QEMU_MCA_DUMP=failas` (0135) įrašo tiksliai tą srautą, kurį gauna programa, o
+  trūkiai skaičiuojami jame (skambučio melodija Settings → Sounds). Be laukimo – 61–90 trūkių/s.
+  `QEMU_MCA_WAIT=1` (`QEMU_MCA_WAIT_MS`, numatyta 30): 34–81/s, bet iOS kiekvieną kartą garsą
+  nutraukia anksčiau (2,2–4,5 s vietoj 5,4–6,0 s), su 60 ms dar anksčiau, su 100 ms garso nėra.
+  `QEMU_MCA_DELAY=1` sukeldavo branduolio paniką („dart-sio … PTE invalid“): garsas buvo skaitomas
+  DART adresu, kai iOS buferį jau buvo atjungusi. 0134 jį skaito iš svečio RAM, panikos nebėra, bet
+  žiedas tik ~11 ms, vėlinti galima ~5 ms, ir trūkių daugiau (79/s). Abu lieka išjungti.
 - **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
   `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
