@@ -1,0 +1,98 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 676c436..ab519c8 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -158,6 +158,7 @@ struct AppleMCAState {
+     /* Delayed playback (apple_mca_out_callback): consumed pieces of the ring. */
+     struct {
+         uint64_t addr;
++        const uint8_t *host;
+         uint32_t len;
+         int64_t t;
+     } pend[2048];
+@@ -564,7 +565,8 @@ static MCABlock *apple_mca_block(AppleMCAState *s, uint64_t addr)
+     return b;
+ }
+ 
+-static void apple_mca_consumed(void *opaque, uint64_t addr, uint64_t n)
++static void apple_mca_consumed(void *opaque, uint64_t addr,
++                               const uint8_t *host, uint64_t n)
+ {
+     AppleMCAState *s = opaque;
+     MCABlock *b = apple_mca_block(s, addr);
+@@ -585,6 +587,7 @@ static void apple_mca_consumed(void *opaque, uint64_t addr, uint64_t n)
+     if (s->pend_n < ARRAY_SIZE(s->pend)) {
+         uint32_t i = (s->pend_head + s->pend_n) % ARRAY_SIZE(s->pend);
+         s->pend[i].addr = addr;
++        s->pend[i].host = host;
+         s->pend[i].len = n;
+         s->pend[i].t = s->now_ns;
+         s->pend_n++;
+@@ -643,7 +646,9 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             uint32_t n = MIN(p->len - s->pend_off,
+                              MCA_BLOCK - (addr % MCA_BLOCK));
+             uint32_t written = n;
+-            if (!apple_sio_dma_peek(s->tx_ep, addr, s->buf, n)) {
++            if (p->host) {
++                memcpy(s->buf, p->host + s->pend_off, n);
++            } else {
+                 memset(s->buf, 0, n);
+                 st_peekfail++;
+             }
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index a6ad330..47d18e2 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -457,7 +457,7 @@ uint64_t apple_sio_dma_read_fresh_wait(AppleSIODMAEndpoint *ep, void *buffer,
+  */
+ uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
+                                void (*cb)(void *opaque, uint64_t addr,
+-                                          uint64_t n),
++                                          const uint8_t *host, uint64_t n),
+                                void *opaque)
+ {
+     AppleSIOState *s;
+@@ -485,10 +485,29 @@ uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
+         }
+         uint64_t piece = MIN(MIN(len - taken, buf->iov.size - buf->completed),
+                              room);
++        /*
++         * Where the piece is in guest RAM, for reading it later: by then the
++         * guest may have unmapped the buffer from its DART, and a read by DMA
++         * address faults there (the kernel panics on the DART error). NULL
++         * when it is not plain RAM.
++         */
++        const uint8_t *host = NULL;
++        size_t ioff = buf->completed;
++        for (int i = 0; i < buf->iov.niov; ++i) {
++            if (ioff < buf->iov.iov[i].iov_len) {
++                host = (const uint8_t *)buf->iov.iov[i].iov_base + ioff;
++                piece = MIN(piece, buf->iov.iov[i].iov_len - ioff);
++                break;
++            }
++            ioff -= buf->iov.iov[i].iov_len;
++        }
++        if (host && qemu_ram_addr_from_host((void *)host) == RAM_ADDR_INVALID) {
++            host = NULL;
++        }
+         if (piece == 0) {
+             break;
+         }
+-        cb(opaque, addr, piece);
++        cb(opaque, addr, host, piece);
+         taken += piece;
+         buf->completed += piece;
+         if (buf->completed >= buf->iov.size) {
+diff --git a/include/hw/dma/apple_sio.h b/include/hw/dma/apple_sio.h
+index 4ec451f..1978704 100644
+--- a/include/hw/dma/apple_sio.h
++++ b/include/hw/dma/apple_sio.h
+@@ -20,7 +20,7 @@ uint64_t apple_sio_dma_read_fresh_wait(AppleSIODMAEndpoint *ep, void *buffer,
+                                        bool wait, bool *stale);
+ uint64_t apple_sio_dma_consume(AppleSIODMAEndpoint *ep, uint64_t len,
+                                void (*cb)(void *opaque, uint64_t addr,
+-                                          uint64_t n),
++                                          const uint8_t *host, uint64_t n),
+                                void *opaque);
+ bool apple_sio_dma_peek(AppleSIODMAEndpoint *ep, uint64_t addr, void *buffer,
+                         uint64_t len);
