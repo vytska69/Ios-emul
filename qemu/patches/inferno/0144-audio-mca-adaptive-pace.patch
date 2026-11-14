@@ -1,0 +1,84 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 13f4db4..5963040 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -170,6 +170,10 @@ struct AppleMCAState {
+     int64_t last_ns, now_ns;
+     uint64_t carry;
+     int64_t ring_ns;
++    /* QEMU_MCA_ADAPT: the device's pace (permille) and this window's counts. */
++    int32_t pace;
++    uint64_t win_stale, win_all;
++    int64_t win_start;
+     /* Since when the device waits for the guest to refill a block (0: not). */
+     int64_t stall_since;
+     /* apple_mca_out: the last frames, held back for a crossfade. */
+@@ -749,7 +753,39 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             const char *v = getenv("QEMU_MCA_RATE");
+             rate_pct = v && atoi(v) > 0 && atoi(v) <= 400 ? atoi(v) : 100;
+         }
+-        due = (uint64_t)elapsed * MCA_BYTES_PER_SEC * rate_pct / 100 + s->carry;
++        /*
++         * QEMU_MCA_ADAPT=1: the guest's audio, emulated, cannot always make
++         * its sound in real time; at the real pace it then leaves parts of
++         * its buffer unwritten, each a cut. The device slows down while that
++         * happens (to QEMU_MCA_ADAPT_MIN percent, 70 by default) and goes back
++         * to the real pace when the guest keeps up; the app plays what comes
++         * at the pace it comes.
++         */
++        static int adapt = -1, adapt_min = 700;
++        if (adapt < 0) {
++            const char *v = getenv("QEMU_MCA_ADAPT");
++            adapt = v && v[0] == '1';
++            v = getenv("QEMU_MCA_ADAPT_MIN");
++            if (v && atoi(v) >= 30 && atoi(v) <= 100) {
++                adapt_min = atoi(v) * 10;
++            }
++        }
++        if (!s->pace) {
++            s->pace = rate_pct * 10;
++        }
++        if (adapt && now - s->win_start >= 200 * SCALE_MS) {
++            if (s->win_all) {
++                if (s->win_stale * 50 > s->win_all) {          /* > 2% */
++                    s->pace = MAX(adapt_min, s->pace - 50);
++                } else if (s->win_stale == 0) {
++                    s->pace = MIN(1000, s->pace + 10);
++                }
++            }
++            s->win_stale = s->win_all = 0;
++            s->win_start = now;
++        }
++        due = (uint64_t)elapsed * MCA_BYTES_PER_SEC *
++                  (adapt ? s->pace : rate_pct * 10) / 1000 + s->carry;
+         want = due / NANOSECONDS_PER_SECOND;
+         want -= want % MCA_FRAME;
+         s->carry = due - want * NANOSECONDS_PER_SECOND;
+@@ -811,11 +847,14 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             if (b->hash != hash) {
+                 written = apple_mca_play(s, s->buf, n);
+                 st_played += written;
++                s->win_all += written;
+                 if (written == n) {
+                     b->hash = hash;
+                 }
+             } else {
+                 st_stale += n;
++                s->win_stale += n;
++                s->win_all += n;
+             }
+             s->pend_off += written;
+             if (written < n) {
+@@ -832,9 +871,9 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             st_last = now;
+             fprintf(stderr, "mca: calls %" PRIu64 " want %" PRIu64 " got %" PRIu64
+                     " played %" PRIu64 " stale %" PRIu64 " peekfail %" PRIu64
+-                    " pend %u ring %" PRId64 "us avail %d\n", st_calls, st_want,
+-                    st_got, st_played, st_stale, st_peekfail, s->pend_n,
+-                    s->ring_ns / 1000, avail);
++                    " pend %u ring %" PRId64 "us avail %d pace %d\n", st_calls,
++                    st_want, st_got, st_played, st_stale, st_peekfail, s->pend_n,
++                    s->ring_ns / 1000, avail, s->pace);
+         }
+         return;
+     }
