@@ -1,0 +1,54 @@
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 19c2ce2..68872d2 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -250,6 +250,33 @@ static void apple_sio_dma_stop(AppleSIOState *s, AppleSIODMAEndpoint *ep)
+     apple_rtkit_send_user_msg(rtk, EP_CONTROL, m.raw);
+ }
+ 
++/* QEMU_SIO_TRACE=1: buffers queued and completed on output endpoints (stderr). */
++static void apple_sio_trace(AppleSIODMAEndpoint *ep, const char *what,
++                            SIODMABuffer *buf)
++{
++    static int on = -1;
++    static int lines;
++    SIODMABuffer *b;
++    int queued = 0;
++
++    if (on < 0) {
++        const char *v = getenv("QEMU_SIO_TRACE");
++        on = v && v[0] == '1';
++    }
++    if (!on || ep->direction != DMA_DIRECTION_TO_DEVICE || lines >= 4000) {
++        return;
++    }
++    QTAILQ_FOREACH (b, &ep->buffers, next) {
++        queued++;
++    }
++    lines++;
++    fprintf(stderr, "sio: %s ep %u tag %u size %" PRIu64 " done %" PRIu64
++            " queued %d addr 0x%" PRIx64 " t %" PRId64 "\n", what, ep->id,
++            buf->tag, (uint64_t)buf->sgl.size, buf->completed, queued,
++            buf->sgl.nsg ? (uint64_t)buf->sgl.sg[0].base : 0,
++            qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
++}
++
+ static void apple_sio_dma_writeback(AppleSIOState *s, AppleSIODMAEndpoint *ep,
+                                     SIODMABuffer *buf)
+ {
+@@ -263,6 +290,7 @@ static void apple_sio_dma_writeback(AppleSIOState *s, AppleSIODMAEndpoint *ep,
+     // Firestorm$Inferno/18A5351d/sio.bndb@00001c08
+     // -- end internal references --
+     end_timestamp = apple_sio_get_cur_ts(s);
++    apple_sio_trace(ep, "done", buf);
+     resp_off = ((buf->tag - 1) + (ep->id * 0x20)) * 0x10;
+     stq_le_dma(&s->dma_as, s->resp_base + resp_off, buf->start_timestamp,
+                MEMTXATTRS_UNSPECIFIED);
+@@ -715,6 +743,7 @@ static void apple_sio_dma(AppleSIOState *s, AppleSIODMAEndpoint *ep,
+         QTAILQ_INSERT_TAIL(&ep->buffers, buf, next);
+ 
+         buf->start_timestamp = apple_sio_get_cur_ts(s);
++        apple_sio_trace(ep, "map", buf);
+ 
+         reply.op = OP_ACK;
+         break;
