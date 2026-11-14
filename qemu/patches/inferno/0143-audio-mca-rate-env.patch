@@ -1,0 +1,19 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 0de3bc1..13f4db4 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -743,7 +743,13 @@ static void apple_mca_out_callback(void *opaque, int avail)
+         s->now_ns = now;
+         s->last_ns = now;
+         elapsed = MIN(MAX(elapsed, 0), 100 * SCALE_MS);
+-        due = (uint64_t)elapsed * MCA_BYTES_PER_SEC + s->carry;
++        /* QEMU_MCA_RATE: the device's pace in percent of real time (100). */
++        static int rate_pct = -1;
++        if (rate_pct < 0) {
++            const char *v = getenv("QEMU_MCA_RATE");
++            rate_pct = v && atoi(v) > 0 && atoi(v) <= 400 ? atoi(v) : 100;
++        }
++        due = (uint64_t)elapsed * MCA_BYTES_PER_SEC * rate_pct / 100 + s->carry;
+         want = due / NANOSECONDS_PER_SECOND;
+         want -= want % MCA_FRAME;
+         s->carry = due - want * NANOSECONDS_PER_SECOND;
