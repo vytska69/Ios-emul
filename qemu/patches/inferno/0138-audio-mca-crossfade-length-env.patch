@@ -1,0 +1,55 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 051f6ca..7ecf5a8 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -169,7 +169,7 @@ struct AppleMCAState {
+     /* Since when the device waits for the guest to refill a block (0: not). */
+     int64_t stall_since;
+     /* apple_mca_out: the last frames, held back for a crossfade. */
+-    int16_t hold[64 * 2];
++    int16_t hold[512 * 2];
+     uint32_t hold_frames;
+     bool splice;
+     /* apple_mca_out: what the host's buffer had no room for yet. */
+@@ -430,7 +430,19 @@ static bool apple_mca_frame_silent(const uint8_t *frame)
+  * piece fades in. Everything is taken: what the host has no room for yet waits
+  * in a queue (dropped past 16 KB).
+  */
+-#define MCA_XF 64
++#define MCA_XF_MAX 512
++/* Crossfade length in frames; QEMU_MCA_XF sets it (1..512, 64 by default). */
++static uint32_t apple_mca_xf(void)
++{
++    static uint32_t xf;
++
++    if (!xf) {
++        const char *v = getenv("QEMU_MCA_XF");
++        int n = v ? atoi(v) : 0;
++        xf = n > 0 ? MIN(n, MCA_XF_MAX) : 64;
++    }
++    return xf;
++}
+ 
+ static void apple_mca_flush(AppleMCAState *s)
+ {
+@@ -475,9 +487,10 @@ static void apple_mca_out(AppleMCAState *s, const uint8_t *data, uint32_t len)
+ {
+     const int16_t *in = (const int16_t *)data;
+     uint32_t frames = len / MCA_FRAME, i = 0;
++    const uint32_t MCA_XF = apple_mca_xf();
+ 
+     if (s->splice && s->hold_frames == MCA_XF && frames >= MCA_XF) {
+-        int16_t mix[MCA_XF * 2];
++        int16_t mix[MCA_XF_MAX * 2];
+         for (uint32_t k = 0; k < MCA_XF; k++) {
+             int32_t a = MCA_XF - k, b = k;
+             for (int c = 0; c < 2; c++) {
+@@ -485,7 +498,7 @@ static void apple_mca_out(AppleMCAState *s, const uint8_t *data, uint32_t len)
+                                  MCA_XF;
+             }
+         }
+-        memcpy(s->hold, mix, sizeof(mix));
++        memcpy(s->hold, mix, MCA_XF * MCA_FRAME);
+         i = MCA_XF;
+     }
+     s->splice = false;
