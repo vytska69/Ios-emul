@@ -1,0 +1,167 @@
+diff --git a/hw/dma/apple_sio.c b/hw/dma/apple_sio.c
+index 47d18e2..19c2ce2 100644
+--- a/hw/dma/apple_sio.c
++++ b/hw/dma/apple_sio.c
+@@ -19,6 +19,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/cutils.h"
++#include "qemu/host-utils.h"
+ #include "hw/dma/apple_sio.h"
+ #include "hw/misc/apple-silicon/a7iop/rtkit.h"
+ #include "migration/vmstate.h"
+@@ -203,10 +204,21 @@ static void apple_sio_dma_destroy_buffer(AppleSIODMAEndpoint *ep,
+ // -- end internal references --
+ static uint64_t apple_sio_get_cur_ts(AppleSIOState *s)
+ {
+-    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) /
+-           (NANOSECONDS_PER_SECOND > s->gtimer_freq ?
+-                NANOSECONDS_PER_SECOND / s->gtimer_freq :
+-                1);
++    uint64_t ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++
++    static int exact = -1;
++
++    /* The same count the CPUs' counter gives (gt_ns_to_ticks). */
++    if (exact < 0) {
++        const char *v = getenv("QEMU_GT_TRUNC");
++        exact = !(v && v[0] == '1');
++    }
++    if (exact && s->gtimer_freq <= UINT32_MAX) {
++        return muldiv64(ns, s->gtimer_freq, NANOSECONDS_PER_SECOND);
++    }
++    return ns / (NANOSECONDS_PER_SECOND > s->gtimer_freq ?
++                     NANOSECONDS_PER_SECOND / s->gtimer_freq :
++                     1);
+ }
+ 
+ static void apple_sio_dma_del_buffers(AppleSIODMAEndpoint *ep)
+diff --git a/target/arm/cpu.c b/target/arm/cpu.c
+index 123da72..5389381 100644
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -1114,6 +1114,53 @@ unsigned int gt_cntfrq_period_ns(ARMCPU *cpu)
+     return period;
+ }
+ 
++/*
++ * The counter as the guest's frequency gives it: ticks = ns * hz / 1e9.
++ * The period above is a whole number of nanoseconds (41 for 24 MHz, not
++ * 41.67), so the guest's clock ran 1.6% fast: the guest's sound hardware,
++ * timed by the real clock, then fell behind what the guest expected and its
++ * audio skipped parts of its buffer. Timers are set in nanoseconds rounded
++ * up, so a timer never fires before the counter reaches its tick.
++ * QEMU_GT_TRUNC=1: the old whole-nanosecond period.
++ */
++bool gt_exact(void)
++{
++    static int exact = -1;
++
++    if (exact < 0) {
++        const char *v = getenv("QEMU_GT_TRUNC");
++        exact = !(v && v[0] == '1');
++    }
++    return exact;
++}
++
++uint64_t gt_ns_to_ticks(ARMCPU *cpu, uint64_t ns)
++{
++    if (!gt_exact() || cpu->gt_cntfrq_hz > UINT32_MAX) {
++        return ns / gt_cntfrq_period_ns(cpu);
++    }
++    return muldiv64(ns, cpu->gt_cntfrq_hz, NANOSECONDS_PER_SECOND);
++}
++
++void gt_timer_mod_ticks(ARMCPU *cpu, QEMUTimer *timer, uint64_t ticks)
++{
++    if (!gt_exact() || cpu->gt_cntfrq_hz > UINT32_MAX) {
++        if (ticks > INT64_MAX / gt_cntfrq_period_ns(cpu)) {
++            timer_mod_ns(timer, INT64_MAX);
++        } else {
++            timer_mod(timer, ticks);
++        }
++        return;
++    }
++    if (ticks >= muldiv64(INT64_MAX, cpu->gt_cntfrq_hz,
++                          NANOSECONDS_PER_SECOND)) {
++        timer_mod_ns(timer, INT64_MAX);
++    } else {
++        timer_mod_ns(timer, muldiv64_round_up(ticks, NANOSECONDS_PER_SECOND,
++                                              cpu->gt_cntfrq_hz));
++    }
++}
++
+ static void arm_cpu_propagate_feature_implications(ARMCPU *cpu)
+ {
+     CPUARMState *env = &cpu->env;
+@@ -1551,7 +1598,8 @@ static void arm_cpu_realizefn(DeviceState *dev, Error **errp)
+     }
+ 
+     {
+-        uint64_t scale = gt_cntfrq_period_ns(cpu);
++        uint64_t scale = gt_exact() && cpu->gt_cntfrq_hz <= UINT32_MAX ?
++                         1 : gt_cntfrq_period_ns(cpu);
+ 
+         qemu_mutex_init(&cpu->gt_lock);
+         for (int i = 0; i < NUM_GTIMERS; i++) {
+diff --git a/target/arm/cpu.h b/target/arm/cpu.h
+index aff1f8e..38d4cf3 100644
+--- a/target/arm/cpu.h
++++ b/target/arm/cpu.h
+@@ -1244,6 +1244,9 @@ void arm_gt_sel2timer_cb(void *opaque);
+ void arm_gt_sel2vtimer_cb(void *opaque);
+ 
+ unsigned int gt_cntfrq_period_ns(ARMCPU *cpu);
++bool gt_exact(void);
++uint64_t gt_ns_to_ticks(ARMCPU *cpu, uint64_t ns);
++void gt_timer_mod_ticks(ARMCPU *cpu, QEMUTimer *timer, uint64_t ticks);
+ void gt_rme_post_el_change(ARMCPU *cpu, void *opaque);
+ 
+ #define ARM_AFF0_SHIFT 0
+diff --git a/target/arm/helper.c b/target/arm/helper.c
+index 3ba90b8..08f7541 100644
+--- a/target/arm/helper.c
++++ b/target/arm/helper.c
+@@ -1288,7 +1288,7 @@ uint64_t gt_get_countervalue(CPUARMState *env)
+ {
+     ARMCPU *cpu = env_archcpu(env);
+ 
+-    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / gt_cntfrq_period_ns(cpu);
++    return gt_ns_to_ticks(cpu, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+ }
+ 
+ static int gt_irq_state(ARMCPU *cpu, int timeridx)
+@@ -1500,11 +1500,7 @@ static void gt_recalc_timer_state(ARMCPU *cpu, int timeridx)
+          * set the timer for as far in the future as possible. When the
+          * timer expires we will reset the timer for any remaining period.
+          */
+-        if (nexttick > INT64_MAX / gt_cntfrq_period_ns(cpu)) {
+-            timer_mod_ns(cpu->gt_timer[timeridx], INT64_MAX);
+-        } else {
+-            timer_mod(cpu->gt_timer[timeridx], nexttick);
+-        }
++        gt_timer_mod_ticks(cpu, cpu->gt_timer[timeridx], nexttick);
+         trace_arm_gt_recalc(timeridx, nexttick);
+     } else {
+         /* Timer disabled: ISTATUS and timer output always clear */
+diff --git a/target/arm/tcg/op_helper.c b/target/arm/tcg/op_helper.c
+index 18e5bd3..1fd8c24 100644
+--- a/target/arm/tcg/op_helper.c
++++ b/target/arm/tcg/op_helper.c
+@@ -432,15 +432,7 @@ void HELPER(wfit)(CPUARMState *env, uint64_t timeout)
+     if (uadd64_overflow(timeout, offset, &nexttick)) {
+         nexttick = UINT64_MAX;
+     }
+-    if (nexttick > INT64_MAX / gt_cntfrq_period_ns(cpu)) {
+-        /*
+-         * If the timeout is too long for the signed 64-bit range
+-         * of a QEMUTimer, let it expire early.
+-         */
+-        timer_mod_ns(cpu->wfxt_timer, INT64_MAX);
+-    } else {
+-        timer_mod(cpu->wfxt_timer, nexttick);
+-    }
++    gt_timer_mod_ticks(cpu, cpu->wfxt_timer, nexttick);
+     cs->exception_index = EXCP_HLT;
+     cs->halted = 1;
+     cpu_loop_exit(cs);
