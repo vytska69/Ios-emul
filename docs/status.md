@@ -88,6 +88,13 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   žymos taip pat; `QEMU_GT_TRUNC=1` – senas būdas). Trūkių tai nesumažino (47 ir 84/s prieš 15 ir
   86/s), bet laikrodis telefone nebeskuba ~1 min per valandą, todėl paliekama įjungta. FPS tas pats
   (tikslus 2,90 prieš senąjį 2,81; senasis 4,26 prieš tikslų 3,93 – skirtumas tarp mašinų).
+  `QEMU_MCA_CAPTURE=1` (0140): kiekvienas suvartotas blokas laukia eilėje ir paimamas tą tikrinimą,
+  kai jame atsiranda naujas nenulinis garsas (`QEMU_MCA_CAPTURE_STABLE=1` – kai jis nebesikeičia
+  tarp dviejų tikrinimų), o neatsiradęs per 40 ms praleidžiamas. Su 1 ms laikmačiu: 31 ir 31/s
+  (stable), 56 ir 34/s (be jo), bet ~22 % blokų taip ir nepagaunama, o pagautuose daug nulių –
+  garso lieka 3,6 s iš ~5,5 s. Tai rodo, kad iOS žiedas tikrai trumpas (~11 ms): blokas įrašomas
+  ir beveik iš karto išvalomas, tad laiku paremto skaitymo langas labai siauras. Paliekama
+  išjungta.
 - **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
   `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
