@@ -83,6 +83,10 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   procesoriaus netrūksta; blokai ne vėluoja, o praleidžiami (net su 100 ms vėlinimu jų nėra).
   Ilgesnis perėjimas sandūroje (0138, `QEMU_MCA_XF=128`, 2,7 ms vietoj 1,3 ms): 52 ir 56/s prieš
   85 ir 43/s – sklaidos ribose, paliekama 64.
+  Svečio laikrodis skaičiuotas `ns / 41` (10⁹ / 24 MHz = 41,67 nupjauta), tad bėgo 1,6 % greičiau
+  už garso aparatūrą. 0139 skaičiuoja tiksliai (`muldiv64`, laikmačiai apvalinami aukštyn, SIO laiko
+  žymos taip pat; `QEMU_GT_TRUNC=1` – senas būdas). Trūkių tai nesumažino (47 ir 84/s prieš 15 ir
+  86/s), bet laikrodis telefone nebeskuba ~1 min per valandą, todėl paliekama įjungta.
 - **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
   `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų

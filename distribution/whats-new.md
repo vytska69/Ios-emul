@@ -8,6 +8,9 @@ heading; a new day starts a new "## YYYY-MM-DD" section at the top. The newest s
 published with each build (scripts/make-sidestore-source.py).
 -->
 
+## 2026-11-14
+- Fixed: the clock in the emulated iPhone keeps the right time. It used to run about a minute an hour fast.
+
 ## 2026-11-12
 - Fixed: the emulated iPhone no longer restarts now and then while it starts up on a busy device.
 
