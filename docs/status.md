@@ -78,6 +78,11 @@ Telefone (iPhone 16e, iOS 27.2, JIT per StikDebug) iPhone 11 mašina pasiekia t�
   `QEMU_AUDIO_PERIOD_US` (0137) trumpina QEMU garso laikmačio periodą (numatyta 10 ms). Tikrinta
   2 ms ir 1 ms: 10 ms – 68 ir 56/s, 2 ms – 78/s, 1 ms – 28 ir 83/s. Sklaida tokia pati kaip
   tarp vienodų paleidimų, pagerėjimo nėra, todėl paliekama išjungta.
+  Mažiau virtualių branduolių (`--cpus 2`: 77 ir 34/s, `--cpus 4`: 54 ir 33/s) nieko nekeičia.
+  Svečio profilis grojant melodiją: ~48 % pavyzdžių tuščioji eiga, EL0 kodas lengvas, tad iOS
+  procesoriaus netrūksta; blokai ne vėluoja, o praleidžiami (net su 100 ms vėlinimu jų nėra).
+  Ilgesnis perėjimas sandūroje (0138, `QEMU_MCA_XF=128`, 2,7 ms vietoj 1,3 ms): 52 ir 56/s prieš
+  85 ir 43/s – sklaidos ribose, paliekama 64.
 - **Garsas per USB (bandoma).** Vietoj MCA iOS gali groti į QEMU `usb-audio` (USB host režimu,
   `-device usb-audio,bus=usb-bus.1,port=1`). Taip garsą stumia pati iOS, kaip vphone-cli virtio-snd,
   todėl neužpildytų blokų nėra. Reikėjo: xHCI „Set Latency Tolerance“ komandos (0115), pavėluotų
