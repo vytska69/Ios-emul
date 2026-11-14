@@ -1,0 +1,32 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index b7e1ca6..0de3bc1 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -655,6 +655,7 @@ static void apple_mca_capture(AppleMCAState *s, int64_t now)
+     static int64_t max_wait = -1;
+     static uint64_t st_cap, st_skip;
+     static int64_t st_last;
++    static uint32_t hist[64];   /* when a block was taken, after consumed: 5 ms steps */
+ 
+     static int stable = -1;
+     if (max_wait < 0) {
+@@ -687,6 +688,7 @@ static void apple_mca_capture(AppleMCAState *s, int64_t now)
+         memcpy(p->snap, p->host, p->len);
+         b->hash = hash;
+         p->cap = true;
++        hist[MIN((now - p->t) / (5 * SCALE_MS), 63)]++;
+     }
+     while (s->pend_n) {
+         typeof(s->pend[0]) *p = &s->pend[s->pend_head];
+@@ -712,6 +714,11 @@ static void apple_mca_capture(AppleMCAState *s, int64_t now)
+         st_last = now;
+         fprintf(stderr, "mca: capture played %" PRIu64 " skipped %" PRIu64
+                 " pending %u\n", st_cap, st_skip, s->pend_n);
++        fprintf(stderr, "mca: taken after (5 ms steps):");
++        for (int i = 0; i < 64; i++) {
++            fprintf(stderr, " %u", hist[i]);
++        }
++        fprintf(stderr, "\n");
+     }
+ }
+ 
