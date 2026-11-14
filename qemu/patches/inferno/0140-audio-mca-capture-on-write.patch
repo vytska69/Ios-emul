@@ -1,0 +1,151 @@
+diff --git a/hw/audio/apple-silicon/mca.c b/hw/audio/apple-silicon/mca.c
+index 7ecf5a8..04fb68d 100644
+--- a/hw/audio/apple-silicon/mca.c
++++ b/hw/audio/apple-silicon/mca.c
+@@ -20,6 +20,7 @@
+ #include "qemu/osdep.h"
+ #include "audio/audio.h"
+ #include "hw/audio/apple-silicon/mca.h"
++#include "qemu/cutils.h"
+ #include "qemu/error-report.h"
+ #include "qemu/fifo32.h"
+ #include "qemu/timer.h"
+@@ -161,6 +162,8 @@ struct AppleMCAState {
+         const uint8_t *host;
+         uint32_t len;
+         int64_t t;
++        bool cap;               /* QEMU_MCA_CAPTURE: snap holds the sound */
++        uint8_t snap[512];
+     } pend[2048];
+     uint32_t pend_head, pend_n, pend_off;
+     int64_t last_ns, now_ns;
+@@ -613,13 +616,93 @@ static void apple_mca_consumed(void *opaque, uint64_t addr,
+                      : (s->ring_ns * 15 + lap) / 16;
+     }
+     b->consumed = s->now_ns;
+-    if (s->pend_n < ARRAY_SIZE(s->pend)) {
++    while (n > 0 && s->pend_n < ARRAY_SIZE(s->pend)) {
++        /* One entry per 512-byte block of the ring (a capture holds one). */
++        uint32_t piece = MIN(n, MCA_BLOCK - (addr % MCA_BLOCK));
+         uint32_t i = (s->pend_head + s->pend_n) % ARRAY_SIZE(s->pend);
+         s->pend[i].addr = addr;
+         s->pend[i].host = host;
+-        s->pend[i].len = n;
++        s->pend[i].len = piece;
+         s->pend[i].t = s->now_ns;
++        s->pend[i].cap = false;
+         s->pend_n++;
++        addr += piece;
++        n -= piece;
++        if (host) {
++            host += piece;
++        }
++    }
++}
++
++/*
++ * QEMU_MCA_CAPTURE: each block of the ring taken at the moment the guest
++ * writes it, played in ring order.
++ *
++ * The guest's audio engine writes a block shortly before it thinks the
++ * hardware plays it and clears it with zeros shortly after. Emulated, its
++ * timing wanders, so a block read at a fixed moment (when consumed, or a
++ * fixed delay later) was often not yet written or already cleared: a cut.
++ * Here every consumed block waits in the queue and is looked at on each
++ * audio tick; the first time it holds sound that differs from what this
++ * block held when last taken, that sound is copied. The queue plays in
++ * order; a block still not written after QEMU_MCA_CAPTURE_MS (40 by
++ * default) is left out, with the crossfade.
++ */
++static void apple_mca_capture(AppleMCAState *s, int64_t now)
++{
++    static int64_t max_wait = -1;
++    static uint64_t st_cap, st_skip;
++    static int64_t st_last;
++
++    if (max_wait < 0) {
++        const char *v = getenv("QEMU_MCA_CAPTURE_MS");
++        max_wait = (v && atoi(v) > 0 ? atoi(v) : 40) * SCALE_MS;
++    }
++    for (uint32_t k = 0; k < s->pend_n; k++) {
++        typeof(s->pend[0]) *p = &s->pend[(s->pend_head + k) % ARRAY_SIZE(s->pend)];
++        if (p->cap || p->host == NULL) {
++            continue;
++        }
++        if (buffer_is_zero(p->host, p->len)) {
++            continue;
++        }
++        uint64_t hash = 0xcbf29ce484222325ULL;
++        for (uint32_t i = 0; i < p->len; ++i) {
++            hash = (hash ^ p->host[i]) * 0x100000001b3ULL;
++        }
++        hash ^= p->len | (p->addr % MCA_BLOCK) << 16;
++        MCABlock *b = apple_mca_block(s, p->addr);
++        if (b->hash == hash) {
++            continue;           /* what it held last time: not written yet */
++        }
++        memcpy(p->snap, p->host, p->len);
++        b->hash = hash;
++        p->cap = true;
++    }
++    while (s->pend_n) {
++        typeof(s->pend[0]) *p = &s->pend[s->pend_head];
++        if (p->cap) {
++            uint32_t n = p->len - s->pend_off;
++            uint32_t written = apple_mca_play(s, p->snap + s->pend_off, n);
++            s->pend_off += written;
++            if (written < n) {
++                break;          /* the host's buffer is full: the rest later */
++            }
++            st_cap++;
++        } else if (now - p->t > max_wait) {
++            s->splice = true;
++            st_skip++;
++        } else {
++            break;
++        }
++        s->pend_off = 0;
++        s->pend_head = (s->pend_head + 1) % ARRAY_SIZE(s->pend);
++        s->pend_n--;
++    }
++    if (getenv("QEMU_MCA_DEBUG") && now - st_last > NANOSECONDS_PER_SECOND) {
++        st_last = now;
++        fprintf(stderr, "mca: capture played %" PRIu64 " skipped %" PRIu64
++                " pending %u\n", st_cap, st_skip, s->pend_n);
+     }
+ }
+ 
+@@ -628,9 +711,13 @@ static void apple_mca_out_callback(void *opaque, int avail)
+     AppleMCAState *s = opaque;
+     static int delayed = -1;
+ 
++    static int capture = -1;
+     if (delayed < 0) {
+         const char *v = getenv("QEMU_MCA_DELAY");  /* 1: read up to 60 ms later */
+         delayed = v && v[0] == '1';
++        v = getenv("QEMU_MCA_CAPTURE");            /* 1: take each block as written */
++        capture = v && v[0] == '1';
++        delayed |= capture;
+     }
+     if (delayed) {
+         int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+@@ -664,6 +751,11 @@ static void apple_mca_out_callback(void *opaque, int avail)
+             left -= n;
+         }
+ 
++        if (capture) {
++            apple_mca_capture(s, now);
++            goto stats;
++        }
++
+         /* QEMU_MCA_DELAY_MS: a fixed delay instead of half the measured lap. */
+         static int64_t fixed_delay = -1;
+         if (fixed_delay < 0) {
+@@ -713,6 +805,7 @@ static void apple_mca_out_callback(void *opaque, int avail)
+                 s->pend_n--;
+             }
+         }
++    stats:
+         if (dbg && now - st_last > NANOSECONDS_PER_SECOND) {
+             st_last = now;
+             fprintf(stderr, "mca: calls %" PRIu64 " want %" PRIu64 " got %" PRIu64
